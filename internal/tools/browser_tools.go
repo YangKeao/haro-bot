@@ -493,7 +493,7 @@ type gotoArgs struct {
 	TimeoutMS int    `json:"timeout_ms"`
 }
 
-func (t *BrowserGotoTool) Name() string        { return "goto" }
+func (t *BrowserGotoTool) Name() string        { return "browser.goto" }
 func (t *BrowserGotoTool) Description() string { return "Navigate to a URL in the browser." }
 func (t *BrowserGotoTool) Parameters() map[string]any {
 	return map[string]any{
@@ -540,7 +540,7 @@ type goBackArgs struct {
 	TimeoutMS int `json:"timeout_ms"`
 }
 
-func (t *BrowserGoBackTool) Name() string        { return "go_back" }
+func (t *BrowserGoBackTool) Name() string        { return "browser.go_back" }
 func (t *BrowserGoBackTool) Description() string { return "Go back to the previous page." }
 func (t *BrowserGoBackTool) Parameters() map[string]any {
 	return map[string]any{
@@ -583,7 +583,7 @@ type getPageStateArgs struct {
 	MaxChars int `json:"max_chars"`
 }
 
-func (t *BrowserGetPageStateTool) Name() string { return "get_page_state" }
+func (t *BrowserGetPageStateTool) Name() string { return "browser.get_page_state" }
 func (t *BrowserGetPageStateTool) Description() string {
 	return "Extract a simplified page state with interactive element IDs."
 }
@@ -627,7 +627,7 @@ type takeScreenshotResult struct {
 	State       pageState `json:"state"`
 }
 
-func (t *BrowserTakeScreenshotTool) Name() string { return "take_screenshot" }
+func (t *BrowserTakeScreenshotTool) Name() string { return "browser.take_screenshot" }
 func (t *BrowserTakeScreenshotTool) Description() string {
 	return "Take a screenshot with interactive element IDs annotated."
 }
@@ -670,7 +670,7 @@ type clickArgs struct {
 	ElementID int `json:"element_id"`
 }
 
-func (t *BrowserClickTool) Name() string { return "click" }
+func (t *BrowserClickTool) Name() string { return "browser.click" }
 func (t *BrowserClickTool) Description() string {
 	return "Click an element by element_id from get_page_state."
 }
@@ -703,7 +703,7 @@ type fillTextArgs struct {
 	Text      string `json:"text"`
 }
 
-func (t *BrowserFillTextTool) Name() string { return "fill_text" }
+func (t *BrowserFillTextTool) Name() string { return "browser.fill_text" }
 func (t *BrowserFillTextTool) Description() string {
 	return "Fill text into an input element by element_id."
 }
@@ -739,7 +739,7 @@ type pressKeyArgs struct {
 	Key string `json:"key"`
 }
 
-func (t *BrowserPressKeyTool) Name() string        { return "press_key" }
+func (t *BrowserPressKeyTool) Name() string        { return "browser.press_key" }
 func (t *BrowserPressKeyTool) Description() string { return "Press a keyboard key." }
 func (t *BrowserPressKeyTool) Parameters() map[string]any {
 	return map[string]any{
@@ -770,7 +770,7 @@ type scrollArgs struct {
 	Amount    int    `json:"amount"`
 }
 
-func (t *BrowserScrollTool) Name() string { return "scroll" }
+func (t *BrowserScrollTool) Name() string { return "browser.scroll" }
 func (t *BrowserScrollTool) Description() string {
 	return "Scroll the page up or down by a pixel amount."
 }
