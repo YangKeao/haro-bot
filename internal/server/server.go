@@ -7,6 +7,7 @@ import (
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
+	"github.com/go-telegram/bot"
 )
 
 type Server struct {
@@ -14,20 +15,15 @@ type Server struct {
 	agent    *agent.Agent
 	store    *memory.Store
 	skills   *skills.Manager
-	telegram *TelegramClient
+	telegram *bot.Bot
 }
 
 func New(cfg config.Config, agent *agent.Agent, store *memory.Store, skillsMgr *skills.Manager) *Server {
-	var telegram *TelegramClient
-	if cfg.TelegramToken != "" {
-		telegram = NewTelegramClient(cfg.TelegramToken)
-	}
 	return &Server{
-		cfg:      cfg,
-		agent:    agent,
-		store:    store,
-		skills:   skillsMgr,
-		telegram: telegram,
+		cfg:    cfg,
+		agent:  agent,
+		store:  store,
+		skills: skillsMgr,
 	}
 }
 
