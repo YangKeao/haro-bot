@@ -45,6 +45,7 @@ func main() {
 	auditStore := tools.NewAuditStore(dbConn)
 	fsTools := tools.NewFS(cfg.FSAllowedRoots, cfg.FSAllowExec, cfg.FSAllowedExecDirs, auditStore)
 	toolRegistry := tools.NewRegistry(
+		tools.NewInstallSkillTool(skillsMgr),
 		tools.NewActivateSkillTool(skillsMgr),
 		tools.NewReadTool(fsTools, 64*1024),
 		tools.NewWriteTool(fsTools),

@@ -151,23 +151,9 @@ func (m *Manager) loadFromDB(ctx context.Context) error {
 	}
 	merged := make(map[string]Metadata)
 	for _, entry := range entries {
-		if entry.Status != "" && entry.Status != "active" {
+		meta, ok := m.metadataFromEntry(entry)
+		if !ok {
 			continue
-		}
-		if strings.TrimSpace(entry.Name) == "" || strings.TrimSpace(entry.Description) == "" {
-			continue
-		}
-		repoDir := filepath.Join(m.baseDir, fmt.Sprintf("source-%d", entry.SourceID))
-		dir, err := safeJoinAllowMissing(repoDir, entry.SkillPath)
-		if err != nil {
-			continue
-		}
-		meta := Metadata{
-			Name:        entry.Name,
-			Description: entry.Description,
-			Dir:         dir,
-			Version:     entry.Version,
-			Hash:        entry.ContentHash,
 		}
 		if _, exists := merged[meta.Name]; !exists {
 			merged[meta.Name] = meta
@@ -177,6 +163,46 @@ func (m *Manager) loadFromDB(ctx context.Context) error {
 	m.skills = merged
 	m.mu.Unlock()
 	return nil
+}
+
+func (m *Manager) ListBySource(ctx context.Context, sourceID int64) ([]Metadata, error) {
+	if m.store == nil {
+		return nil, errors.New("store not configured")
+	}
+	entries, err := m.store.ListSkillsBySource(ctx, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Metadata, 0, len(entries))
+	for _, entry := range entries {
+		meta, ok := m.metadataFromEntry(entry)
+		if !ok {
+			continue
+		}
+		out = append(out, meta)
+	}
+	return out, nil
+}
+
+func (m *Manager) metadataFromEntry(entry RegistryEntry) (Metadata, bool) {
+	if entry.Status != "" && entry.Status != "active" {
+		return Metadata{}, false
+	}
+	if strings.TrimSpace(entry.Name) == "" || strings.TrimSpace(entry.Description) == "" {
+		return Metadata{}, false
+	}
+	repoDir := filepath.Join(m.baseDir, fmt.Sprintf("source-%d", entry.SourceID))
+	dir, err := safeJoinAllowMissing(repoDir, entry.SkillPath)
+	if err != nil {
+		return Metadata{}, false
+	}
+	return Metadata{
+		Name:        entry.Name,
+		Description: entry.Description,
+		Dir:         dir,
+		Version:     entry.Version,
+		Hash:        entry.ContentHash,
+	}, true
 }
 
 func (m *Manager) Load(name string) (Skill, error) {

@@ -149,6 +149,21 @@ func (s *Store) ListSkills(ctx context.Context) ([]RegistryEntry, error) {
 	if err := s.db.WithContext(ctx).Find(&records).Error; err != nil {
 		return nil, err
 	}
+	return registryEntriesFromRecords(records), nil
+}
+
+func (s *Store) ListSkillsBySource(ctx context.Context, sourceID int64) ([]RegistryEntry, error) {
+	if sourceID <= 0 {
+		return nil, errors.New("source_id required")
+	}
+	var records []dbmodel.SkillRegistry
+	if err := s.db.WithContext(ctx).Where("source_id = ?", sourceID).Find(&records).Error; err != nil {
+		return nil, err
+	}
+	return registryEntriesFromRecords(records), nil
+}
+
+func registryEntriesFromRecords(records []dbmodel.SkillRegistry) []RegistryEntry {
 	out := make([]RegistryEntry, 0, len(records))
 	for _, r := range records {
 		version := ""
@@ -166,7 +181,7 @@ func (s *Store) ListSkills(ctx context.Context) ([]RegistryEntry, error) {
 			Status:      r.Status,
 		})
 	}
-	return out, nil
+	return out
 }
 
 func nullIfEmpty(v string) any {
