@@ -55,7 +55,7 @@ func main() {
 	}
 	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey)
 
-	agentSvc := agent.New(store, skillsMgr, toolRegistry, fsTools.DefaultBase(), llmClient, cfg.LLMModel, cfg.LLMPromptFormat)
+	agentSvc := agent.New(store, skillsMgr, toolRegistry, fsTools.DefaultBase(), cfg.ToolMaxTurns, llmClient, cfg.LLMModel, cfg.LLMPromptFormat)
 	srv := server.New(cfg, agentSvc, store, skillsMgr)
 
 	srv.StartTelegramPolling(ctx)

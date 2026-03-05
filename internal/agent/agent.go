@@ -20,18 +20,23 @@ type Agent struct {
 	skills         *skills.Manager
 	toolRegistry   *tools.Registry
 	defaultBaseDir string
+	maxToolTurns   int
 	llm            *llm.Client
 	model          string
 	promptFormat   string
 	maxContext     int
 }
 
-func New(store *memory.Store, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, llmClient *llm.Client, model string, promptFormat string) *Agent {
+func New(store *memory.Store, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string) *Agent {
+	if maxToolTurns <= 0 {
+		maxToolTurns = 1024
+	}
 	return &Agent{
 		store:          store,
 		skills:         skills,
 		toolRegistry:   toolRegistry,
 		defaultBaseDir: defaultBaseDir,
+		maxToolTurns:   maxToolTurns,
 		llm:            llmClient,
 		model:          model,
 		promptFormat:   promptFormat,
@@ -78,7 +83,7 @@ type activateSkillArgs struct {
 }
 
 func (a *Agent) runLoop(ctx context.Context, sessionID int64, userID int64, messages []llm.Message, model string, activeSkill *skills.Skill) (string, error) {
-	maxTurns := 3
+	maxTurns := a.maxToolTurns
 	for i := 0; i < maxTurns; i++ {
 		tools := a.toolsFor()
 		resp, err := a.llm.Chat(ctx, llm.ChatRequest{

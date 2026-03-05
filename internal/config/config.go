@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -33,6 +34,8 @@ type Config struct {
 	FSAllowedRoots    []string
 	FSAllowExec       bool
 	FSAllowedExecDirs []string
+
+	ToolMaxTurns int
 }
 
 type ConfigRecord struct {
@@ -48,6 +51,7 @@ type ConfigRecord struct {
 	FSAllowedRoots      []string `json:"fs_allowed_roots"`
 	FSAllowExec         bool     `json:"fs_allow_exec"`
 	FSAllowedExecDirs   []string `json:"fs_allowed_exec_dirs"`
+	ToolMaxTurns        int      `json:"tool_max_turns"`
 }
 
 func LoadBase() Config {
@@ -124,6 +128,7 @@ func defaultRecord() ConfigRecord {
 		SkillsDir:          skillsDir,
 		SkillsSyncInterval: "10m",
 		FSAllowedRoots:     []string{skillsDir},
+		ToolMaxTurns:       1024,
 	}
 }
 
@@ -150,6 +155,9 @@ func (r ConfigRecord) withDefaults() ConfigRecord {
 	if len(r.FSAllowedRoots) == 0 {
 		r.FSAllowedRoots = []string{r.SkillsDir}
 	}
+	if r.ToolMaxTurns <= 0 {
+		r.ToolMaxTurns = def.ToolMaxTurns
+	}
 	return r
 }
 
@@ -173,6 +181,7 @@ func (r ConfigRecord) toConfig() Config {
 		FSAllowedRoots:      fsRoots,
 		FSAllowExec:         r.FSAllowExec,
 		FSAllowedExecDirs:   r.FSAllowedExecDirs,
+		ToolMaxTurns:        r.ToolMaxTurns,
 	}
 	return cfg
 }
@@ -216,6 +225,11 @@ func (r *ConfigRecord) applyEnvOverrides() {
 	} else if v := os.Getenv("SKILLS_ALLOWED_SCRIPT_DIRS"); v != "" {
 		r.FSAllowedExecDirs = splitComma(v)
 	}
+	if v := os.Getenv("TOOL_MAX_TURNS"); v != "" {
+		if n, err := parseInt(v); err == nil {
+			r.ToolMaxTurns = n
+		}
+	}
 }
 
 func envDefault(key, def string) string {
@@ -236,6 +250,19 @@ func parseDurationDefault(v string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+func parseInt(v string) (int, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, errors.New("empty")
+	}
+	var n int
+	_, err := fmt.Sscanf(v, "%d", &n)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 func envBool(key string) bool {

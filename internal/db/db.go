@@ -50,9 +50,53 @@ func applySQLMigrations(db *sql.DB) error {
 		if err != nil {
 			return err
 		}
-		if _, err := db.Exec(string(data)); err != nil {
-			return fmt.Errorf("apply %s: %w", entry.Name(), err)
+		statements := splitSQLStatements(string(data))
+		for _, stmt := range statements {
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("apply %s: %w", entry.Name(), err)
+			}
 		}
 	}
 	return nil
+}
+
+func splitSQLStatements(input string) []string {
+	var stmts []string
+	var b strings.Builder
+	inSingle := false
+	inDouble := false
+	inBacktick := false
+	escape := false
+	for _, r := range input {
+		if escape {
+			escape = false
+			b.WriteRune(r)
+			continue
+		}
+		if r == '\\' && (inSingle || inDouble) {
+			escape = true
+			b.WriteRune(r)
+			continue
+		}
+		if r == '\'' && !inDouble && !inBacktick {
+			inSingle = !inSingle
+		} else if r == '"' && !inSingle && !inBacktick {
+			inDouble = !inDouble
+		} else if r == '`' && !inSingle && !inDouble {
+			inBacktick = !inBacktick
+		}
+		if r == ';' && !inSingle && !inDouble && !inBacktick {
+			stmt := strings.TrimSpace(b.String())
+			if stmt != "" {
+				stmts = append(stmts, stmt)
+			}
+			b.Reset()
+			continue
+		}
+		b.WriteRune(r)
+	}
+	if tail := strings.TrimSpace(b.String()); tail != "" {
+		stmts = append(stmts, tail)
+	}
+	return stmts
 }
