@@ -44,7 +44,16 @@ func main() {
 	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
 	auditStore := tools.NewAuditStore(dbConn)
 	fsTools := tools.NewFS(cfg.FSAllowedRoots, cfg.FSAllowExec, cfg.FSAllowedExecDirs, auditStore)
+	browserMgr := tools.NewBrowserManager()
 	toolRegistry := tools.NewRegistry(
+		tools.NewBrowserGotoTool(browserMgr),
+		tools.NewBrowserGoBackTool(browserMgr),
+		tools.NewBrowserGetPageStateTool(browserMgr),
+		tools.NewBrowserTakeScreenshotTool(browserMgr),
+		tools.NewBrowserClickTool(browserMgr),
+		tools.NewBrowserFillTextTool(browserMgr),
+		tools.NewBrowserPressKeyTool(browserMgr),
+		tools.NewBrowserScrollTool(browserMgr),
 		tools.NewInstallSkillTool(skillsMgr),
 		tools.NewActivateSkillTool(skillsMgr),
 		tools.NewReadTool(fsTools, 64*1024),
