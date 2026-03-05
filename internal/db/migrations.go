@@ -1,13 +1,103 @@
-CREATE TABLE IF NOT EXISTS users (
+package db
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+type schemaMigration struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement:false"`
+	Version   int64     `gorm:"column:version"`
+	UpdatedAt time.Time `gorm:"column:updated_at"`
+}
+
+func (schemaMigration) TableName() string { return "schema_migrations" }
+
+type migration struct {
+	version int64
+	stmts   []string
+}
+
+const currentSchemaVersion int64 = 3
+
+var migrations = []migration{
+	{version: 1, stmts: initSchemaSQL},
+	{version: 2, stmts: appConfigSQL},
+	{version: 3, stmts: dropSkillCallsSQL},
+}
+
+func applyMigrations(db *gorm.DB) error {
+	if db == nil {
+		return errors.New("db required")
+	}
+	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+		return err
+	}
+	current, err := getSchemaVersion(db)
+	if err != nil {
+		return err
+	}
+	if current > currentSchemaVersion {
+		return fmt.Errorf("db schema version %d is newer than supported %d", current, currentSchemaVersion)
+	}
+	for _, m := range migrations {
+		if current >= m.version {
+			continue
+		}
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			for _, stmt := range m.stmts {
+				if strings.TrimSpace(stmt) == "" {
+					continue
+				}
+				if err := tx.Exec(stmt).Error; err != nil {
+					return err
+				}
+			}
+			return setSchemaVersion(tx, m.version)
+		}); err != nil {
+			return fmt.Errorf("apply migration v%d: %w", m.version, err)
+		}
+		current = m.version
+	}
+	return nil
+}
+
+func getSchemaVersion(db *gorm.DB) (int64, error) {
+	var row schemaMigration
+	if err := db.First(&row, 1).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return row.Version, nil
+}
+
+func setSchemaVersion(db *gorm.DB, version int64) error {
+	row := schemaMigration{
+		ID:      1,
+		Version: version,
+	}
+	return db.Clauses(clause.OnConflict{
+		UpdateAll: true,
+	}).Create(&row).Error
+}
+
+var initSchemaSQL = []string{
+	`CREATE TABLE IF NOT EXISTS users (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   telegram_id BIGINT UNIQUE,
   external_id VARCHAR(255) UNIQUE,
   profile_json JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
+)`,
+	`CREATE TABLE IF NOT EXISTS sessions (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT NOT NULL,
   channel VARCHAR(32) NOT NULL,
@@ -17,9 +107,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uniq_user_channel (user_id, channel),
   FOREIGN KEY (user_id) REFERENCES users(id)
-);
-
-CREATE TABLE IF NOT EXISTS messages (
+)`,
+	`CREATE TABLE IF NOT EXISTS messages (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   session_id BIGINT NOT NULL,
   role VARCHAR(16) NOT NULL,
@@ -28,9 +117,8 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_session_created (session_id, created_at),
   FOREIGN KEY (session_id) REFERENCES sessions(id)
-);
-
-CREATE TABLE IF NOT EXISTS memories (
+)`,
+	`CREATE TABLE IF NOT EXISTS memories (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT NOT NULL,
   type VARCHAR(32) NOT NULL,
@@ -41,9 +129,8 @@ CREATE TABLE IF NOT EXISTS memories (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_user_created (user_id, created_at),
   FOREIGN KEY (user_id) REFERENCES users(id)
-);
-
-CREATE TABLE IF NOT EXISTS skill_sources (
+)`,
+	`CREATE TABLE IF NOT EXISTS skill_sources (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   source_type VARCHAR(32) NOT NULL,
   install_method VARCHAR(32) NOT NULL,
@@ -57,9 +144,8 @@ CREATE TABLE IF NOT EXISTS skill_sources (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uniq_source (source_type(32), source_url(255), source_ref(128), source_subdir(255))
-);
-
-CREATE TABLE IF NOT EXISTS skills_registry (
+)`,
+	`CREATE TABLE IF NOT EXISTS skills_registry (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   source_id BIGINT NOT NULL,
   name VARCHAR(128) NOT NULL,
@@ -72,9 +158,8 @@ CREATE TABLE IF NOT EXISTS skills_registry (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uniq_source_name (source_id, name),
   FOREIGN KEY (source_id) REFERENCES skill_sources(id)
-);
-
-CREATE TABLE IF NOT EXISTS tool_audit (
+)`,
+	`CREATE TABLE IF NOT EXISTS tool_audit (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   session_id BIGINT NULL,
   user_id BIGINT NULL,
@@ -85,4 +170,18 @@ CREATE TABLE IF NOT EXISTS tool_audit (
   reason TEXT,
   metadata_json JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+)`,
+}
+
+var appConfigSQL = []string{
+	`CREATE TABLE IF NOT EXISTS app_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  config_json JSON NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+)`,
+}
+
+var dropSkillCallsSQL = []string{
+	`DROP TABLE IF EXISTS skill_calls`,
+}
