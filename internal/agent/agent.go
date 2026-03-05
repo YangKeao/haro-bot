@@ -77,6 +77,52 @@ func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel strin
 	return a.runLoop(ctx, sessionID, userID, messages, model, nil)
 }
 
+// InterruptSession generates a response from an existing session context without using tools.
+// If storeInSession is true, the interrupt message and response are persisted to the session.
+func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID int64, input string, modelOverride string, storeInSession bool) (string, error) {
+	model := a.model
+	if modelOverride != "" {
+		model = modelOverride
+	}
+	if storeInSession {
+		if err := a.store.AddMessage(ctx, sessionID, "user", input, nil); err != nil {
+			return "", err
+		}
+	}
+	recent, err := a.store.LoadRecentMessages(ctx, sessionID, a.maxContext)
+	if err != nil {
+		return "", err
+	}
+	memories, err := a.store.LoadLongMemories(ctx, userID, 8)
+	if err != nil {
+		return "", err
+	}
+	availableSkills := a.skills.List()
+	systemPrompt := buildSystemPrompt(memories, availableSkills, a.promptFormat)
+	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	messages = append(messages, toLLMMessages(recent)...)
+	if !storeInSession {
+		messages = append(messages, llm.Message{Role: "user", Content: input})
+	}
+	resp, err := a.llm.Chat(ctx, llm.ChatRequest{
+		Model:    model,
+		Messages: messages,
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(resp.Choices) == 0 {
+		return "", errors.New("empty llm response")
+	}
+	content := resp.Choices[0].Message.Content
+	if storeInSession {
+		if err := a.store.AddMessage(ctx, sessionID, "assistant", content, nil); err != nil {
+			return "", err
+		}
+	}
+	return content, nil
+}
+
 type activateSkillArgs struct {
 	Name string `json:"name"`
 	Goal string `json:"goal"`

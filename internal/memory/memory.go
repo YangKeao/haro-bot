@@ -91,6 +91,18 @@ func (s *Store) GetOrCreateSession(ctx context.Context, userID int64, channel st
 	return session.ID, nil
 }
 
+func (s *Store) CreateSession(ctx context.Context, userID int64, channel string) (int64, error) {
+	session := dbmodel.Session{
+		UserID:  userID,
+		Channel: channel,
+		Status:  "active",
+	}
+	if err := s.db.WithContext(ctx).Create(&session).Error; err != nil {
+		return 0, err
+	}
+	return session.ID, nil
+}
+
 func (s *Store) AddMessage(ctx context.Context, sessionID int64, role, content string, metadata any) error {
 	var metaJSON []byte
 	if metadata != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/YangKeao/haro-bot/internal/agent"
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/db"
+	"github.com/YangKeao/haro-bot/internal/fork"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/server"
@@ -56,6 +57,11 @@ func main() {
 	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey)
 
 	agentSvc := agent.New(store, skillsMgr, toolRegistry, fsTools.DefaultBase(), cfg.ToolMaxTurns, llmClient, cfg.LLMModel, cfg.LLMPromptFormat)
+	forkMgr := fork.NewManager(agentSvc, store)
+	toolRegistry.Register(fork.NewForkTool(forkMgr))
+	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))
+	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
+	toolRegistry.Register(fork.NewForkStatusTool(forkMgr))
 	srv := server.New(cfg, agentSvc, store, skillsMgr)
 
 	srv.StartTelegramPolling(ctx)
