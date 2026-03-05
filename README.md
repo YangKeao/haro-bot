@@ -24,6 +24,9 @@ This service provides an OpenAI-compatible API and a Telegram webhook, with all 
   - `FS_ALLOWED_EXEC_DIRS` (comma-separated relative paths for exec; default `scripts/`)
   - `SKILLS_ALLOW_SCRIPTS` / `SKILLS_ALLOWED_SCRIPT_DIRS` are accepted for backward compatibility.
   - `TOOL_MAX_TURNS` (default `1024`)
+  - `LOG_LEVEL` (debug/info/warn/error)
+  - `LOG_DEV` (true/false; enables console logging)
+  - `LOG_ENCODING` (json/console; overrides default)
 
 **Skills Repo Layout**
 Each skill is a directory containing `SKILL.md` with YAML frontmatter. The skill directory name must match the `name` field in the frontmatter.

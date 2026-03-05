@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/skills"
+	"go.uber.org/zap"
 )
 
 type skillRegisterRequest struct {
@@ -29,17 +31,20 @@ type skillRefreshResponse struct {
 }
 
 func (s *Server) handleSkillRegister(w http.ResponseWriter, r *http.Request) {
+	log := logging.L().Named("skills_http")
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 	if s.skills == nil {
 		http.Error(w, "skills manager not configured", http.StatusInternalServerError)
+		log.Error("skills manager not configured")
 		return
 	}
 	var req skillRegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
+		log.Warn("skill register decode failed", zap.Error(err))
 		return
 	}
 	if req.SourceType == "" {
@@ -55,18 +60,22 @@ func (s *Server) handleSkillRegister(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Warn("skill register failed", zap.Error(err))
 		return
 	}
+	log.Info("skill source registered", zap.Int64("source_id", id), zap.String("source_type", req.SourceType))
 	writeJSON(w, skillRegisterResponse{ID: id})
 }
 
 func (s *Server) handleSkillRefresh(w http.ResponseWriter, r *http.Request) {
+	log := logging.L().Named("skills_http")
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 	if s.skills == nil {
 		http.Error(w, "skills manager not configured", http.StatusInternalServerError)
+		log.Error("skills manager not configured")
 		return
 	}
 	var req skillRefreshRequest
@@ -81,7 +90,9 @@ func (s *Server) handleSkillRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Warn("skill refresh failed", zap.Error(err), zap.Int64("source_id", req.SourceID))
 		return
 	}
+	log.Info("skill refresh completed", zap.Int64("source_id", req.SourceID))
 	writeJSON(w, skillRefreshResponse{Status: "ok"})
 }

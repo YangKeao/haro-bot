@@ -11,6 +11,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/YangKeao/haro-bot/internal/logging"
+	"go.uber.org/zap"
 )
 
 var (
@@ -50,62 +53,77 @@ func (f *FS) DefaultBase() string {
 }
 
 func (f *FS) Read(ctx context.Context, sessionID, userID int64, baseDir, path string, maxBytes int64) (string, error) {
+	log := logging.L().Named("fs")
 	abs, allowed, err := f.resolvePath(baseDir, path, false)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "read", path, allowed, err)
+		log.Warn("read denied", zap.String("path", path), zap.Error(err))
 		return "", err
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "read", abs, true, err)
+		log.Warn("read failed", zap.String("path", abs), zap.Error(err))
 		return "", err
 	}
 	if info.IsDir() {
 		err = errors.New("path is a directory")
 		f.auditError(ctx, sessionID, userID, "read", abs, true, err)
+		log.Warn("read failed", zap.String("path", abs), zap.Error(err))
 		return "", err
 	}
 	if maxBytes > 0 && info.Size() > maxBytes {
 		err = errors.New("file too large")
 		f.auditError(ctx, sessionID, userID, "read", abs, true, err)
+		log.Warn("read too large", zap.String("path", abs), zap.Error(err))
 		return "", err
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "read", abs, true, err)
+		log.Warn("read failed", zap.String("path", abs), zap.Error(err))
 		return "", err
 	}
 	f.auditOK(ctx, sessionID, userID, "read", abs, nil)
+	log.Debug("read ok", zap.String("path", abs))
 	return string(data), nil
 }
 
 func (f *FS) Write(ctx context.Context, sessionID, userID int64, baseDir, path, content string) error {
+	log := logging.L().Named("fs")
 	abs, allowed, err := f.resolvePath(baseDir, path, true)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "write", path, allowed, err)
+		log.Warn("write denied", zap.String("path", path), zap.Error(err))
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		f.auditError(ctx, sessionID, userID, "write", abs, true, err)
+		log.Warn("write mkdir failed", zap.String("path", abs), zap.Error(err))
 		return err
 	}
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		f.auditError(ctx, sessionID, userID, "write", abs, true, err)
+		log.Warn("write failed", zap.String("path", abs), zap.Error(err))
 		return err
 	}
 	f.auditOK(ctx, sessionID, userID, "write", abs, nil)
+	log.Debug("write ok", zap.String("path", abs))
 	return nil
 }
 
 func (f *FS) Edit(ctx context.Context, sessionID, userID int64, baseDir, path, oldText, newText string, replaceAll bool) (int, error) {
+	log := logging.L().Named("fs")
 	abs, allowed, err := f.resolvePath(baseDir, path, false)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "edit", path, allowed, err)
+		log.Warn("edit denied", zap.String("path", path), zap.Error(err))
 		return 0, err
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "edit", abs, true, err)
+		log.Warn("edit read failed", zap.String("path", abs), zap.Error(err))
 		return 0, err
 	}
 	content := string(data)
@@ -113,6 +131,7 @@ func (f *FS) Edit(ctx context.Context, sessionID, userID int64, baseDir, path, o
 	if count == 0 {
 		err = errors.New("pattern not found")
 		f.auditError(ctx, sessionID, userID, "edit", abs, true, err)
+		log.Warn("edit pattern not found", zap.String("path", abs))
 		return 0, err
 	}
 	if replaceAll {
@@ -123,21 +142,26 @@ func (f *FS) Edit(ctx context.Context, sessionID, userID int64, baseDir, path, o
 	}
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		f.auditError(ctx, sessionID, userID, "edit", abs, true, err)
+		log.Warn("edit write failed", zap.String("path", abs), zap.Error(err))
 		return 0, err
 	}
 	f.auditOK(ctx, sessionID, userID, "edit", abs, map[string]any{"replacements": count})
+	log.Debug("edit ok", zap.String("path", abs), zap.Int("replacements", count))
 	return count, nil
 }
 
 func (f *FS) Search(ctx context.Context, sessionID, userID int64, baseDir, pattern string, maxResults int) (string, error) {
+	log := logging.L().Named("fs")
 	if baseDir == "" {
 		err := errRelativeNoBase
 		f.auditError(ctx, sessionID, userID, "search", baseDir, false, err)
+		log.Warn("search failed", zap.Error(err))
 		return "", err
 	}
 	root, allowed, err := f.resolvePath("", baseDir, false)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "search", baseDir, allowed, err)
+		log.Warn("search denied", zap.String("base", baseDir), zap.Error(err))
 		return "", err
 	}
 	if maxResults <= 0 {
@@ -146,6 +170,7 @@ func (f *FS) Search(ctx context.Context, sessionID, userID int64, baseDir, patte
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "search", root, true, err)
+		log.Warn("search regex failed", zap.String("pattern", pattern), zap.Error(err))
 		return "", err
 	}
 	results := make([]SearchMatch, 0, maxResults)
@@ -182,38 +207,47 @@ func (f *FS) Search(ctx context.Context, sessionID, userID int64, baseDir, patte
 	})
 	if walkErr != nil && walkErr != errSearchLimit {
 		f.auditError(ctx, sessionID, userID, "search", root, true, walkErr)
+		log.Warn("search failed", zap.String("base", root), zap.Error(walkErr))
 		return "", walkErr
 	}
 	payload, err := json.Marshal(results)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "search", root, true, err)
+		log.Warn("search marshal failed", zap.Error(err))
 		return "", err
 	}
 	f.auditOK(ctx, sessionID, userID, "search", root, map[string]any{"count": len(results)})
+	log.Debug("search ok", zap.String("base", root), zap.Int("count", len(results)))
 	return string(payload), nil
 }
 
 func (f *FS) Exec(ctx context.Context, sessionID, userID int64, baseDir, path string, args []string, timeout time.Duration, maxOutputBytes int) (string, error) {
+	log := logging.L().Named("fs")
 	if !f.allowExec {
 		err := errors.New("exec disabled")
 		f.auditError(ctx, sessionID, userID, "exec", path, false, err)
+		log.Warn("exec disabled", zap.String("path", path))
 		return "", err
 	}
 	abs, allowed, err := f.resolvePath(baseDir, path, false)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "exec", path, allowed, err)
+		log.Warn("exec denied", zap.String("path", path), zap.Error(err))
 		return "", err
 	}
 	if !f.execPathAllowed(baseDir, abs) {
 		err := errors.New("exec path not allowed")
 		f.auditError(ctx, sessionID, userID, "exec", abs, true, err)
+		log.Warn("exec path not allowed", zap.String("path", abs))
 		return "", err
 	}
 	output, err := runScript(ctx, abs, baseDir, args, timeout, maxOutputBytes)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "exec", abs, true, err)
+		log.Warn("exec failed", zap.String("path", abs), zap.Error(err))
 	} else {
 		f.auditOK(ctx, sessionID, userID, "exec", abs, nil)
+		log.Debug("exec ok", zap.String("path", abs))
 	}
 	return output, err
 }

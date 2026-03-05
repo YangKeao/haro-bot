@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/skills"
+	"go.uber.org/zap"
 )
 
 type InstallSkillTool struct {
@@ -75,6 +77,7 @@ func (t *InstallSkillTool) Parameters() map[string]any {
 }
 
 func (t *InstallSkillTool) Execute(ctx context.Context, _ ToolContext, args json.RawMessage) (string, error) {
+	log := logging.L().Named("install_skill")
 	if t.skills == nil {
 		return "", errors.New("skills manager not configured")
 	}
@@ -94,13 +97,16 @@ func (t *InstallSkillTool) Execute(ctx context.Context, _ ToolContext, args json
 		Status:        payload.Status,
 	})
 	if err != nil {
+		log.Warn("register source failed", zap.Error(err))
 		return "", err
 	}
 	if err := t.skills.RefreshSource(ctx, sourceID); err != nil {
+		log.Warn("refresh source failed", zap.Int64("source_id", sourceID), zap.Error(err))
 		return "", err
 	}
 	installed, err := t.skills.ListBySource(ctx, sourceID)
 	if err != nil {
+		log.Warn("list skills failed", zap.Int64("source_id", sourceID), zap.Error(err))
 		return "", err
 	}
 	result := installSkillResult{SourceID: sourceID}

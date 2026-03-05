@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,21 +13,33 @@ import (
 	"github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/fork"
 	"github.com/YangKeao/haro-bot/internal/llm"
+	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/server"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
+	"go.uber.org/zap"
 )
 
 func main() {
+	logger, err := logging.InitFromEnv()
+	if err != nil {
+		fallback, _ := zap.NewProduction()
+		logging.Set(fallback)
+		logger = fallback
+		logger.Warn("invalid log config, using production defaults", zap.Error(err))
+	}
+	defer func() { _ = logger.Sync() }()
+	log := logger.Named("agentd")
+
 	baseCfg := config.LoadBase()
 
 	dbConn, err := db.Open(baseCfg.TiDBDSN)
 	if err != nil {
-		log.Fatalf("db open: %v", err)
+		log.Fatal("db open failed", zap.Error(err))
 	}
 	if err := db.ApplyMigrations(dbConn); err != nil {
-		log.Fatalf("db migrations: %v", err)
+		log.Fatal("db migrations failed", zap.Error(err))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -36,8 +47,9 @@ func main() {
 
 	cfg, err := config.LoadFromDB(ctx, dbConn, baseCfg)
 	if err != nil {
-		log.Fatalf("config load: %v", err)
+		log.Fatal("config load failed", zap.Error(err))
 	}
+	log.Info("config loaded", zap.String("server_addr", cfg.ServerAddr), zap.String("llm_model", cfg.LLMModel))
 
 	store := memory.NewStore(dbConn)
 	skillsStore := skills.NewStore(dbConn)
@@ -77,7 +89,7 @@ func main() {
 	srv.StartTelegramPolling(ctx)
 
 	if err := skillsMgr.RefreshAll(ctx); err != nil {
-		log.Printf("skills refresh: %v", err)
+		log.Warn("skills refresh failed", zap.Error(err))
 	}
 	go syncLoop(ctx, skillsMgr, cfg.SkillsSyncInterval)
 
@@ -87,9 +99,9 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("listening on %s", cfg.ServerAddr)
+		log.Info("listening", zap.String("addr", cfg.ServerAddr))
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server error: %v", err)
+			log.Fatal("server error", zap.Error(err))
 		}
 	}()
 
@@ -103,6 +115,7 @@ func main() {
 }
 
 func syncLoop(ctx context.Context, mgr *skills.Manager, interval time.Duration) {
+	log := logging.L().Named("skills_sync")
 	if interval <= 0 {
 		interval = 10 * time.Minute
 	}
@@ -114,7 +127,7 @@ func syncLoop(ctx context.Context, mgr *skills.Manager, interval time.Duration) 
 			return
 		case <-ticker.C:
 			if err := mgr.RefreshAll(ctx); err != nil {
-				log.Printf("skills refresh: %v", err)
+				log.Warn("skills refresh failed", zap.Error(err))
 			}
 		}
 	}

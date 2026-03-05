@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YangKeao/haro-bot/internal/logging"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -32,29 +34,35 @@ var migrations = []migration{
 }
 
 func applyMigrations(db *gorm.DB) error {
+	log := logging.L().Named("migrations")
 	if db == nil {
 		return errors.New("db required")
 	}
 	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+		log.Error("auto migrate schema_migrations failed", zap.Error(err))
 		return err
 	}
 	current, err := getSchemaVersion(db)
 	if err != nil {
+		log.Error("get schema version failed", zap.Error(err))
 		return err
 	}
 	if current > currentSchemaVersion {
 		return fmt.Errorf("db schema version %d is newer than supported %d", current, currentSchemaVersion)
 	}
+	log.Info("current schema version", zap.Int64("version", current), zap.Int64("latest", currentSchemaVersion))
 	for _, m := range migrations {
 		if current >= m.version {
 			continue
 		}
+		log.Info("applying migration", zap.Int64("version", m.version))
 		if err := db.Transaction(func(tx *gorm.DB) error {
 			for _, stmt := range m.stmts {
 				if strings.TrimSpace(stmt) == "" {
 					continue
 				}
 				if err := tx.Exec(stmt).Error; err != nil {
+					log.Error("migration statement failed", zap.Int64("version", m.version), zap.Error(err))
 					return err
 				}
 			}
@@ -63,6 +71,7 @@ func applyMigrations(db *gorm.DB) error {
 			return fmt.Errorf("apply migration v%d: %w", m.version, err)
 		}
 		current = m.version
+		log.Info("migration applied", zap.Int64("version", current))
 	}
 	return nil
 }

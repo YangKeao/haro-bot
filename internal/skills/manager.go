@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/YangKeao/haro-bot/internal/logging"
+	"go.uber.org/zap"
 )
 
 const (
@@ -39,6 +42,7 @@ func NewManager(store *Store, baseDir string, allowlist []string) *Manager {
 }
 
 func (m *Manager) RegisterSource(ctx context.Context, src Source) (int64, error) {
+	log := logging.L().Named("skills")
 	src.SourceType = strings.ToLower(strings.TrimSpace(src.SourceType))
 	if src.SourceType == "" {
 		return 0, errors.New("source_type required")
@@ -73,23 +77,33 @@ func (m *Manager) RegisterSource(ctx context.Context, src Source) (int64, error)
 	default:
 		return 0, errors.New("unsupported source_type")
 	}
-	return m.store.UpsertSource(ctx, src)
+	id, err := m.store.UpsertSource(ctx, src)
+	if err != nil {
+		log.Warn("register source failed", zap.Error(err), zap.String("source_type", src.SourceType), zap.String("url", src.URL))
+		return 0, err
+	}
+	log.Info("registered skill source", zap.Int64("source_id", id), zap.String("source_type", src.SourceType), zap.String("url", src.URL))
+	return id, nil
 }
 
 func (m *Manager) RefreshAll(ctx context.Context) error {
+	log := logging.L().Named("skills")
 	sources, err := m.store.ListSources(ctx, false)
 	if err != nil {
 		return err
 	}
+	log.Info("refreshing skill sources", zap.Int("count", len(sources)))
 	merged := make(map[string]Metadata)
 	var firstErr error
 	for _, src := range sources {
+		log.Debug("refreshing source", zap.Int64("source_id", src.ID), zap.String("source_type", src.SourceType))
 		version, err := m.refreshSource(ctx, src, merged)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
 			_ = m.store.UpdateSourceSync(ctx, src.ID, "", err.Error())
+			log.Warn("refresh source failed", zap.Int64("source_id", src.ID), zap.Error(err))
 			continue
 		}
 		_ = m.store.UpdateSourceSync(ctx, src.ID, version, "")
@@ -97,10 +111,12 @@ func (m *Manager) RefreshAll(ctx context.Context) error {
 	m.mu.Lock()
 	m.skills = merged
 	m.mu.Unlock()
+	log.Info("skills refreshed", zap.Int("count", len(merged)))
 	return firstErr
 }
 
 func (m *Manager) RefreshSource(ctx context.Context, sourceID int64) error {
+	log := logging.L().Named("skills")
 	sources, err := m.store.ListSources(ctx, true)
 	if err != nil {
 		return err
@@ -119,6 +135,7 @@ func (m *Manager) RefreshSource(ctx context.Context, sourceID int64) error {
 	version, err := m.refreshSource(ctx, *target, merged)
 	if err != nil {
 		_ = m.store.UpdateSourceSync(ctx, target.ID, "", err.Error())
+		log.Warn("refresh source failed", zap.Int64("source_id", target.ID), zap.Error(err))
 		return err
 	}
 	_ = m.store.UpdateSourceSync(ctx, target.ID, version, "")
@@ -128,6 +145,7 @@ func (m *Manager) RefreshSource(ctx context.Context, sourceID int64) error {
 		m.skills[name] = meta
 	}
 	m.mu.Unlock()
+	log.Info("source refreshed", zap.Int64("source_id", target.ID), zap.Int("skills", len(merged)))
 	return nil
 }
 
@@ -142,6 +160,7 @@ func (m *Manager) List() []Metadata {
 }
 
 func (m *Manager) loadFromDB(ctx context.Context) error {
+	log := logging.L().Named("skills")
 	if m.store == nil {
 		return errors.New("store not configured")
 	}
@@ -162,6 +181,7 @@ func (m *Manager) loadFromDB(ctx context.Context) error {
 	m.mu.Lock()
 	m.skills = merged
 	m.mu.Unlock()
+	log.Debug("loaded skills from db", zap.Int("count", len(merged)))
 	return nil
 }
 
@@ -206,6 +226,7 @@ func (m *Manager) metadataFromEntry(entry RegistryEntry) (Metadata, bool) {
 }
 
 func (m *Manager) Load(name string) (Skill, error) {
+	log := logging.L().Named("skills")
 	m.mu.RLock()
 	meta, ok := m.skills[name]
 	m.mu.RUnlock()
@@ -222,6 +243,7 @@ func (m *Manager) Load(name string) (Skill, error) {
 	}
 	_, body, hash, err := parseSkillFile(data)
 	if err != nil {
+		log.Warn("load skill failed", zap.String("name", name), zap.Error(err))
 		return Skill{}, err
 	}
 	meta.Hash = hash
@@ -232,6 +254,7 @@ func (m *Manager) Load(name string) (Skill, error) {
 }
 
 func (m *Manager) refreshSource(ctx context.Context, src Source, merged map[string]Metadata) (string, error) {
+	log := logging.L().Named("skills")
 	if src.SourceType != sourceTypeGit {
 		return "", errors.New("unsupported source_type")
 	}
@@ -244,6 +267,7 @@ func (m *Manager) refreshSource(ctx context.Context, src Source, merged map[stri
 	}
 	_, version, err := syncRepo(ctx, src.URL, src.Ref, repoDir)
 	if err != nil {
+		log.Warn("sync repo failed", zap.Int64("source_id", src.ID), zap.Error(err))
 		return "", err
 	}
 	root := repoDir
@@ -258,10 +282,15 @@ func (m *Manager) refreshSource(ctx context.Context, src Source, merged map[stri
 			return "", err
 		}
 	}
-	return version, m.scanSource(ctx, src, repoDir, root, version, merged)
+	err = m.scanSource(ctx, src, repoDir, root, version, merged)
+	if err != nil {
+		log.Warn("scan source failed", zap.Int64("source_id", src.ID), zap.Error(err))
+	}
+	return version, err
 }
 
 func (m *Manager) scanSource(ctx context.Context, src Source, repoDir, root, version string, merged map[string]Metadata) error {
+	log := logging.L().Named("skills")
 	repoDirAbs, err := filepath.Abs(repoDir)
 	if err != nil {
 		repoDirAbs = repoDir
@@ -326,6 +355,7 @@ func (m *Manager) scanSource(ctx context.Context, src Source, repoDir, root, ver
 			ContentHash: hash,
 			Status:      "active",
 		}); err != nil {
+			log.Warn("upsert skill failed", zap.Int64("source_id", src.ID), zap.String("name", name), zap.Error(err))
 			return err
 		}
 		return nil

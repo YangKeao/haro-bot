@@ -5,9 +5,11 @@ import (
 	"errors"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
+	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
+	"go.uber.org/zap"
 )
 
 type Agent struct {
@@ -50,15 +52,19 @@ func (a *Agent) Handle(ctx context.Context, userID int64, channel string, input 
 }
 
 func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel string, input string, modelOverride string) (string, error) {
+	log := logging.L().Named("agent")
 	model := a.model
 	if modelOverride != "" {
 		model = modelOverride
 	}
 	sessionID, err := a.store.GetOrCreateSession(ctx, userID, channel)
 	if err != nil {
+		log.Error("get session failed", zap.Error(err))
 		return "", err
 	}
+	log.Info("handle start", zap.Int64("session_id", sessionID), zap.Int64("user_id", userID), zap.String("channel", channel))
 	if err := a.store.AddMessage(ctx, sessionID, "user", input, nil); err != nil {
+		log.Error("add user message failed", zap.Int64("session_id", sessionID), zap.Error(err))
 		return "", err
 	}
 
@@ -74,12 +80,19 @@ func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel strin
 	systemPrompt := a.promptBuilder.System(memories, availableSkills, a.promptFormat)
 	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
 	messages = append(messages, toLLMMessages(recent)...) // includes user input
-	return a.runLoop(ctx, sessionID, userID, messages, model, nil)
+	output, err := a.runLoop(ctx, sessionID, userID, messages, model, nil)
+	if err != nil {
+		log.Error("handle failed", zap.Int64("session_id", sessionID), zap.Error(err))
+		return "", err
+	}
+	log.Info("handle completed", zap.Int64("session_id", sessionID))
+	return output, nil
 }
 
 // InterruptSession generates a response from an existing session context without using tools.
 // If storeInSession is true, the interrupt message and response are persisted to the session.
 func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID int64, input string, modelOverride string, storeInSession bool) (string, error) {
+	log := logging.L().Named("agent_interrupt")
 	model := a.model
 	if modelOverride != "" {
 		model = modelOverride
@@ -108,6 +121,7 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 		Messages: messages,
 	})
 	if err != nil {
+		log.Error("interrupt llm error", zap.Int64("session_id", sessionID), zap.Error(err))
 		return "", err
 	}
 	if len(resp.Choices) == 0 {
@@ -116,43 +130,63 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 	content := resp.Choices[0].Message.Content
 	if storeInSession {
 		if err := a.store.AddMessage(ctx, sessionID, "assistant", content, nil); err != nil {
+			log.Error("interrupt store failed", zap.Int64("session_id", sessionID), zap.Error(err))
 			return "", err
 		}
 	}
+	log.Info("interrupt completed", zap.Int64("session_id", sessionID), zap.Bool("stored", storeInSession))
 	return content, nil
 }
 
 func (a *Agent) runLoop(ctx context.Context, sessionID int64, userID int64, messages []llm.Message, model string, activeSkill *skills.Skill) (string, error) {
+	log := logging.L().Named("agent_loop")
 	maxTurns := a.maxToolTurns
 	for i := 0; i < maxTurns; i++ {
+		log.Debug("loop turn",
+			zap.Int("turn", i+1),
+			zap.Int("max_turns", maxTurns),
+			zap.Int("message_count", len(messages)),
+			zap.String("model", model),
+		)
 		tools := a.toolsFor()
+		log.Debug("tools prepared", zap.Int("count", len(tools)))
 		resp, err := a.llm.Chat(ctx, llm.ChatRequest{
 			Model:    model,
 			Messages: messages,
 			Tools:    tools,
 		})
 		if err != nil {
+			log.Error("llm chat error", zap.Int64("session_id", sessionID), zap.Error(err))
 			return "", err
 		}
 		if len(resp.Choices) == 0 {
 			return "", errors.New("empty llm response")
 		}
 		msg := resp.Choices[0].Message
+		log.Debug("llm response received",
+			zap.Int("choices", len(resp.Choices)),
+			zap.Int("tool_calls", len(msg.ToolCalls)),
+		)
 		if len(msg.ToolCalls) == 0 {
 			if err := a.store.AddMessage(ctx, sessionID, "assistant", msg.Content, nil); err != nil {
+				log.Error("store assistant failed", zap.Int64("session_id", sessionID), zap.Error(err))
 				return "", err
 			}
+			log.Debug("assistant response stored", zap.Int64("session_id", sessionID))
 			return msg.Content, nil
 		}
 
+		log.Debug("tool calls received", zap.Int("count", len(msg.ToolCalls)), zap.Int64("session_id", sessionID))
 		if err := a.store.AddMessage(ctx, sessionID, "assistant", msg.Content, &memory.MessageMetadata{ToolCalls: msg.ToolCalls}); err != nil {
 			return "", err
 		}
+		log.Debug("assistant tool-call message stored", zap.Int64("session_id", sessionID))
 
 		toolMsgs, updatedSkill, err := a.toolRunner.Run(ctx, sessionID, userID, a.defaultBaseDir, activeSkill, msg.ToolCalls)
 		if err != nil {
 			return "", err
 		}
+		log.Debug("tool run completed", zap.Int("tool_messages", len(toolMsgs)))
 		activeSkill = updatedSkill
 		messages = append(messages, msg)
 		messages = append(messages, toolMsgs...)

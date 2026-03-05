@@ -6,12 +6,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"go.uber.org/zap"
 )
 
 func syncRepo(ctx context.Context, repoURL, repoRef, repoDir string) (*git.Repository, string, error) {
+	log := logging.L().Named("skills_git")
 	if strings.HasPrefix(repoURL, "file://") {
 		return nil, "", errors.New("file protocol not allowed")
 	}
@@ -31,18 +34,23 @@ func syncRepo(ctx context.Context, repoURL, repoRef, repoDir string) (*git.Repos
 	}
 
 	if err := ensureRemote(repo, "origin", repoURL); err != nil {
+		log.Warn("ensure remote failed", zap.Error(err))
 		return nil, "", err
 	}
 	if err := fetchAll(ctx, repo, repoURL); err != nil {
+		log.Warn("fetch repo failed", zap.String("url", repoURL), zap.Error(err))
 		return nil, "", err
 	}
 	if err := checkoutRef(repo, repoRef); err != nil {
+		log.Warn("checkout ref failed", zap.String("ref", repoRef), zap.Error(err))
 		return nil, "", err
 	}
 	head, err := repo.Head()
 	if err != nil {
+		log.Warn("read head failed", zap.Error(err))
 		return repo, "", err
 	}
+	log.Debug("repo synced", zap.String("ref", repoRef), zap.String("hash", head.Hash().String()))
 	return repo, head.Hash().String(), nil
 }
 

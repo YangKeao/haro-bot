@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
+	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
+	"go.uber.org/zap"
 )
 
 type Manager struct {
@@ -65,6 +67,7 @@ func NewManagerWithOptions(agentSvc *agent.Agent, store *memory.Store, opts Mana
 }
 
 func (m *Manager) Start(ctx context.Context, parentSessionID, userID int64, input, model string, inheritRecent int) (int64, error) {
+	log := logging.L().Named("fork")
 	if m.agent == nil || m.store == nil {
 		return 0, errors.New("fork manager not configured")
 	}
@@ -74,12 +77,14 @@ func (m *Manager) Start(ctx context.Context, parentSessionID, userID int64, inpu
 	}
 	childID, err := m.store.CreateSession(ctx, userID, channel)
 	if err != nil {
+		log.Error("create child session failed", zap.Error(err))
 		return 0, err
 	}
 	if inheritRecent <= 0 {
 		inheritRecent = defaultInheritRecent
 	}
 	if err := m.copyRecent(ctx, parentSessionID, childID, inheritRecent); err != nil {
+		log.Warn("inherit context failed", zap.Error(err))
 		return 0, err
 	}
 	runCtx, cancel := context.WithCancel(ctx)
@@ -126,17 +131,30 @@ func (m *Manager) Start(ctx context.Context, parentSessionID, userID int64, inpu
 		r.mu.Unlock()
 		close(r.done)
 		m.scheduleCleanup(childID)
+		if r.err != nil {
+			log.Warn("child session finished", zap.Int64("child_session_id", childID), zap.String("status", r.status), zap.Error(r.err))
+		} else {
+			log.Info("child session finished", zap.Int64("child_session_id", childID), zap.String("status", r.status))
+		}
 	}(childID)
 
+	log.Info("child session started", zap.Int64("parent_session_id", parentSessionID), zap.Int64("child_session_id", childID))
 	return childID, nil
 }
 
 func (m *Manager) Interrupt(ctx context.Context, parentSessionID, childSessionID int64, message string, storeInChild bool, modelOverride string) (string, error) {
+	log := logging.L().Named("fork")
 	r, err := m.getRun(parentSessionID, childSessionID)
 	if err != nil {
 		return "", err
 	}
-	return m.agent.InterruptSession(ctx, r.childSessionID, r.userID, message, modelOverride, storeInChild)
+	resp, err := m.agent.InterruptSession(ctx, r.childSessionID, r.userID, message, modelOverride, storeInChild)
+	if err != nil {
+		log.Warn("interrupt failed", zap.Int64("child_session_id", childSessionID), zap.Error(err))
+		return "", err
+	}
+	log.Info("interrupt completed", zap.Int64("child_session_id", childSessionID), zap.Bool("stored", storeInChild))
+	return resp, nil
 }
 
 func (m *Manager) copyRecent(ctx context.Context, parentSessionID, childSessionID int64, limit int) error {
@@ -159,6 +177,7 @@ func (m *Manager) copyRecent(ctx context.Context, parentSessionID, childSessionI
 }
 
 func (m *Manager) Cancel(parentSessionID, childSessionID int64) error {
+	log := logging.L().Named("fork")
 	r, err := m.getRun(parentSessionID, childSessionID)
 	if err != nil {
 		return err
@@ -170,6 +189,7 @@ func (m *Manager) Cancel(parentSessionID, childSessionID int64) error {
 	}
 	r.status = "cancelled"
 	r.cancel()
+	log.Info("child session cancelled", zap.Int64("child_session_id", childSessionID))
 	return nil
 }
 

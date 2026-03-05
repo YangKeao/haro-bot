@@ -10,6 +10,8 @@ import (
 	"time"
 
 	dbmodel "github.com/YangKeao/haro-bot/internal/db"
+	"github.com/YangKeao/haro-bot/internal/logging"
+	"go.uber.org/zap"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -61,6 +63,7 @@ func LoadBase() Config {
 }
 
 func LoadFromDB(ctx context.Context, db *gorm.DB, base Config) (Config, error) {
+	log := logging.L().Named("config")
 	if db == nil {
 		return Config{}, errors.New("db required")
 	}
@@ -75,6 +78,7 @@ func LoadFromDB(ctx context.Context, db *gorm.DB, base Config) (Config, error) {
 		if err := saveRecord(ctx, db, rec); err != nil {
 			return Config{}, err
 		}
+		log.Info("seeded default config in db")
 	} else {
 		rec = rec.withDefaults()
 		rec.applyEnvOverrides()
@@ -82,9 +86,16 @@ func LoadFromDB(ctx context.Context, db *gorm.DB, base Config) (Config, error) {
 		if err := saveRecord(ctx, db, rec); err != nil {
 			return Config{}, err
 		}
+		log.Debug("loaded config from db")
 	}
 	cfg := rec.toConfig()
 	cfg.TiDBDSN = base.TiDBDSN
+	log.Info("config ready",
+		zap.String("server_addr", cfg.ServerAddr),
+		zap.String("llm_model", cfg.LLMModel),
+		zap.String("prompt_format", string(cfg.LLMPromptFormat)),
+		zap.Bool("telegram_enabled", cfg.TelegramToken != ""),
+	)
 	return cfg, nil
 }
 

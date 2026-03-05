@@ -6,9 +6,11 @@ import (
 	"errors"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
+	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
+	"go.uber.org/zap"
 )
 
 type DefaultToolRunner struct {
@@ -31,6 +33,7 @@ func NewToolRunner(registry *tools.Registry, store ConversationStore, skillsMgr 
 }
 
 func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, baseDir string, activeSkill *skills.Skill, calls []llm.ToolCall) ([]llm.Message, *skills.Skill, error) {
+	log := logging.L().Named("tool_runner")
 	if r == nil || r.registry == nil {
 		return nil, activeSkill, errors.New("tool registry not configured")
 	}
@@ -39,10 +42,12 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 	for _, call := range calls {
 		tool, ok := r.registry.Get(call.Function.Name)
 		if !ok {
+			log.Warn("tool not found", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID))
 			toolMsg := llm.Message{Role: "tool", ToolCallID: call.ID, Content: "unsupported tool"}
 			out = append(out, toolMsg)
 			continue
 		}
+		log.Debug("tool start", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID))
 		tc := tools.ToolContext{
 			SessionID: sessionID,
 			UserID:    userID,
@@ -61,6 +66,9 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 			} else {
 				output = "error: " + err.Error() + "\n" + output
 			}
+			log.Warn("tool error", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID), zap.Error(err))
+		} else {
+			log.Debug("tool ok", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID))
 		}
 		toolMsg := llm.Message{Role: "tool", ToolCallID: call.ID, Content: output}
 		out = append(out, toolMsg)

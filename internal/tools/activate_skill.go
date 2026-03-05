@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/skills"
+	"go.uber.org/zap"
 )
 
 type ActivateSkillTool struct {
@@ -43,6 +45,7 @@ func (t *ActivateSkillTool) Parameters() map[string]any {
 }
 
 func (t *ActivateSkillTool) Execute(ctx context.Context, _ ToolContext, args json.RawMessage) (string, error) {
+	log := logging.L().Named("activate_skill")
 	if t.skills == nil {
 		return "", errors.New("skills manager not configured")
 	}
@@ -54,7 +57,9 @@ func (t *ActivateSkillTool) Execute(ctx context.Context, _ ToolContext, args jso
 		return "", errors.New("activate_skill missing name")
 	}
 	if _, err := t.skills.Load(payload.Name); err != nil {
+		log.Warn("activate skill failed", zap.String("name", payload.Name), zap.Error(err))
 		return "", err
 	}
+	log.Info("skill activated", zap.String("name", payload.Name))
 	return "activated skill: " + payload.Name, nil
 }
