@@ -26,12 +26,16 @@ type Manager struct {
 }
 
 func NewManager(store *Store, baseDir string, allowlist []string) *Manager {
-	return &Manager{
+	mgr := &Manager{
 		store:     store,
 		baseDir:   baseDir,
 		allowlist: allowlist,
 		skills:    make(map[string]Metadata),
 	}
+	if store != nil {
+		_ = mgr.loadFromDB(context.Background())
+	}
+	return mgr
 }
 
 func (m *Manager) RegisterSource(ctx context.Context, src Source) (int64, error) {
@@ -135,6 +139,44 @@ func (m *Manager) List() []Metadata {
 		out = append(out, meta)
 	}
 	return out
+}
+
+func (m *Manager) loadFromDB(ctx context.Context) error {
+	if m.store == nil {
+		return errors.New("store not configured")
+	}
+	entries, err := m.store.ListSkills(ctx)
+	if err != nil {
+		return err
+	}
+	merged := make(map[string]Metadata)
+	for _, entry := range entries {
+		if entry.Status != "" && entry.Status != "active" {
+			continue
+		}
+		if strings.TrimSpace(entry.Name) == "" || strings.TrimSpace(entry.Description) == "" {
+			continue
+		}
+		repoDir := filepath.Join(m.baseDir, fmt.Sprintf("source-%d", entry.SourceID))
+		dir, err := safeJoinAllowMissing(repoDir, entry.SkillPath)
+		if err != nil {
+			continue
+		}
+		meta := Metadata{
+			Name:        entry.Name,
+			Description: entry.Description,
+			Dir:         dir,
+			Version:     entry.Version,
+			Hash:        entry.ContentHash,
+		}
+		if _, exists := merged[meta.Name]; !exists {
+			merged[meta.Name] = meta
+		}
+	}
+	m.mu.Lock()
+	m.skills = merged
+	m.mu.Unlock()
+	return nil
 }
 
 func (m *Manager) Load(name string) (Skill, error) {

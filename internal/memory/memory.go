@@ -7,6 +7,7 @@ import (
 	"time"
 
 	dbmodel "github.com/YangKeao/haro-bot/internal/db"
+	"github.com/YangKeao/haro-bot/internal/llm"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -25,7 +26,15 @@ type Message struct {
 	SessionID int64
 	Role      string
 	Content   string
+	Metadata  *MessageMetadata
 	CreatedAt time.Time
+}
+
+type MessageMetadata struct {
+	ToolCallID           string         `json:"tool_call_id,omitempty"`
+	ToolCalls            []llm.ToolCall `json:"tool_calls,omitempty"`
+	Status               string         `json:"status,omitempty"`
+	InheritedFromSession *int64         `json:"inherited_from_session,omitempty"`
 }
 
 type Memory struct {
@@ -103,7 +112,7 @@ func (s *Store) CreateSession(ctx context.Context, userID int64, channel string)
 	return session.ID, nil
 }
 
-func (s *Store) AddMessage(ctx context.Context, sessionID int64, role, content string, metadata any) error {
+func (s *Store) AddMessage(ctx context.Context, sessionID int64, role, content string, metadata *MessageMetadata) error {
 	var metaJSON []byte
 	if metadata != nil {
 		b, err := json.Marshal(metadata)
@@ -139,11 +148,20 @@ func (s *Store) LoadRecentMessages(ctx context.Context, sessionID int64, limit i
 	}
 	msgs := make([]Message, 0, len(records))
 	for _, r := range records {
+		var meta *MessageMetadata
+		if len(r.Metadata) > 0 {
+			var parsed MessageMetadata
+			if err := json.Unmarshal(r.Metadata, &parsed); err != nil {
+				return nil, err
+			}
+			meta = &parsed
+		}
 		msgs = append(msgs, Message{
 			ID:        r.ID,
 			SessionID: r.SessionID,
 			Role:      r.Role,
 			Content:   r.Content,
+			Metadata:  meta,
 			CreatedAt: r.CreatedAt,
 		})
 	}
@@ -174,41 +192,6 @@ func (s *Store) LoadLongMemories(ctx context.Context, userID int64, limit int) (
 		})
 	}
 	return memories, nil
-}
-
-func (s *Store) RecordSkillCall(ctx context.Context, sessionID int64, skillName string, input any, output any, status string) error {
-	var inputJSON []byte
-	if input != nil {
-		b, err := json.Marshal(input)
-		if err != nil {
-			return err
-		}
-		inputJSON = b
-	}
-	var outputJSON []byte
-	if output != nil {
-		b, err := json.Marshal(output)
-		if err != nil {
-			return err
-		}
-		outputJSON = b
-	}
-	var inputData datatypes.JSON
-	var outputData datatypes.JSON
-	if inputJSON != nil {
-		inputData = datatypes.JSON(inputJSON)
-	}
-	if outputJSON != nil {
-		outputData = datatypes.JSON(outputJSON)
-	}
-	record := dbmodel.SkillCall{
-		SkillName:  skillName,
-		SessionID:  sessionID,
-		InputJSON:  inputData,
-		OutputJSON: outputData,
-		Status:     status,
-	}
-	return s.db.WithContext(ctx).Create(&record).Error
 }
 
 func reverseMessages(in []Message) []Message {

@@ -4,27 +4,15 @@ package llm_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
+	"github.com/YangKeao/haro-bot/internal/testutil"
 )
 
 func TestLLMChat(t *testing.T) {
-	apiKey := os.Getenv("LLM_API_KEY")
-	if apiKey == "" {
-		t.Skip("LLM_API_KEY not set")
-	}
-	baseURL := os.Getenv("LLM_BASE_URL")
-	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
-	}
-	model := os.Getenv("LLM_MODEL")
-	if model == "" {
-		model = "gpt-4o-mini"
-	}
-	client := llm.NewClient(baseURL, apiKey)
+	client, model := testutil.NewLLMClientFromEnv(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	resp, err := client.Chat(ctx, llm.ChatRequest{

@@ -74,18 +74,6 @@ CREATE TABLE IF NOT EXISTS skills_registry (
   FOREIGN KEY (source_id) REFERENCES skill_sources(id)
 );
 
-CREATE TABLE IF NOT EXISTS skill_calls (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  skill_name VARCHAR(128) NOT NULL,
-  session_id BIGINT NOT NULL,
-  input_json JSON,
-  output_json JSON,
-  status VARCHAR(16),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_session_created (session_id, created_at),
-  FOREIGN KEY (session_id) REFERENCES sessions(id)
-);
-
 CREATE TABLE IF NOT EXISTS tool_audit (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   session_id BIGINT NULL,

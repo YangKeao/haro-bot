@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"sync"
 )
 
 type Tool interface {
@@ -21,6 +22,7 @@ type ToolContext struct {
 }
 
 type Registry struct {
+	mu    sync.RWMutex
 	tools map[string]Tool
 }
 
@@ -39,6 +41,8 @@ func (r *Registry) Register(t Tool) {
 	if r == nil || t == nil {
 		return
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.tools == nil {
 		r.tools = make(map[string]Tool)
 	}
@@ -49,22 +53,28 @@ func (r *Registry) Get(name string) (Tool, bool) {
 	if r == nil {
 		return nil, false
 	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	t, ok := r.tools[name]
 	return t, ok
 }
 
 func (r *Registry) List() []Tool {
-	if r == nil || len(r.tools) == 0 {
+	if r == nil {
 		return nil
 	}
-	keys := make([]string, 0, len(r.tools))
-	for k := range r.tools {
-		keys = append(keys, k)
+	r.mu.RLock()
+	if len(r.tools) == 0 {
+		r.mu.RUnlock()
+		return nil
 	}
-	sort.Strings(keys)
-	out := make([]Tool, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, r.tools[k])
+	out := make([]Tool, 0, len(r.tools))
+	for _, t := range r.tools {
+		out = append(out, t)
 	}
+	r.mu.RUnlock()
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name() < out[j].Name()
+	})
 	return out
 }

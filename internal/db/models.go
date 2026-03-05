@@ -85,18 +85,6 @@ type SkillRegistry struct {
 
 func (SkillRegistry) TableName() string { return "skills_registry" }
 
-type SkillCall struct {
-	ID         int64          `gorm:"primaryKey;autoIncrement"`
-	SkillName  string         `gorm:"column:skill_name;size:128"`
-	SessionID  int64          `gorm:"column:session_id"`
-	InputJSON  datatypes.JSON `gorm:"column:input_json;type:json"`
-	OutputJSON datatypes.JSON `gorm:"column:output_json;type:json"`
-	Status     string         `gorm:"column:status;size:16"`
-	CreatedAt  time.Time      `gorm:"column:created_at"`
-}
-
-func (SkillCall) TableName() string { return "skill_calls" }
-
 type ToolAudit struct {
 	ID        int64          `gorm:"primaryKey;autoIncrement"`
 	SessionID *int64         `gorm:"column:session_id"`

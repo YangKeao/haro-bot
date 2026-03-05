@@ -10,10 +10,32 @@ import (
 )
 
 func buildSystemPrompt(memories []memory.Memory, skillsList []skills.Metadata, format string) string {
+	return buildPrompt(memories, skillsList, format, true)
+}
+
+func buildInterruptPrompt(memories []memory.Memory, format string) string {
+	return buildPrompt(memories, nil, format, false)
+}
+
+type DefaultPromptBuilder struct{}
+
+func (DefaultPromptBuilder) System(memories []memory.Memory, skillsList []skills.Metadata, format string) string {
+	return buildSystemPrompt(memories, skillsList, format)
+}
+
+func (DefaultPromptBuilder) Interrupt(memories []memory.Memory, format string) string {
+	return buildInterruptPrompt(memories, format)
+}
+
+func (DefaultPromptBuilder) Skill(skill skills.Skill) string {
+	return buildSkillPrompt(skill)
+}
+
+func buildPrompt(memories []memory.Memory, skillsList []skills.Metadata, format string, includeSkills bool) string {
 	var b strings.Builder
 	format = strings.ToLower(strings.TrimSpace(format))
 	skillsXML := ""
-	if isClaudeFormat(format) {
+	if includeSkills && isClaudeFormat(format) {
 		skillsXML = buildSkillsXML(skillsList)
 		if skillsXML != "" {
 			b.WriteString(skillsXML)
@@ -26,6 +48,10 @@ func buildSystemPrompt(memories []memory.Memory, skillsList []skills.Metadata, f
 		for _, m := range memories {
 			b.WriteString(fmt.Sprintf("- [%s] %s\n", m.Type, m.Content))
 		}
+	}
+	if !includeSkills {
+		b.WriteString("Do not use tools or skills. Respond directly.\n")
+		return b.String()
 	}
 	if len(skillsList) > 0 && !isClaudeFormat(format) {
 		section := renderSkillsSection(skillsList)

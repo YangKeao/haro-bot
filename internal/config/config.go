@@ -23,7 +23,7 @@ type Config struct {
 	LLMBaseURL      string
 	LLMAPIKey       string
 	LLMModel        string
-	LLMPromptFormat string
+	LLMPromptFormat PromptFormat
 
 	TelegramToken string
 
@@ -71,12 +71,14 @@ func LoadFromDB(ctx context.Context, db *gorm.DB, base Config) (Config, error) {
 	if !found {
 		rec = defaultRecord()
 		rec.applyEnvOverrides()
+		rec.normalize()
 		if err := saveRecord(ctx, db, rec); err != nil {
 			return Config{}, err
 		}
 	} else {
 		rec = rec.withDefaults()
 		rec.applyEnvOverrides()
+		rec.normalize()
 		if err := saveRecord(ctx, db, rec); err != nil {
 			return Config{}, err
 		}
@@ -124,7 +126,7 @@ func defaultRecord() ConfigRecord {
 		ServerAddr:         ":8080",
 		LLMBaseURL:         "https://api.openai.com/v1",
 		LLMModel:           "gpt-4o-mini",
-		LLMPromptFormat:    "openai",
+		LLMPromptFormat:    string(PromptFormatOpenAI),
 		SkillsDir:          skillsDir,
 		SkillsSyncInterval: "10m",
 		FSAllowedRoots:     []string{skillsDir},
@@ -168,12 +170,13 @@ func (r ConfigRecord) toConfig() Config {
 	if len(fsRoots) == 0 {
 		fsRoots = []string{r.SkillsDir}
 	}
+	format := NormalizePromptFormat(r.LLMPromptFormat)
 	cfg := Config{
 		ServerAddr:          r.ServerAddr,
 		LLMBaseURL:          r.LLMBaseURL,
 		LLMAPIKey:           r.LLMAPIKey,
 		LLMModel:            r.LLMModel,
-		LLMPromptFormat:     r.LLMPromptFormat,
+		LLMPromptFormat:     format,
 		TelegramToken:       r.TelegramToken,
 		SkillsDir:           r.SkillsDir,
 		SkillsRepoAllowlist: r.SkillsRepoAllowlist,
@@ -184,6 +187,10 @@ func (r ConfigRecord) toConfig() Config {
 		ToolMaxTurns:        r.ToolMaxTurns,
 	}
 	return cfg
+}
+
+func (r *ConfigRecord) normalize() {
+	r.LLMPromptFormat = string(NormalizePromptFormat(r.LLMPromptFormat))
 }
 
 func (r *ConfigRecord) applyEnvOverrides() {

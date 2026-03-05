@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/YangKeao/haro-bot/internal/db"
 	"github.com/go-sql-driver/mysql"
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -58,6 +59,16 @@ func NewTestDB(t *testing.T) (*gorm.DB, func()) {
 		}
 		_, _ = adminDB.Exec("DROP DATABASE `" + testName + "`")
 		_ = adminDB.Close()
+	}
+	return gdb, cleanup
+}
+
+func NewTestDBWithMigrations(t *testing.T) (*gorm.DB, func()) {
+	t.Helper()
+	gdb, cleanup := NewTestDB(t)
+	if err := db.ApplyMigrations(gdb); err != nil {
+		cleanup()
+		t.Fatalf("apply migrations: %v", err)
 	}
 	return gdb, cleanup
 }

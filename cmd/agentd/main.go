@@ -56,7 +56,7 @@ func main() {
 	}
 	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey)
 
-	agentSvc := agent.New(store, skillsMgr, toolRegistry, fsTools.DefaultBase(), cfg.ToolMaxTurns, llmClient, cfg.LLMModel, cfg.LLMPromptFormat)
+	agentSvc := agent.New(store, skillsMgr, toolRegistry, fsTools.DefaultBase(), cfg.ToolMaxTurns, llmClient, cfg.LLMModel, string(cfg.LLMPromptFormat))
 	forkMgr := fork.NewManager(agentSvc, store)
 	toolRegistry.Register(fork.NewForkTool(forkMgr))
 	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))

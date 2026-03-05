@@ -19,9 +19,16 @@ type Manager struct {
 
 	mu   sync.Mutex
 	runs map[int64]*run
+
+	cleanupAfter time.Duration
 }
 
 const defaultInheritRecent = 8
+const defaultCleanupAfter = 10 * time.Minute
+
+type ManagerOptions struct {
+	CleanupAfter time.Duration
+}
 
 type run struct {
 	parentSessionID int64
@@ -30,6 +37,7 @@ type run struct {
 	channel         string
 	model           string
 	startedAt       time.Time
+	finishedAt      time.Time
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -40,10 +48,19 @@ type run struct {
 }
 
 func NewManager(agentSvc *agent.Agent, store *memory.Store) *Manager {
+	return NewManagerWithOptions(agentSvc, store, ManagerOptions{CleanupAfter: defaultCleanupAfter})
+}
+
+func NewManagerWithOptions(agentSvc *agent.Agent, store *memory.Store, opts ManagerOptions) *Manager {
+	cleanupAfter := opts.CleanupAfter
+	if cleanupAfter < 0 {
+		cleanupAfter = 0
+	}
 	return &Manager{
-		agent: agentSvc,
-		store: store,
-		runs:  make(map[int64]*run),
+		agent:        agentSvc,
+		store:        store,
+		runs:         make(map[int64]*run),
+		cleanupAfter: cleanupAfter,
 	}
 }
 
@@ -55,7 +72,7 @@ func (m *Manager) Start(ctx context.Context, parentSessionID, userID int64, inpu
 	if err != nil {
 		return 0, err
 	}
-	childID, err := m.store.CreateSession(context.Background(), userID, channel)
+	childID, err := m.store.CreateSession(ctx, userID, channel)
 	if err != nil {
 		return 0, err
 	}
@@ -65,7 +82,7 @@ func (m *Manager) Start(ctx context.Context, parentSessionID, userID int64, inpu
 	if err := m.copyRecent(ctx, parentSessionID, childID, inheritRecent); err != nil {
 		return 0, err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	runCtx, cancel := context.WithCancel(ctx)
 	r := &run{
 		parentSessionID: parentSessionID,
 		childSessionID:  childID,
@@ -81,18 +98,35 @@ func (m *Manager) Start(ctx context.Context, parentSessionID, userID int64, inpu
 	m.runs[childID] = r
 	m.mu.Unlock()
 
-	go func() {
-		_, err := m.agent.HandleWithModel(ctx, userID, channel, input, model)
+	go func(childID int64) {
+		_, err := m.agent.HandleWithModel(runCtx, userID, channel, input, model)
 		r.mu.Lock()
-		defer r.mu.Unlock()
-		if err != nil {
+		if r.status == "cancelled" {
+			if r.err == nil && runCtx.Err() != nil {
+				r.err = runCtx.Err()
+			}
+			r.finishedAt = time.Now()
+		} else if err == nil {
+			if runCtx.Err() != nil {
+				r.status = "cancelled"
+				r.err = runCtx.Err()
+			} else {
+				r.status = "completed"
+			}
+			r.finishedAt = time.Now()
+		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || runCtx.Err() != nil {
+			r.status = "cancelled"
+			r.err = err
+			r.finishedAt = time.Now()
+		} else {
 			r.status = "error"
 			r.err = err
-		} else {
-			r.status = "completed"
+			r.finishedAt = time.Now()
 		}
+		r.mu.Unlock()
 		close(r.done)
-	}()
+		m.scheduleCleanup(childID)
+	}(childID)
 
 	return childID, nil
 }
@@ -114,8 +148,9 @@ func (m *Manager) copyRecent(ctx context.Context, parentSessionID, childSessionI
 		return err
 	}
 	for _, msg := range msgs {
-		if err := m.store.AddMessage(ctx, childSessionID, msg.Role, msg.Content, map[string]any{
-			"inherited_from_session": parentSessionID,
+		parent := parentSessionID
+		if err := m.store.AddMessage(ctx, childSessionID, msg.Role, msg.Content, &memory.MessageMetadata{
+			InheritedFromSession: &parent,
 		}); err != nil {
 			return err
 		}
@@ -146,6 +181,18 @@ func (m *Manager) Status(parentSessionID, childSessionID int64) (string, error) 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.status, nil
+}
+
+func (m *Manager) scheduleCleanup(childID int64) {
+	if m.cleanupAfter <= 0 {
+		return
+	}
+	after := m.cleanupAfter
+	time.AfterFunc(after, func() {
+		m.mu.Lock()
+		delete(m.runs, childID)
+		m.mu.Unlock()
+	})
 }
 
 func (m *Manager) getRun(parentSessionID, childSessionID int64) (*run, error) {
