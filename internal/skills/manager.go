@@ -17,9 +17,9 @@ const (
 )
 
 type Manager struct {
-	store             *Store
-	baseDir           string
-	allowlist         []string
+	store     *Store
+	baseDir   string
+	allowlist []string
 
 	mu     sync.RWMutex
 	skills map[string]Metadata
@@ -27,13 +27,12 @@ type Manager struct {
 
 func NewManager(store *Store, baseDir string, allowlist []string) *Manager {
 	return &Manager{
-		store:             store,
-		baseDir:           baseDir,
-		allowlist:         allowlist,
-		skills:            make(map[string]Metadata),
+		store:     store,
+		baseDir:   baseDir,
+		allowlist: allowlist,
+		skills:    make(map[string]Metadata),
 	}
 }
-
 
 func (m *Manager) RegisterSource(ctx context.Context, src Source) (int64, error) {
 	src.SourceType = strings.ToLower(strings.TrimSpace(src.SourceType))
@@ -153,7 +152,7 @@ func (m *Manager) Load(name string) (Skill, error) {
 	if err != nil {
 		return Skill{}, err
 	}
-	fm, body, hash, err := parseSkillFile(data)
+	_, body, hash, err := parseSkillFile(data)
 	if err != nil {
 		return Skill{}, err
 	}
@@ -161,7 +160,6 @@ func (m *Manager) Load(name string) (Skill, error) {
 	return Skill{
 		Metadata:     meta,
 		Instructions: body,
-		AllowedTools: []string(fm.AllowedTools),
 	}, nil
 }
 
