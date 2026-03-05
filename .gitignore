@@ -28,3 +28,6 @@
 # Runtime data
 /skills/
 /tmp/
+
+# Local artifacts
+/agentd
