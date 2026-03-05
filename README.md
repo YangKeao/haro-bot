@@ -28,7 +28,7 @@ This service provides an OpenAI-compatible API and a Telegram webhook, with all 
 **Skills Repo Layout**
 Each skill is a directory containing `SKILL.md` with YAML frontmatter. The skill directory name must match the `name` field in the frontmatter.
 Filesystem tools are global (available even without skill activation) and are protected by `FS_ALLOWED_ROOTS`: `read`, `write`, `search`, `edit`, `exec` (exec may be disabled).
-Browser tools use headless Playwright: `browser.goto`, `browser.go_back`, `browser.get_page_state`, `browser.take_screenshot`, `browser.click`, `browser.fill_text`, `browser.press_key`, `browser.scroll`.
+Browser tools use headless Playwright: `browser_goto`, `browser_go_back`, `browser_get_page_state`, `browser_take_screenshot`, `browser_click`, `browser_fill_text`, `browser_press_key`, `browser_scroll`.
 
 **Security Notes**
 - Skills are fetched only from allowed repo URL prefixes.

@@ -29,7 +29,7 @@ func NewForkTool(manager *Manager) *ForkTool {
 	return &ForkTool{manager: manager}
 }
 
-func (t *ForkTool) Name() string { return "session.fork" }
+func (t *ForkTool) Name() string { return "session_fork" }
 func (t *ForkTool) Description() string {
 	return "Start a child session to execute a sub-task immediately."
 }
@@ -96,7 +96,7 @@ func NewForkInterruptTool(manager *Manager) *ForkInterruptTool {
 	return &ForkInterruptTool{manager: manager}
 }
 
-func (t *ForkInterruptTool) Name() string { return "session.interrupt" }
+func (t *ForkInterruptTool) Name() string { return "session_interrupt" }
 func (t *ForkInterruptTool) Description() string {
 	return "Interrupt a child session to get a response from its current context; optionally store the interrupt in the child history."
 }
@@ -158,7 +158,7 @@ func NewForkCancelTool(manager *Manager) *ForkCancelTool {
 	return &ForkCancelTool{manager: manager}
 }
 
-func (t *ForkCancelTool) Name() string { return "session.cancel" }
+func (t *ForkCancelTool) Name() string { return "session_cancel" }
 func (t *ForkCancelTool) Description() string {
 	return "Cancel a child session started via fork."
 }
@@ -204,7 +204,7 @@ func NewForkStatusTool(manager *Manager) *ForkStatusTool {
 	return &ForkStatusTool{manager: manager}
 }
 
-func (t *ForkStatusTool) Name() string { return "session.status" }
+func (t *ForkStatusTool) Name() string { return "session_status" }
 func (t *ForkStatusTool) Description() string {
 	return "Get the status of a child session started via fork."
 }
