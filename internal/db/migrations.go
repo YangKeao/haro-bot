@@ -25,7 +25,7 @@ type migration struct {
 	stmts   []string
 }
 
-const currentSchemaVersion int64 = 6
+const currentSchemaVersion int64 = 7
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -34,6 +34,7 @@ var migrations = []migration{
 	{version: 4, stmts: addMessageSoftDeleteSQL},
 	{version: 5, stmts: addSessionSummariesSQL},
 	{version: 6, stmts: renameSessionSummariesSQL},
+	{version: 7, stmts: renameSessionSummaryIndexesSQL},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -221,4 +222,9 @@ var addSessionSummariesSQL = []string{
 
 var renameSessionSummariesSQL = []string{
 	`RENAME TABLE session_anchors TO session_summaries`,
+}
+
+var renameSessionSummaryIndexesSQL = []string{
+	`ALTER TABLE session_summaries RENAME INDEX idx_session_anchors_session TO idx_session_summaries_session`,
+	`ALTER TABLE session_summaries RENAME INDEX idx_session_anchors_entry TO idx_session_summaries_entry`,
 }
