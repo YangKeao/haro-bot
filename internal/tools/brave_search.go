@@ -10,7 +10,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/YangKeao/haro-bot/internal/logging"
+	"go.uber.org/zap"
 )
 
 const (
@@ -26,6 +30,8 @@ type BraveSearchTool struct {
 	endpoint       string
 	client         *http.Client
 	maxOutputBytes int64
+	mu             sync.Mutex
+	nextAllowed    time.Time
 }
 
 type BraveSearchOption func(*BraveSearchTool)
@@ -233,35 +239,58 @@ func (t *BraveSearchTool) Execute(ctx context.Context, _ ToolContext, args json.
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Subscription-Token", t.apiKey)
 
-	resp, err := t.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
+	log := logging.L().Named("brave_search")
+	attempt := 0
+	for {
+		if err := t.waitForRateLimit(ctx); err != nil {
+			return "", err
+		}
+		resp, err := t.client.Do(req)
+		if err != nil {
+			return "", err
+		}
+		wait := t.updateRateLimit(resp.Header)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			_ = resp.Body.Close()
+			if wait <= 0 {
+				wait = backoffDuration(attempt)
+			}
+			attempt++
+			log.Debug("brave rate limited",
+				zap.Duration("wait", wait),
+				zap.Int("attempt", attempt),
+			)
+			if err := sleepWithContext(ctx, wait); err != nil {
+				return "", err
+			}
+			continue
+		}
+		defer resp.Body.Close()
 
-	body, err := readWithLimit(resp.Body, t.maxOutputBytes)
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return string(body), fmt.Errorf("brave search failed: %s", resp.Status)
-	}
+		body, err := readWithLimit(resp.Body, t.maxOutputBytes)
+		if err != nil {
+			return "", err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return string(body), fmt.Errorf("brave search failed: %s", resp.Status)
+		}
 
-	var decoded braveWebResponse
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		return string(body), err
+		var decoded braveWebResponse
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			return string(body), err
+		}
+		out := braveSearchOutput{
+			Query:      decoded.Query,
+			Results:    decoded.Web.Results,
+			Summarizer: decoded.Summarizer,
+			Rich:       decoded.Rich,
+		}
+		payload, err := json.Marshal(out)
+		if err != nil {
+			return "", err
+		}
+		return string(payload), nil
 	}
-	out := braveSearchOutput{
-		Query:      decoded.Query,
-		Results:    decoded.Web.Results,
-		Summarizer: decoded.Summarizer,
-		Rich:       decoded.Rich,
-	}
-	payload, err := json.Marshal(out)
-	if err != nil {
-		return "", err
-	}
-	return string(payload), nil
 }
 
 func readWithLimit(r io.Reader, maxBytes int64) ([]byte, error) {
@@ -277,4 +306,118 @@ func readWithLimit(r io.Reader, maxBytes int64) ([]byte, error) {
 		body = body[:maxBytes]
 	}
 	return body, nil
+}
+
+func (t *BraveSearchTool) waitForRateLimit(ctx context.Context) error {
+	t.mu.Lock()
+	wait := time.Until(t.nextAllowed)
+	t.mu.Unlock()
+	if wait <= 0 {
+		return nil
+	}
+	return sleepWithContext(ctx, wait)
+}
+
+func (t *BraveSearchTool) updateRateLimit(h http.Header) time.Duration {
+	limits := parseRateLimitInts(h.Get("X-RateLimit-Limit"))
+	remaining := parseRateLimitInts(h.Get("X-RateLimit-Remaining"))
+	reset := parseRateLimitInts(h.Get("X-RateLimit-Reset"))
+	wait := rateLimitWait(remaining, reset, limits)
+	if wait <= 0 {
+		wait = retryAfterWait(h)
+	}
+	if wait > 0 {
+		t.mu.Lock()
+		next := time.Now().Add(wait)
+		if next.After(t.nextAllowed) {
+			t.nextAllowed = next
+		}
+		t.mu.Unlock()
+	}
+	return wait
+}
+
+func parseRateLimitInts(header string) []int {
+	if header == "" {
+		return nil
+	}
+	parts := strings.Split(header, ",")
+	out := make([]int, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		val, err := strconv.Atoi(part)
+		if err != nil {
+			continue
+		}
+		out = append(out, val)
+	}
+	return out
+}
+
+func rateLimitWait(remaining, reset, limits []int) time.Duration {
+	if len(remaining) == 0 || len(reset) == 0 {
+		if len(reset) > 0 && reset[0] > 0 {
+			return time.Duration(reset[0]) * time.Second
+		}
+		return 0
+	}
+	waitSec := 0
+	for i, rem := range remaining {
+		if rem > 0 {
+			continue
+		}
+		if i < len(limits) && limits[i] <= 0 {
+			continue
+		}
+		if i >= len(reset) {
+			continue
+		}
+		if reset[i] > waitSec {
+			waitSec = reset[i]
+		}
+	}
+	if waitSec <= 0 && len(reset) > 0 && reset[0] > 0 {
+		waitSec = reset[0]
+	}
+	if waitSec <= 0 {
+		return 0
+	}
+	return time.Duration(waitSec) * time.Second
+}
+
+func retryAfterWait(h http.Header) time.Duration {
+	value := strings.TrimSpace(h.Get("Retry-After"))
+	if value == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(value); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if ts, err := http.ParseTime(value); err == nil {
+		d := time.Until(ts)
+		if d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+func backoffDuration(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	wait := time.Second
+	for i := 0; i < attempt; i++ {
+		wait *= 2
+		if wait > 10*time.Second {
+			return 10 * time.Second
+		}
+	}
+	return wait
 }
