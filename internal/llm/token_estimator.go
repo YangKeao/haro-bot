@@ -34,9 +34,6 @@ func (e *TokenEstimator) CountMessage(msg Message) int {
 		return 0
 	}
 	total := tokensPerMessageOverhead
-	if msg.Role != "" {
-		total += e.CountTokens(msg.Role)
-	}
 	if msg.Content != "" {
 		total += e.CountTokens(msg.Content)
 	}
@@ -69,13 +66,17 @@ func (e *TokenEstimator) CountMessages(msgs []Message) int {
 	for _, msg := range msgs {
 		total += e.CountMessage(msg)
 	}
-	return total + tokensReplyOverhead
+	total += tokensReplyOverhead
+	if total == 0 {
+		return 0
+	}
+	return int(float64(total) * tokenEstimateMargin)
 }
 
 const (
-	// These constants approximate overhead for the Responses API message envelope.
-	// They intentionally err on the conservative side for better safety.
-	tokensPerMessageOverhead  = 3
-	tokensPerToolCallOverhead = 4
-	tokensReplyOverhead       = 2
+	// Chat Completions overhead estimates (conservative).
+	tokensPerMessageOverhead  = 4
+	tokensPerToolCallOverhead = 6
+	tokensReplyOverhead       = 3
+	tokenEstimateMargin       = 1.05
 )
