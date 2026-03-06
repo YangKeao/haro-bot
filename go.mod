@@ -8,6 +8,7 @@ require (
 	github.com/go-telegram/bot v1.19.0
 	github.com/openai/openai-go v1.12.0
 	github.com/playwright-community/playwright-go v0.5700.1
+	github.com/pkoukk/tiktoken-go v0.1.8
 	go.uber.org/zap v1.27.1
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/datatypes v1.2.7
@@ -23,6 +24,7 @@ require (
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.4 // indirect
 	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
+	github.com/dlclark/regexp2 v1.10.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.5.0 // indirect

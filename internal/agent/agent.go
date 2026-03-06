@@ -25,16 +25,18 @@ type Agent struct {
 	llm            *llm.Client
 	model          string
 	promptFormat   string
-	maxContext     int
 	reasoning      llm.ReasoningConfig
+	contextConfig  llm.ContextConfig
+	tokenEstimator *llm.TokenEstimator
 }
 
-func New(store *memory.Store, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig) *Agent {
+func New(store *memory.Store, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
 	if maxToolTurns <= 0 {
 		maxToolTurns = 1024
 	}
 	promptBuilder := DefaultPromptBuilder{}
 	toolRunner := NewToolRunner(toolRegistry, store, skills, promptBuilder)
+	estimator, _ := llm.NewTokenEstimator(model)
 	return &Agent{
 		store:          store,
 		skills:         skills,
@@ -46,8 +48,9 @@ func New(store *memory.Store, skills *skills.Manager, toolRegistry *tools.Regist
 		llm:            llmClient,
 		model:          model,
 		promptFormat:   promptFormat,
-		maxContext:     20,
 		reasoning:      reasoning,
+		contextConfig:  contextConfig,
+		tokenEstimator: estimator,
 	}
 }
 
@@ -77,16 +80,29 @@ func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel strin
 		return "", err
 	}
 	availableSkills := a.skills.List()
-	recent, anchor, err := a.store.LoadViewMessages(ctx, sessionID, a.maxContext)
+	recent, anchor, err := a.store.LoadViewMessages(ctx, sessionID, 0)
 	if err != nil {
 		return "", err
 	}
 	systemPrompt := a.promptBuilder.System(memories, availableSkills, a.promptFormat)
-	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	baseMessages := []llm.Message{{Role: "system", Content: systemPrompt}}
 	if anchorMsg := formatAnchorMessage(anchor); anchorMsg != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: anchorMsg})
+		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: anchorMsg})
 	}
-	messages = append(messages, toLLMMessages(recent)...) // includes user input
+	estimator := a.estimatorForModel(model)
+	budget := computeTokenBudget(a.contextConfig)
+	baseTokens := estimator.CountMessages(baseMessages)
+	available := budget.InputBudget - baseTokens
+	if available < 0 {
+		available = 0
+	}
+	selected, selectedTokens := selectMessagesByTokens(recent, estimator, available)
+	usage := anchorUsage{TokensUsed: baseTokens + selectedTokens, TokenBudget: budget.AnchorBudget}
+	messages := baseMessages
+	if hint := anchorHint(selected, usage); hint != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: hint})
+	}
+	messages = append(messages, toLLMMessages(selected)...) // includes user input
 	output, err := a.runLoop(ctx, sessionID, userID, messages, model, nil)
 	if err != nil {
 		log.Error("handle failed", zap.Int64("session_id", sessionID), zap.Error(err))
@@ -114,15 +130,32 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 		return "", err
 	}
 	systemPrompt := a.promptBuilder.Interrupt(memories, a.promptFormat)
-	recent, anchor, err := a.store.LoadViewMessages(ctx, sessionID, a.maxContext)
+	recent, anchor, err := a.store.LoadViewMessages(ctx, sessionID, 0)
 	if err != nil {
 		return "", err
 	}
-	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	baseMessages := []llm.Message{{Role: "system", Content: systemPrompt}}
 	if anchorMsg := formatAnchorMessage(anchor); anchorMsg != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: anchorMsg})
+		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: anchorMsg})
 	}
-	messages = append(messages, toLLMMessages(recent)...)
+	estimator := a.estimatorForModel(model)
+	budget := computeTokenBudget(a.contextConfig)
+	baseTokens := estimator.CountMessages(baseMessages)
+	inputTokens := 0
+	if !storeInSession {
+		inputTokens = estimator.CountMessage(llm.Message{Role: "user", Content: input})
+	}
+	available := budget.InputBudget - baseTokens - inputTokens
+	if available < 0 {
+		available = 0
+	}
+	selected, selectedTokens := selectMessagesByTokens(recent, estimator, available)
+	usage := anchorUsage{TokensUsed: baseTokens + inputTokens + selectedTokens, TokenBudget: budget.AnchorBudget}
+	messages := baseMessages
+	if hint := anchorHint(selected, usage); hint != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: hint})
+	}
+	messages = append(messages, toLLMMessages(selected)...)
 	if !storeInSession {
 		messages = append(messages, llm.Message{Role: "user", Content: input})
 	}
@@ -211,18 +244,22 @@ func (a *Agent) runLoop(ctx context.Context, sessionID int64, userID int64, mess
 func toLLMMessages(msgs []memory.Message) []llm.Message {
 	out := make([]llm.Message, 0, len(msgs))
 	for _, m := range msgs {
-		llmMsg := llm.Message{Role: m.Role, Content: m.Content}
-		if m.Metadata != nil {
-			if m.Metadata.ToolCallID != "" {
-				llmMsg.ToolCallID = m.Metadata.ToolCallID
-			}
-			if len(m.Metadata.ToolCalls) > 0 {
-				llmMsg.ToolCalls = m.Metadata.ToolCalls
-			}
-		}
-		out = append(out, llmMsg)
+		out = append(out, toLLMMessage(m))
 	}
 	return out
+}
+
+func toLLMMessage(m memory.Message) llm.Message {
+	llmMsg := llm.Message{Role: m.Role, Content: m.Content}
+	if m.Metadata != nil {
+		if m.Metadata.ToolCallID != "" {
+			llmMsg.ToolCallID = m.Metadata.ToolCallID
+		}
+		if len(m.Metadata.ToolCalls) > 0 {
+			llmMsg.ToolCalls = m.Metadata.ToolCalls
+		}
+	}
+	return llmMsg
 }
 
 func formatAnchorMessage(anchor *memory.Anchor) string {
@@ -263,4 +300,25 @@ func (a *Agent) toolsFor() []llm.Tool {
 		})
 	}
 	return tools
+}
+
+func (a *Agent) estimatorForModel(model string) *llm.TokenEstimator {
+	if a == nil {
+		return nil
+	}
+	if model == "" || model == a.model {
+		if a.tokenEstimator != nil {
+			return a.tokenEstimator
+		}
+		estimator, err := llm.NewTokenEstimator(a.model)
+		if err != nil {
+			return nil
+		}
+		return estimator
+	}
+	estimator, err := llm.NewTokenEstimator(model)
+	if err != nil {
+		return a.tokenEstimator
+	}
+	return estimator
 }

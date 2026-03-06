@@ -77,6 +77,11 @@ func main() {
 	)
 	toolRegistry.Register(tools.NewExecTool(fsTools, 64*1024))
 	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
+	contextCfg := llm.ContextConfig{
+		WindowTokens:                  cfg.LLMContextWindow,
+		AutoCompactTokenLimit:         cfg.LLMAutoCompactTokenLimit,
+		EffectiveContextWindowPercent: cfg.LLMEffectiveContextWindowPercent,
+	}
 
 	agentSvc := agent.New(
 		store,
@@ -88,6 +93,7 @@ func main() {
 		cfg.LLMModel,
 		string(cfg.LLMPromptFormat),
 		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
+		contextCfg,
 	)
 	forkMgr := fork.NewManager(agentSvc, store)
 	toolRegistry.Register(fork.NewForkTool(forkMgr))

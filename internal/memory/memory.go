@@ -325,18 +325,16 @@ func (s *Store) softDeleteMessages(ctx context.Context, ids []int64) error {
 }
 
 func (s *Store) loadMessagesAfter(ctx context.Context, sessionID, afterID int64, limit int) ([]Message, error) {
-	if limit <= 0 {
-		limit = 20
-	}
 	query := s.db.WithContext(ctx).
 		Where("session_id = ? AND deleted_at IS NULL", sessionID)
 	if afterID > 0 {
 		query = query.Where("id > ?", afterID)
 	}
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
 	var records []dbmodel.Message
-	if err := query.Order("id DESC").
-		Limit(limit).
-		Find(&records).Error; err != nil {
+	if err := query.Order("id DESC").Find(&records).Error; err != nil {
 		return nil, err
 	}
 	msgs := make([]Message, 0, len(records))

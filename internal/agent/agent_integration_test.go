@@ -24,7 +24,7 @@ func TestAgentStoresAssistantResponse(t *testing.T) {
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
+	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "u-tool-loop")

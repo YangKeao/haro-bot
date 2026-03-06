@@ -18,6 +18,9 @@ This service provides an OpenAI-compatible API and a Telegram webhook, with all 
   - `LLM_REASONING_ENABLED` (default `false`)
   - `LLM_REASONING_EFFORT` (for example `low`/`medium`/`high` or custom values like `xhigh`; passed through to the API and only applied when enabled)
   - `LLM_HTTP_DEBUG` (default `false`; logs raw request/response bodies, with auth headers redacted)
+  - `LLM_CONTEXT_WINDOW` (model context window in tokens; enables token-based trimming and anchor hints)
+  - `LLM_AUTO_COMPACT_TOKEN_LIMIT` (optional; if set, clamp auto-compaction/anchor threshold to this value, but never above 90% of `LLM_CONTEXT_WINDOW`)
+  - `LLM_EFFECTIVE_CONTEXT_WINDOW_PERCENT` (default `95`; percentage of context window usable for inputs after headroom)
   - `TELEGRAM_BOT_TOKEN`
   - `SKILLS_DIR` (default `./skills`)
   - `SKILLS_REPO_ALLOWLIST` (comma-separated URL prefixes)

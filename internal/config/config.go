@@ -27,9 +27,12 @@ type Config struct {
 	LLMModel        string
 	LLMPromptFormat PromptFormat
 
-	LLMReasoningEnabled bool
-	LLMReasoningEffort  string
-	LLMHTTPDebug        bool
+	LLMReasoningEnabled              bool
+	LLMReasoningEffort               string
+	LLMHTTPDebug                     bool
+	LLMContextWindow                 int
+	LLMAutoCompactTokenLimit         int
+	LLMEffectiveContextWindowPercent int
 
 	TelegramToken string
 
@@ -46,22 +49,25 @@ type Config struct {
 }
 
 type ConfigRecord struct {
-	ServerAddr          string   `json:"server_addr"`
-	LLMBaseURL          string   `json:"llm_base_url"`
-	LLMAPIKey           string   `json:"llm_api_key"`
-	LLMModel            string   `json:"llm_model"`
-	LLMPromptFormat     string   `json:"llm_prompt_format"`
-	LLMReasoningEnabled bool     `json:"llm_reasoning_enabled"`
-	LLMReasoningEffort  string   `json:"llm_reasoning_effort"`
-	LLMHTTPDebug        bool     `json:"llm_http_debug"`
-	TelegramToken       string   `json:"telegram_token"`
-	SkillsDir           string   `json:"skills_dir"`
-	SkillsRepoAllowlist []string `json:"skills_repo_allowlist"`
-	SkillsSyncInterval  string   `json:"skills_sync_interval"`
-	BraveSearchAPIKey   string   `json:"brave_search_api_key"`
-	FSAllowedRoots      []string `json:"fs_allowed_roots"`
-	FSAllowedExecDirs   []string `json:"fs_allowed_exec_dirs"`
-	ToolMaxTurns        int      `json:"tool_max_turns"`
+	ServerAddr                       string   `json:"server_addr"`
+	LLMBaseURL                       string   `json:"llm_base_url"`
+	LLMAPIKey                        string   `json:"llm_api_key"`
+	LLMModel                         string   `json:"llm_model"`
+	LLMPromptFormat                  string   `json:"llm_prompt_format"`
+	LLMReasoningEnabled              bool     `json:"llm_reasoning_enabled"`
+	LLMReasoningEffort               string   `json:"llm_reasoning_effort"`
+	LLMHTTPDebug                     bool     `json:"llm_http_debug"`
+	LLMContextWindow                 int      `json:"llm_context_window"`
+	LLMAutoCompactTokenLimit         int      `json:"llm_auto_compact_token_limit"`
+	LLMEffectiveContextWindowPercent int      `json:"llm_effective_context_window_percent"`
+	TelegramToken                    string   `json:"telegram_token"`
+	SkillsDir                        string   `json:"skills_dir"`
+	SkillsRepoAllowlist              []string `json:"skills_repo_allowlist"`
+	SkillsSyncInterval               string   `json:"skills_sync_interval"`
+	BraveSearchAPIKey                string   `json:"brave_search_api_key"`
+	FSAllowedRoots                   []string `json:"fs_allowed_roots"`
+	FSAllowedExecDirs                []string `json:"fs_allowed_exec_dirs"`
+	ToolMaxTurns                     int      `json:"tool_max_turns"`
 }
 
 func LoadBase() Config {
@@ -142,14 +148,15 @@ func saveRecord(ctx context.Context, db *gorm.DB, rec ConfigRecord) error {
 func defaultRecord() ConfigRecord {
 	skillsDir := "./skills"
 	return ConfigRecord{
-		ServerAddr:         ":8080",
-		LLMBaseURL:         "https://api.openai.com/v1",
-		LLMModel:           "gpt-4o-mini",
-		LLMPromptFormat:    string(PromptFormatOpenAI),
-		SkillsDir:          skillsDir,
-		SkillsSyncInterval: "10m",
-		FSAllowedRoots:     []string{skillsDir},
-		ToolMaxTurns:       1024,
+		ServerAddr:                       ":8080",
+		LLMBaseURL:                       "https://api.openai.com/v1",
+		LLMModel:                         "gpt-4o-mini",
+		LLMPromptFormat:                  string(PromptFormatOpenAI),
+		LLMEffectiveContextWindowPercent: 95,
+		SkillsDir:                        skillsDir,
+		SkillsSyncInterval:               "10m",
+		FSAllowedRoots:                   []string{skillsDir},
+		ToolMaxTurns:                     1024,
 	}
 }
 
@@ -166,6 +173,9 @@ func (r ConfigRecord) withDefaults() ConfigRecord {
 	}
 	if r.LLMPromptFormat == "" {
 		r.LLMPromptFormat = def.LLMPromptFormat
+	}
+	if r.LLMEffectiveContextWindowPercent <= 0 {
+		r.LLMEffectiveContextWindowPercent = def.LLMEffectiveContextWindowPercent
 	}
 	if r.SkillsDir == "" {
 		r.SkillsDir = def.SkillsDir
@@ -191,22 +201,25 @@ func (r ConfigRecord) toConfig() Config {
 	}
 	format := NormalizePromptFormat(r.LLMPromptFormat)
 	cfg := Config{
-		ServerAddr:          r.ServerAddr,
-		LLMBaseURL:          r.LLMBaseURL,
-		LLMAPIKey:           r.LLMAPIKey,
-		LLMModel:            r.LLMModel,
-		LLMPromptFormat:     format,
-		LLMReasoningEnabled: r.LLMReasoningEnabled,
-		LLMReasoningEffort:  r.LLMReasoningEffort,
-		LLMHTTPDebug:        r.LLMHTTPDebug,
-		TelegramToken:       r.TelegramToken,
-		SkillsDir:           r.SkillsDir,
-		SkillsRepoAllowlist: r.SkillsRepoAllowlist,
-		SkillsSyncInterval:  syncInterval,
-		BraveSearchAPIKey:   r.BraveSearchAPIKey,
-		FSAllowedRoots:      fsRoots,
-		FSAllowedExecDirs:   r.FSAllowedExecDirs,
-		ToolMaxTurns:        r.ToolMaxTurns,
+		ServerAddr:                       r.ServerAddr,
+		LLMBaseURL:                       r.LLMBaseURL,
+		LLMAPIKey:                        r.LLMAPIKey,
+		LLMModel:                         r.LLMModel,
+		LLMPromptFormat:                  format,
+		LLMReasoningEnabled:              r.LLMReasoningEnabled,
+		LLMReasoningEffort:               r.LLMReasoningEffort,
+		LLMHTTPDebug:                     r.LLMHTTPDebug,
+		LLMContextWindow:                 r.LLMContextWindow,
+		LLMAutoCompactTokenLimit:         r.LLMAutoCompactTokenLimit,
+		LLMEffectiveContextWindowPercent: r.LLMEffectiveContextWindowPercent,
+		TelegramToken:                    r.TelegramToken,
+		SkillsDir:                        r.SkillsDir,
+		SkillsRepoAllowlist:              r.SkillsRepoAllowlist,
+		SkillsSyncInterval:               syncInterval,
+		BraveSearchAPIKey:                r.BraveSearchAPIKey,
+		FSAllowedRoots:                   fsRoots,
+		FSAllowedExecDirs:                r.FSAllowedExecDirs,
+		ToolMaxTurns:                     r.ToolMaxTurns,
 	}
 	return cfg
 }
@@ -214,6 +227,12 @@ func (r ConfigRecord) toConfig() Config {
 func (r *ConfigRecord) normalize() {
 	r.LLMPromptFormat = string(NormalizePromptFormat(r.LLMPromptFormat))
 	r.LLMReasoningEffort = strings.ToLower(strings.TrimSpace(r.LLMReasoningEffort))
+	if r.LLMEffectiveContextWindowPercent <= 0 {
+		r.LLMEffectiveContextWindowPercent = 95
+	}
+	if r.LLMEffectiveContextWindowPercent > 100 {
+		r.LLMEffectiveContextWindowPercent = 100
+	}
 }
 
 func (r *ConfigRecord) applyEnvOverrides() {
@@ -243,6 +262,21 @@ func (r *ConfigRecord) applyEnvOverrides() {
 	if v := os.Getenv("LLM_HTTP_DEBUG"); v != "" {
 		if b, err := parseBool(v); err == nil {
 			r.LLMHTTPDebug = b
+		}
+	}
+	if v := os.Getenv("LLM_CONTEXT_WINDOW"); v != "" {
+		if n, err := parseInt(v); err == nil {
+			r.LLMContextWindow = n
+		}
+	}
+	if v := os.Getenv("LLM_AUTO_COMPACT_TOKEN_LIMIT"); v != "" {
+		if n, err := parseInt(v); err == nil {
+			r.LLMAutoCompactTokenLimit = n
+		}
+	}
+	if v := os.Getenv("LLM_EFFECTIVE_CONTEXT_WINDOW_PERCENT"); v != "" {
+		if n, err := parseInt(v); err == nil {
+			r.LLMEffectiveContextWindowPercent = n
 		}
 	}
 	if v := os.Getenv("TELEGRAM_BOT_TOKEN"); v != "" {
