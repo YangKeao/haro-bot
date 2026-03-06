@@ -27,3 +27,4 @@
 
 # Local artifacts
 /agentd
+config.toml

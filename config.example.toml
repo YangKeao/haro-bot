@@ -1,31 +1,38 @@
-# Example configuration for haro-bot
+[server]
+addr = ":8080"
 
-server_addr = ":8080"
+[db]
 tidb_dsn = "root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true"
 
-llm_base_url = "https://api.openai.com/v1"
-llm_api_key = "sk-..."
-llm_model = "gpt-4o-mini"
-llm_prompt_format = "openai"
-llm_reasoning_enabled = false
-llm_reasoning_effort = ""
-llm_http_debug = false
-llm_context_window = 0
-llm_auto_compact_token_limit = 0
-llm_effective_context_window_percent = 95
+[llm]
+base_url = "https://api.openai.com/v1"
+api_key = "sk-..."
+model = "gpt-4o-mini"
+prompt_format = "openai"
+reasoning_enabled = false
+reasoning_effort = ""
+http_debug = false
+context_window = 0
+auto_compact_token_limit = 0
+effective_context_window_percent = 95
 
-telegram_token = ""
+[telegram]
+token = ""
 
-skills_dir = "./skills"
-skills_repo_allowlist = []
-skills_sync_interval = "10m"
+[skills]
+dir = "./skills"
+repo_allowlist = []
+sync_interval = "10m"
 
-brave_search_api_key = ""
+[brave]
+search_api_key = ""
 
-fs_allowed_roots = ["./skills"]
-fs_allowed_exec_dirs = []
+[fs]
+allowed_roots = ["./skills"]
+allowed_exec_dirs = []
 
-tool_max_turns = 1024
+[tool]
+max_turns = 1024
 
 [log]
 level = "info"

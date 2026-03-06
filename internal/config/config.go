@@ -48,37 +48,61 @@ type Config struct {
 	Log LogConfig
 }
 
-type fileConfig struct {
-	ServerAddr string `toml:"server_addr"`
+type serverConfig struct {
+	Addr string `toml:"addr"`
+}
 
+type dbConfig struct {
 	TiDBDSN string `toml:"tidb_dsn"`
+}
 
-	LLMBaseURL      string `toml:"llm_base_url"`
-	LLMAPIKey       string `toml:"llm_api_key"`
-	LLMModel        string `toml:"llm_model"`
-	LLMPromptFormat string `toml:"llm_prompt_format"`
+type llmConfig struct {
+	BaseURL      string `toml:"base_url"`
+	APIKey       string `toml:"api_key"`
+	Model        string `toml:"model"`
+	PromptFormat string `toml:"prompt_format"`
 
-	LLMReasoningEnabled              bool   `toml:"llm_reasoning_enabled"`
-	LLMReasoningEffort               string `toml:"llm_reasoning_effort"`
-	LLMHTTPDebug                     bool   `toml:"llm_http_debug"`
-	LLMContextWindow                 int    `toml:"llm_context_window"`
-	LLMAutoCompactTokenLimit         int    `toml:"llm_auto_compact_token_limit"`
-	LLMEffectiveContextWindowPercent int    `toml:"llm_effective_context_window_percent"`
+	ReasoningEnabled              bool   `toml:"reasoning_enabled"`
+	ReasoningEffort               string `toml:"reasoning_effort"`
+	HTTPDebug                     bool   `toml:"http_debug"`
+	ContextWindow                 int    `toml:"context_window"`
+	AutoCompactTokenLimit         int    `toml:"auto_compact_token_limit"`
+	EffectiveContextWindowPercent int    `toml:"effective_context_window_percent"`
+}
 
-	TelegramToken string `toml:"telegram_token"`
+type telegramConfig struct {
+	Token string `toml:"token"`
+}
 
-	SkillsDir           string   `toml:"skills_dir"`
-	SkillsRepoAllowlist []string `toml:"skills_repo_allowlist"`
-	SkillsSyncInterval  string   `toml:"skills_sync_interval"`
+type skillsConfig struct {
+	Dir           string   `toml:"dir"`
+	RepoAllowlist []string `toml:"repo_allowlist"`
+	SyncInterval  string   `toml:"sync_interval"`
+}
 
-	BraveSearchAPIKey string `toml:"brave_search_api_key"`
+type braveConfig struct {
+	SearchAPIKey string `toml:"search_api_key"`
+}
 
-	FSAllowedRoots    []string `toml:"fs_allowed_roots"`
-	FSAllowedExecDirs []string `toml:"fs_allowed_exec_dirs"`
+type fsConfig struct {
+	AllowedRoots    []string `toml:"allowed_roots"`
+	AllowedExecDirs []string `toml:"allowed_exec_dirs"`
+}
 
-	ToolMaxTurns int `toml:"tool_max_turns"`
+type toolConfig struct {
+	MaxTurns int `toml:"max_turns"`
+}
 
-	Log LogConfig `toml:"log"`
+type fileConfig struct {
+	Server   serverConfig   `toml:"server"`
+	DB       dbConfig       `toml:"db"`
+	LLM      llmConfig      `toml:"llm"`
+	Telegram telegramConfig `toml:"telegram"`
+	Skills   skillsConfig   `toml:"skills"`
+	Brave    braveConfig    `toml:"brave"`
+	FS       fsConfig       `toml:"fs"`
+	Tool     toolConfig     `toml:"tool"`
+	Log      LogConfig      `toml:"log"`
 }
 
 func LoadFromFile(path string) (Config, error) {
@@ -102,16 +126,28 @@ func LoadFromFile(path string) (Config, error) {
 func defaultFileConfig() fileConfig {
 	skillsDir := "./skills"
 	return fileConfig{
-		ServerAddr:                       ":8080",
-		TiDBDSN:                          "root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true",
-		LLMBaseURL:                       "https://api.openai.com/v1",
-		LLMModel:                         "gpt-4o-mini",
-		LLMPromptFormat:                  string(PromptFormatOpenAI),
-		LLMEffectiveContextWindowPercent: 95,
-		SkillsDir:                        skillsDir,
-		SkillsSyncInterval:               "10m",
-		FSAllowedRoots:                   []string{skillsDir},
-		ToolMaxTurns:                     1024,
+		Server: serverConfig{
+			Addr: ":8080",
+		},
+		DB: dbConfig{
+			TiDBDSN: "root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true",
+		},
+		LLM: llmConfig{
+			BaseURL:                       "https://api.openai.com/v1",
+			Model:                         "gpt-4o-mini",
+			PromptFormat:                  string(PromptFormatOpenAI),
+			EffectiveContextWindowPercent: 95,
+		},
+		Skills: skillsConfig{
+			Dir:          skillsDir,
+			SyncInterval: "10m",
+		},
+		FS: fsConfig{
+			AllowedRoots: []string{skillsDir},
+		},
+		Tool: toolConfig{
+			MaxTurns: 1024,
+		},
 		Log: LogConfig{
 			Level:       "info",
 			Development: false,
@@ -122,35 +158,35 @@ func defaultFileConfig() fileConfig {
 
 func (r fileConfig) withDefaults() fileConfig {
 	def := defaultFileConfig()
-	if r.ServerAddr == "" {
-		r.ServerAddr = def.ServerAddr
+	if strings.TrimSpace(r.Server.Addr) == "" {
+		r.Server.Addr = def.Server.Addr
 	}
-	if r.TiDBDSN == "" {
-		r.TiDBDSN = def.TiDBDSN
+	if strings.TrimSpace(r.DB.TiDBDSN) == "" {
+		r.DB.TiDBDSN = def.DB.TiDBDSN
 	}
-	if r.LLMBaseURL == "" {
-		r.LLMBaseURL = def.LLMBaseURL
+	if strings.TrimSpace(r.LLM.BaseURL) == "" {
+		r.LLM.BaseURL = def.LLM.BaseURL
 	}
-	if r.LLMModel == "" {
-		r.LLMModel = def.LLMModel
+	if strings.TrimSpace(r.LLM.Model) == "" {
+		r.LLM.Model = def.LLM.Model
 	}
-	if r.LLMPromptFormat == "" {
-		r.LLMPromptFormat = def.LLMPromptFormat
+	if strings.TrimSpace(r.LLM.PromptFormat) == "" {
+		r.LLM.PromptFormat = def.LLM.PromptFormat
 	}
-	if r.LLMEffectiveContextWindowPercent <= 0 {
-		r.LLMEffectiveContextWindowPercent = def.LLMEffectiveContextWindowPercent
+	if r.LLM.EffectiveContextWindowPercent <= 0 {
+		r.LLM.EffectiveContextWindowPercent = def.LLM.EffectiveContextWindowPercent
 	}
-	if r.SkillsDir == "" {
-		r.SkillsDir = def.SkillsDir
+	if strings.TrimSpace(r.Skills.Dir) == "" {
+		r.Skills.Dir = def.Skills.Dir
 	}
-	if r.SkillsSyncInterval == "" {
-		r.SkillsSyncInterval = def.SkillsSyncInterval
+	if strings.TrimSpace(r.Skills.SyncInterval) == "" {
+		r.Skills.SyncInterval = def.Skills.SyncInterval
 	}
-	if len(r.FSAllowedRoots) == 0 {
-		r.FSAllowedRoots = []string{r.SkillsDir}
+	if len(r.FS.AllowedRoots) == 0 {
+		r.FS.AllowedRoots = []string{r.Skills.Dir}
 	}
-	if r.ToolMaxTurns <= 0 {
-		r.ToolMaxTurns = def.ToolMaxTurns
+	if r.Tool.MaxTurns <= 0 {
+		r.Tool.MaxTurns = def.Tool.MaxTurns
 	}
 	if strings.TrimSpace(r.Log.Level) == "" {
 		r.Log.Level = def.Log.Level
@@ -162,45 +198,45 @@ func (r fileConfig) withDefaults() fileConfig {
 }
 
 func (r *fileConfig) normalize() {
-	r.LLMPromptFormat = string(NormalizePromptFormat(r.LLMPromptFormat))
-	r.LLMReasoningEffort = strings.ToLower(strings.TrimSpace(r.LLMReasoningEffort))
-	if r.LLMEffectiveContextWindowPercent <= 0 {
-		r.LLMEffectiveContextWindowPercent = 95
+	r.LLM.PromptFormat = string(NormalizePromptFormat(r.LLM.PromptFormat))
+	r.LLM.ReasoningEffort = strings.ToLower(strings.TrimSpace(r.LLM.ReasoningEffort))
+	if r.LLM.EffectiveContextWindowPercent <= 0 {
+		r.LLM.EffectiveContextWindowPercent = 95
 	}
-	if r.LLMEffectiveContextWindowPercent > 100 {
-		r.LLMEffectiveContextWindowPercent = 100
+	if r.LLM.EffectiveContextWindowPercent > 100 {
+		r.LLM.EffectiveContextWindowPercent = 100
 	}
 }
 
 func (r fileConfig) toConfig() Config {
 	r = r.withDefaults()
-	syncInterval := parseDurationDefault(r.SkillsSyncInterval, 10*time.Minute)
-	fsRoots := r.FSAllowedRoots
+	syncInterval := parseDurationDefault(r.Skills.SyncInterval, 10*time.Minute)
+	fsRoots := r.FS.AllowedRoots
 	if len(fsRoots) == 0 {
-		fsRoots = []string{r.SkillsDir}
+		fsRoots = []string{r.Skills.Dir}
 	}
-	format := NormalizePromptFormat(r.LLMPromptFormat)
+	format := NormalizePromptFormat(r.LLM.PromptFormat)
 	return Config{
-		ServerAddr:                       r.ServerAddr,
-		TiDBDSN:                          r.TiDBDSN,
-		LLMBaseURL:                       r.LLMBaseURL,
-		LLMAPIKey:                        r.LLMAPIKey,
-		LLMModel:                         r.LLMModel,
+		ServerAddr:                       r.Server.Addr,
+		TiDBDSN:                          r.DB.TiDBDSN,
+		LLMBaseURL:                       r.LLM.BaseURL,
+		LLMAPIKey:                        r.LLM.APIKey,
+		LLMModel:                         r.LLM.Model,
 		LLMPromptFormat:                  format,
-		LLMReasoningEnabled:              r.LLMReasoningEnabled,
-		LLMReasoningEffort:               r.LLMReasoningEffort,
-		LLMHTTPDebug:                     r.LLMHTTPDebug,
-		LLMContextWindow:                 r.LLMContextWindow,
-		LLMAutoCompactTokenLimit:         r.LLMAutoCompactTokenLimit,
-		LLMEffectiveContextWindowPercent: r.LLMEffectiveContextWindowPercent,
-		TelegramToken:                    r.TelegramToken,
-		SkillsDir:                        r.SkillsDir,
-		SkillsRepoAllowlist:              r.SkillsRepoAllowlist,
+		LLMReasoningEnabled:              r.LLM.ReasoningEnabled,
+		LLMReasoningEffort:               r.LLM.ReasoningEffort,
+		LLMHTTPDebug:                     r.LLM.HTTPDebug,
+		LLMContextWindow:                 r.LLM.ContextWindow,
+		LLMAutoCompactTokenLimit:         r.LLM.AutoCompactTokenLimit,
+		LLMEffectiveContextWindowPercent: r.LLM.EffectiveContextWindowPercent,
+		TelegramToken:                    r.Telegram.Token,
+		SkillsDir:                        r.Skills.Dir,
+		SkillsRepoAllowlist:              r.Skills.RepoAllowlist,
 		SkillsSyncInterval:               syncInterval,
-		BraveSearchAPIKey:                r.BraveSearchAPIKey,
+		BraveSearchAPIKey:                r.Brave.SearchAPIKey,
 		FSAllowedRoots:                   fsRoots,
-		FSAllowedExecDirs:                r.FSAllowedExecDirs,
-		ToolMaxTurns:                     r.ToolMaxTurns,
+		FSAllowedExecDirs:                r.FS.AllowedExecDirs,
+		ToolMaxTurns:                     r.Tool.MaxTurns,
 		Log:                              r.Log,
 	}
 }
