@@ -34,7 +34,6 @@ type Config struct {
 	SkillsSyncInterval  time.Duration
 
 	FSAllowedRoots    []string
-	FSAllowExec       bool
 	FSAllowedExecDirs []string
 
 	ToolMaxTurns int
@@ -51,7 +50,6 @@ type ConfigRecord struct {
 	SkillsRepoAllowlist []string `json:"skills_repo_allowlist"`
 	SkillsSyncInterval  string   `json:"skills_sync_interval"`
 	FSAllowedRoots      []string `json:"fs_allowed_roots"`
-	FSAllowExec         bool     `json:"fs_allow_exec"`
 	FSAllowedExecDirs   []string `json:"fs_allowed_exec_dirs"`
 	ToolMaxTurns        int      `json:"tool_max_turns"`
 }
@@ -193,7 +191,6 @@ func (r ConfigRecord) toConfig() Config {
 		SkillsRepoAllowlist: r.SkillsRepoAllowlist,
 		SkillsSyncInterval:  syncInterval,
 		FSAllowedRoots:      fsRoots,
-		FSAllowExec:         r.FSAllowExec,
 		FSAllowedExecDirs:   r.FSAllowedExecDirs,
 		ToolMaxTurns:        r.ToolMaxTurns,
 	}
@@ -234,9 +231,6 @@ func (r *ConfigRecord) applyEnvOverrides() {
 	}
 	if v := os.Getenv("FS_ALLOWED_ROOTS"); v != "" {
 		r.FSAllowedRoots = splitComma(v)
-	}
-	if envBool("FS_ALLOW_EXEC") || envBool("SKILLS_ALLOW_SCRIPTS") {
-		r.FSAllowExec = true
 	}
 	if v := os.Getenv("FS_ALLOWED_EXEC_DIRS"); v != "" {
 		r.FSAllowedExecDirs = splitComma(v)
@@ -281,11 +275,6 @@ func parseInt(v string) (int, error) {
 		return 0, err
 	}
 	return n, nil
-}
-
-func envBool(key string) bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
-	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
 func splitComma(v string) []string {

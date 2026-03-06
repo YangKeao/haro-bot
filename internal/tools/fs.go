@@ -24,25 +24,16 @@ var (
 
 type FS struct {
 	allowedRoots    []string
-	allowExec       bool
 	allowedExecDirs []string
 	audit           AuditLogger
 }
 
-func NewFS(allowedRoots []string, allowExec bool, allowedExecDirs []string, audit AuditLogger) *FS {
+func NewFS(allowedRoots []string, allowedExecDirs []string, audit AuditLogger) *FS {
 	return &FS{
 		allowedRoots:    canonicalizeRoots(allowedRoots),
-		allowExec:       allowExec,
 		allowedExecDirs: allowedExecDirs,
 		audit:           audit,
 	}
-}
-
-func (f *FS) ExecEnabled() bool {
-	if f == nil {
-		return false
-	}
-	return f.allowExec
 }
 
 func (f *FS) DefaultBase() string {
@@ -223,12 +214,6 @@ func (f *FS) Search(ctx context.Context, sessionID, userID int64, baseDir, patte
 
 func (f *FS) Exec(ctx context.Context, sessionID, userID int64, baseDir, path string, args []string, timeout time.Duration, maxOutputBytes int) (string, error) {
 	log := logging.L().Named("fs")
-	if !f.allowExec {
-		err := errors.New("exec disabled")
-		f.auditError(ctx, sessionID, userID, "exec", path, false, err)
-		log.Warn("exec disabled", zap.String("path", path))
-		return "", err
-	}
 	abs, allowed, err := f.resolvePath(baseDir, path, false)
 	if err != nil {
 		f.auditError(ctx, sessionID, userID, "exec", path, allowed, err)

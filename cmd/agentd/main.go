@@ -55,7 +55,7 @@ func main() {
 	skillsStore := skills.NewStore(dbConn)
 	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
 	auditStore := tools.NewAuditStore(dbConn)
-	fsTools := tools.NewFS(cfg.FSAllowedRoots, cfg.FSAllowExec, cfg.FSAllowedExecDirs, auditStore)
+	fsTools := tools.NewFS(cfg.FSAllowedRoots, cfg.FSAllowedExecDirs, auditStore)
 	browserMgr := tools.NewBrowserManager()
 	toolRegistry := tools.NewRegistry(
 		tools.NewBrowserGotoTool(browserMgr),
@@ -73,9 +73,7 @@ func main() {
 		tools.NewSearchTool(fsTools),
 		tools.NewEditTool(fsTools),
 	)
-	if fsTools.ExecEnabled() {
-		toolRegistry.Register(tools.NewExecTool(fsTools, 64*1024))
-	}
+	toolRegistry.Register(tools.NewExecTool(fsTools, 64*1024))
 	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey)
 
 	agentSvc := agent.New(store, skillsMgr, toolRegistry, fsTools.DefaultBase(), cfg.ToolMaxTurns, llmClient, cfg.LLMModel, string(cfg.LLMPromptFormat))

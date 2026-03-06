@@ -20,9 +20,8 @@ This service provides an OpenAI-compatible API and a Telegram webhook, with all 
   - `SKILLS_REPO_ALLOWLIST` (comma-separated URL prefixes)
   - `SKILLS_SYNC_INTERVAL` (default `10m`)
   - `FS_ALLOWED_ROOTS` (comma-separated absolute/relative paths; default `SKILLS_DIR`)
-  - `FS_ALLOW_EXEC` (default `false`)
   - `FS_ALLOWED_EXEC_DIRS` (comma-separated relative paths for exec; default `scripts/`)
-  - `SKILLS_ALLOW_SCRIPTS` / `SKILLS_ALLOWED_SCRIPT_DIRS` are accepted for backward compatibility.
+  - `SKILLS_ALLOWED_SCRIPT_DIRS` is accepted for backward compatibility.
   - `TOOL_MAX_TURNS` (default `1024`)
   - `LOG_LEVEL` (debug/info/warn/error)
   - `LOG_DEV` (true/false; enables console logging)
@@ -30,13 +29,13 @@ This service provides an OpenAI-compatible API and a Telegram webhook, with all 
 
 **Skills Repo Layout**
 Each skill is a directory containing `SKILL.md` with YAML frontmatter. The skill directory name must match the `name` field in the frontmatter.
-Filesystem tools are global (available even without skill activation) and are protected by `FS_ALLOWED_ROOTS`: `read`, `write`, `search`, `edit`, `exec` (exec may be disabled).
+Filesystem tools are global (available even without skill activation) and are protected by `FS_ALLOWED_ROOTS`: `read`, `write`, `search`, `edit`, `exec`.
 Browser tools use headless Playwright: `browser_goto`, `browser_go_back`, `browser_get_page_state`, `browser_take_screenshot`, `browser_click`, `browser_fill_text`, `browser_press_key`, `browser_scroll`.
 
 **Security Notes**
 - Skills are fetched only from allowed repo URL prefixes.
 - Filesystem tools operate only within `FS_ALLOWED_ROOTS` and reject symlink traversal.
-- Script execution is disabled by default and can be enabled with allowlists. Consider running the service inside a container or sandbox for stronger isolation.
+- Script execution is always available but restricted to allowed roots and exec dirs. Consider running the service inside a container or sandbox for stronger isolation.
 - Skills are synced using `go-git` (no system `git` binary required).
 - Subdirectory-only repositories are supported via `source_subdir` (TODO: sparse checkout when go-git adds support).
 - Filesystem tool usage is audited in `tool_audit`.
