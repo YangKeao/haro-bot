@@ -60,15 +60,15 @@ func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
 	if options.httpDebug {
 		httpClient.Transport = newDebugTransport(http.DefaultTransport, options.httpDebugMaxBod)
 	}
-	opts := []option.RequestOption{option.WithHTTPClient(httpClient)}
+	reqOpts := []option.RequestOption{option.WithHTTPClient(httpClient)}
 	baseURL = strings.TrimRight(baseURL, "/")
 	if baseURL != "" {
-		opts = append(opts, option.WithBaseURL(baseURL))
+		reqOpts = append(reqOpts, option.WithBaseURL(baseURL))
 	}
 	if apiKey != "" {
-		opts = append(opts, option.WithAPIKey(apiKey))
+		reqOpts = append(reqOpts, option.WithAPIKey(apiKey))
 	}
-	c := openai.NewClient(opts...)
+	c := openai.NewClient(reqOpts...)
 	return &Client{
 		baseURL: baseURL,
 		apiKey:  apiKey,

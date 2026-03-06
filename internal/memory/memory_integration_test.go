@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	dbmodel "github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/testutil"
@@ -73,5 +74,58 @@ func TestLoadRecentMessagesPreservesMetadata(t *testing.T) {
 	}
 	if msgs[0].Metadata.ToolCallID != "call-1" {
 		t.Fatalf("expected tool_call_id to roundtrip, got %q", msgs[0].Metadata.ToolCallID)
+	}
+}
+
+func TestLoadRecentMessagesSoftDeletesInvalidToolOutputs(t *testing.T) {
+	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
+	t.Cleanup(cleanup)
+	store := memory.NewStore(gdb)
+	ctx := context.Background()
+
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "user-soft-delete")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	sessionID, err := store.GetOrCreateSession(ctx, userID, "soft-delete")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	toolCalls := []llm.ToolCall{
+		{ID: "call-ok", Type: "function", Function: llm.ToolCallFn{Name: "test", Arguments: `{}`}},
+	}
+	if err := store.AddMessage(ctx, sessionID, "assistant", "", &memory.MessageMetadata{ToolCalls: toolCalls}); err != nil {
+		t.Fatalf("add assistant message: %v", err)
+	}
+	if err := store.AddMessage(ctx, sessionID, "tool", "ok", &memory.MessageMetadata{ToolCallID: "call-ok"}); err != nil {
+		t.Fatalf("add tool message: %v", err)
+	}
+	if err := store.AddMessage(ctx, sessionID, "tool", "bad-unknown", &memory.MessageMetadata{ToolCallID: "call-missing"}); err != nil {
+		t.Fatalf("add invalid tool message: %v", err)
+	}
+	if err := store.AddMessage(ctx, sessionID, "tool", "bad-empty", &memory.MessageMetadata{}); err != nil {
+		t.Fatalf("add invalid tool message: %v", err)
+	}
+
+	msgs, err := store.LoadRecentMessages(ctx, sessionID, 10)
+	if err != nil {
+		t.Fatalf("load messages: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+	for _, msg := range msgs {
+		if msg.Content == "bad-unknown" || msg.Content == "bad-empty" {
+			t.Fatalf("unexpected invalid tool output in results: %+v", msg)
+		}
+	}
+
+	var deleted []dbmodel.Message
+	if err := gdb.Where("session_id = ? AND deleted_at IS NOT NULL", sessionID).Find(&deleted).Error; err != nil {
+		t.Fatalf("query deleted messages: %v", err)
+	}
+	if len(deleted) != 2 {
+		t.Fatalf("expected 2 soft deleted messages, got %d", len(deleted))
 	}
 }
