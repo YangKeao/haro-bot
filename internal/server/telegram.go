@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"unicode/utf8"
 
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/go-telegram/bot"
@@ -52,10 +53,56 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 		log.Error("telegram agent error", zap.Error(err))
 		return
 	}
-	if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: update.Message.Chat.ID,
-		Text:   output,
-	}); err != nil {
-		log.Error("telegram send error", zap.Error(err))
+	for _, chunk := range splitTelegramMessage(output) {
+		if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   chunk,
+		}); err != nil {
+			log.Error("telegram send error", zap.Error(err))
+			return
+		}
 	}
+}
+
+const (
+	telegramMaxMessageRunes  = 4096
+	telegramSafeMessageRunes = 3800
+)
+
+func splitTelegramMessage(text string) []string {
+	if text == "" {
+		return nil
+	}
+	max := telegramSafeMessageRunes
+	if max <= 0 || max > telegramMaxMessageRunes {
+		max = telegramMaxMessageRunes
+	}
+	if utf8.RuneCountInString(text) <= max {
+		return []string{text}
+	}
+	runes := []rune(text)
+	if len(runes) <= max {
+		return []string{text}
+	}
+	parts := make([]string, 0, (len(runes)/max)+1)
+	for start := 0; start < len(runes); {
+		end := start + max
+		if end >= len(runes) {
+			parts = append(parts, string(runes[start:]))
+			break
+		}
+		split := end
+		for i := end - 1; i > start; i-- {
+			if runes[i] == '\n' {
+				split = i + 1
+				break
+			}
+		}
+		if split == start {
+			split = end
+		}
+		parts = append(parts, string(runes[start:split]))
+		start = split
+	}
+	return parts
 }
