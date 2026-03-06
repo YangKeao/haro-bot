@@ -75,7 +75,7 @@ func (m *Manager) Start(ctx context.Context, parentSessionID, userID int64, inpu
 	if err != nil {
 		return 0, err
 	}
-	childID, err := m.store.CreateSession(ctx, userID, channel)
+	childID, err := m.store.GetOrCreateSession(ctx, userID, channel)
 	if err != nil {
 		log.Error("create child session failed", zap.Error(err))
 		return 0, err
@@ -161,7 +161,7 @@ func (m *Manager) copyRecent(ctx context.Context, parentSessionID, childSessionI
 	if limit <= 0 {
 		return nil
 	}
-	msgs, err := m.store.LoadRecentMessages(ctx, parentSessionID, limit)
+	msgs, _, err := m.store.LoadViewMessages(ctx, parentSessionID, limit)
 	if err != nil {
 		return err
 	}

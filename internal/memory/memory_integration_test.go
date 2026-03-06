@@ -18,7 +18,7 @@ func TestMemoryStoreRoundTrip(t *testing.T) {
 	store := memory.NewStore(gdb)
 	ctx := context.Background()
 
-	userID, err := store.GetOrCreateUserByExternalID(ctx, "user-1")
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 1001)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestMemoryStoreRoundTrip(t *testing.T) {
 	if err := store.AddMessage(ctx, sessionID, "user", "hello", &memory.MessageMetadata{Status: "ok"}); err != nil {
 		t.Fatalf("add message: %v", err)
 	}
-	msgs, err := store.LoadRecentMessages(ctx, sessionID, 10)
+	msgs, _, err := store.LoadViewMessages(ctx, sessionID, 10)
 	if err != nil {
 		t.Fatalf("load messages: %v", err)
 	}
@@ -38,13 +38,13 @@ func TestMemoryStoreRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLoadRecentMessagesPreservesMetadata(t *testing.T) {
+func TestLoadViewMessagesPreservesMetadata(t *testing.T) {
 	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
 	t.Cleanup(cleanup)
 	store := memory.NewStore(gdb)
 	ctx := context.Background()
 
-	userID, err := store.GetOrCreateUserByExternalID(ctx, "user-meta")
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 1002)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestLoadRecentMessagesPreservesMetadata(t *testing.T) {
 	if err := store.AddMessage(ctx, sessionID, "tool", "ok", meta); err != nil {
 		t.Fatalf("add message: %v", err)
 	}
-	msgs, err := store.LoadRecentMessages(ctx, sessionID, 10)
+	msgs, _, err := store.LoadViewMessages(ctx, sessionID, 10)
 	if err != nil {
 		t.Fatalf("load messages: %v", err)
 	}
@@ -77,13 +77,13 @@ func TestLoadRecentMessagesPreservesMetadata(t *testing.T) {
 	}
 }
 
-func TestLoadRecentMessagesSoftDeletesInvalidToolOutputs(t *testing.T) {
+func TestLoadViewMessagesSoftDeletesInvalidToolOutputs(t *testing.T) {
 	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
 	t.Cleanup(cleanup)
 	store := memory.NewStore(gdb)
 	ctx := context.Background()
 
-	userID, err := store.GetOrCreateUserByExternalID(ctx, "user-soft-delete")
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 1003)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestLoadRecentMessagesSoftDeletesInvalidToolOutputs(t *testing.T) {
 		t.Fatalf("add invalid tool message: %v", err)
 	}
 
-	msgs, err := store.LoadRecentMessages(ctx, sessionID, 10)
+	msgs, _, err := store.LoadViewMessages(ctx, sessionID, 10)
 	if err != nil {
 		t.Fatalf("load messages: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestLoadViewMessagesUsesAnchor(t *testing.T) {
 	store := memory.NewStore(gdb)
 	ctx := context.Background()
 
-	userID, err := store.GetOrCreateUserByExternalID(ctx, "user-anchor")
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 1004)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

@@ -36,7 +36,7 @@ func TestForkInterruptFlow(t *testing.T) {
 	registry.Register(forkTool)
 	registry.Register(interruptTool)
 
-	userID, err := store.GetOrCreateUserByExternalID(ctx, "u-1")
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 2001)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestForkInterruptFlow(t *testing.T) {
 		t.Fatalf("unexpected empty interrupt response")
 	}
 
-	msgs, err := store.LoadRecentMessages(ctx, startResp.ChildSessionID, 50)
+	msgs, _, err := store.LoadViewMessages(ctx, startResp.ChildSessionID, 50)
 	if err != nil {
 		t.Fatalf("load messages: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestForkInterruptFlow(t *testing.T) {
 	if resp == "" {
 		t.Fatalf("unexpected empty interrupt response")
 	}
-	msgs, err = store.LoadRecentMessages(ctx, startResp.ChildSessionID, 50)
+	msgs, _, err = store.LoadViewMessages(ctx, startResp.ChildSessionID, 50)
 	if err != nil {
 		t.Fatalf("load messages: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestForkStatusAndCancel(t *testing.T) {
 	statusTool := fork.NewForkStatusTool(forkMgr)
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByExternalID(ctx, "u-2")
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 2002)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestForkInheritRecent(t *testing.T) {
 	forkTool := fork.NewForkTool(forkMgr)
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByExternalID(ctx, "u-3")
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 2003)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestForkInheritRecent(t *testing.T) {
 	}
 	waitForStatus(t, forkMgr, parentID, startResp.ChildSessionID, "completed", 30*time.Second)
 
-	msgs, err := store.LoadRecentMessages(ctx, startResp.ChildSessionID, 10)
+	msgs, _, err := store.LoadViewMessages(ctx, startResp.ChildSessionID, 10)
 	if err != nil {
 		t.Fatalf("load messages: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestForkContextCancel(t *testing.T) {
 	forkMgr := fork.NewManager(agentSvc, store)
 
 	baseCtx := context.Background()
-	userID, err := store.GetOrCreateUserByExternalID(baseCtx, "u-4")
+	userID, err := store.GetOrCreateUserByTelegramID(baseCtx, 2004)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestForkCleanupCompletedRun(t *testing.T) {
 	statusTool := fork.NewForkStatusTool(forkMgr)
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByExternalID(ctx, "u-5")
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 2005)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
