@@ -111,60 +111,72 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 		params.Reasoning = reasoning
 	}
 
+	forceStream := true
 	log.Debug("responses request",
 		zap.String("base_url", c.baseURL),
 		zap.String("model", req.Model),
 		zap.Int("messages", len(req.Messages)),
 		zap.Int("input_items", len(input)),
 		zap.Int("tools", len(tools)),
-		zap.Bool("stream", req.Stream),
+		zap.Bool("stream", forceStream),
 	)
 
-	if req.Stream {
-		stream := c.client.Responses.NewStreaming(ctx, params)
-		if stream == nil {
-			return out, errors.New("llm stream not initialized")
-		}
-		defer stream.Close()
-		var final *responses.Response
-		for stream.Next() {
-			event := stream.Current()
-			switch ev := event.AsAny().(type) {
-			case responses.ResponseCompletedEvent:
+	stream := c.client.Responses.NewStreaming(ctx, params)
+	if stream == nil {
+		return out, errors.New("llm stream not initialized")
+	}
+	defer stream.Close()
+	acc := newStreamAccumulator()
+	var final *responses.Response
+	for stream.Next() {
+		event := stream.Current()
+		switch ev := event.AsAny().(type) {
+		case responses.ResponseCreatedEvent:
+			acc.setMeta(ev.Response)
+		case responses.ResponseInProgressEvent:
+			acc.setMeta(ev.Response)
+		case responses.ResponseCompletedEvent:
+			final = &ev.Response
+		case responses.ResponseIncompleteEvent:
+			if final == nil {
 				final = &ev.Response
-			case responses.ResponseFailedEvent:
-				msg := ev.Response.Error.Message
-				if msg == "" {
-					msg = "response failed"
-				}
-				return out, errors.New(msg)
-			case responses.ResponseErrorEvent:
-				if ev.Message != "" {
-					return out, errors.New(ev.Message)
-				}
-				return out, errors.New("response error")
 			}
+		case responses.ResponseOutputItemAddedEvent:
+			acc.addOutputItem(ev.Item)
+		case responses.ResponseOutputItemDoneEvent:
+			acc.addOutputItem(ev.Item)
+		case responses.ResponseFunctionCallArgumentsDeltaEvent:
+			acc.addToolArgsDelta(ev.ItemID, ev.Delta)
+		case responses.ResponseFunctionCallArgumentsDoneEvent:
+			acc.setToolArgsDone(ev.ItemID, ev.Arguments)
+		case responses.ResponseTextDeltaEvent:
+			acc.addTextDelta(ev.Delta)
+		case responses.ResponseTextDoneEvent:
+			acc.setTextDone(ev.Text)
+		case responses.ResponseFailedEvent:
+			msg := ev.Response.Error.Message
+			if msg == "" {
+				msg = "response failed"
+			}
+			return out, errors.New(msg)
+		case responses.ResponseErrorEvent:
+			if ev.Message != "" {
+				return out, errors.New(ev.Message)
+			}
+			return out, errors.New("response error")
 		}
-		if err := stream.Err(); err != nil {
-			log.Error("responses stream error", zap.Duration("latency", time.Since(start)), zap.Error(err))
-			return out, err
-		}
-		if final == nil {
-			return out, errors.New("empty llm response")
-		}
+	}
+	if err := stream.Err(); err != nil {
+		log.Error("responses stream error", zap.Duration("latency", time.Since(start)), zap.Error(err))
+		return out, err
+	}
+	if final != nil {
 		out = responseToChat(final)
 	} else {
-		resp, err := c.client.Responses.New(
-			ctx,
-			params,
-			option.WithJSONSet("stream", false),
-			option.WithHeader("Accept", "application/json"),
-		)
-		if err != nil {
-			log.Error("responses request failed", zap.Duration("latency", time.Since(start)), zap.Error(err))
-			return out, err
-		}
-		out = responseToChat(resp)
+		out = acc.buildChatResponse(req.Model)
+	}
+	if len(out.Choices) == 0 || (out.Choices[0].Message.Content == "" && len(out.Choices[0].Message.ToolCalls) == 0) {
+		return out, errors.New("empty llm response")
 	}
 
 	log.Debug("responses response",
