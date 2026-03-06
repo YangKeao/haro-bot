@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -13,7 +12,6 @@ import (
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
-	"github.com/openai/openai-go/shared/constant"
 	"go.uber.org/zap"
 )
 
@@ -121,29 +119,18 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 		zap.Bool("stream", forceStream),
 	)
 
-	stream := c.client.Chat.Completions.NewStreaming(ctx, params)
-	if stream == nil {
-		return out, errors.New("llm stream not initialized")
-	}
-	defer stream.Close()
-	var acc openai.ChatCompletionAccumulator
-	for stream.Next() {
-		chunk := stream.Current()
-		if ok := acc.AddChunk(chunk); !ok {
-			return out, errors.New("failed to accumulate stream chunk")
-		}
-	}
-	if err := stream.Err(); err != nil {
-		if isContextWindowError(err) {
-			return out, fmt.Errorf("%w: %v", ErrContextWindowExceeded, err)
+	resp, err := streamChatCompletion(ctx, c.client, params)
+	if err != nil {
+		if norm := normalizeChatCompletionError(err, nil); norm != nil {
+			return out, norm
 		}
 		log.Error("chat completions stream error", zap.Duration("latency", time.Since(start)), zap.Error(err))
 		return out, err
 	}
-	if finishReason := firstFinishReason(&acc.ChatCompletion); isContextWindowFinishReason(finishReason) {
-		return out, fmt.Errorf("%w: finish_reason=%s", ErrContextWindowExceeded, finishReason)
+	if norm := normalizeChatCompletionError(nil, resp); norm != nil {
+		return out, norm
 	}
-	out = chatCompletionToChat(&acc.ChatCompletion)
+	out = chatCompletionToChat(resp)
 	if len(out.Choices) == 0 || (out.Choices[0].Message.Content == "" && len(out.Choices[0].Message.ToolCalls) == 0) {
 		return out, errors.New("empty llm response")
 	}
@@ -154,206 +141,4 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 		zap.String("model", out.Model),
 	)
 	return out, nil
-}
-
-func buildChatMessages(messages []Message) []openai.ChatCompletionMessageParamUnion {
-	out := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
-	for _, msg := range messages {
-		switch msg.Role {
-		case "system":
-			if msg.Content == "" {
-				continue
-			}
-			out = append(out, openai.ChatCompletionMessageParamUnion{
-				OfSystem: &openai.ChatCompletionSystemMessageParam{
-					Role: constant.ValueOf[constant.System](),
-					Content: openai.ChatCompletionSystemMessageParamContentUnion{
-						OfString: openai.String(msg.Content),
-					},
-				},
-			})
-		case "developer":
-			if msg.Content == "" {
-				continue
-			}
-			out = append(out, openai.ChatCompletionMessageParamUnion{
-				OfDeveloper: &openai.ChatCompletionDeveloperMessageParam{
-					Role: constant.ValueOf[constant.Developer](),
-					Content: openai.ChatCompletionDeveloperMessageParamContentUnion{
-						OfString: openai.String(msg.Content),
-					},
-				},
-			})
-		case "assistant":
-			assistant := openai.ChatCompletionAssistantMessageParam{
-				Role: constant.ValueOf[constant.Assistant](),
-			}
-			if msg.Content != "" {
-				assistant.Content = openai.ChatCompletionAssistantMessageParamContentUnion{
-					OfString: openai.String(msg.Content),
-				}
-			}
-			if len(msg.ToolCalls) > 0 {
-				assistant.ToolCalls = buildChatToolCalls(msg.ToolCalls)
-			}
-			if msg.Content == "" && len(assistant.ToolCalls) == 0 {
-				continue
-			}
-			out = append(out, openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant})
-		case "tool":
-			if msg.ToolCallID == "" {
-				continue
-			}
-			out = append(out, openai.ChatCompletionMessageParamUnion{
-				OfTool: &openai.ChatCompletionToolMessageParam{
-					Role:       constant.ValueOf[constant.Tool](),
-					ToolCallID: msg.ToolCallID,
-					Content: openai.ChatCompletionToolMessageParamContentUnion{
-						OfString: openai.String(msg.Content),
-					},
-				},
-			})
-		default:
-			if msg.Content == "" {
-				continue
-			}
-			out = append(out, openai.ChatCompletionMessageParamUnion{
-				OfUser: &openai.ChatCompletionUserMessageParam{
-					Role: constant.ValueOf[constant.User](),
-					Content: openai.ChatCompletionUserMessageParamContentUnion{
-						OfString: openai.String(msg.Content),
-					},
-				},
-			})
-		}
-	}
-	return out
-}
-
-func buildChatToolCalls(calls []ToolCall) []openai.ChatCompletionMessageToolCallParam {
-	out := make([]openai.ChatCompletionMessageToolCallParam, 0, len(calls))
-	for _, call := range calls {
-		if call.ID == "" || call.Function.Name == "" {
-			continue
-		}
-		out = append(out, openai.ChatCompletionMessageToolCallParam{
-			ID:   call.ID,
-			Type: constant.ValueOf[constant.Function](),
-			Function: openai.ChatCompletionMessageToolCallFunctionParam{
-				Name:      call.Function.Name,
-				Arguments: call.Function.Arguments,
-			},
-		})
-	}
-	return out
-}
-
-func buildChatTools(tools []Tool) []openai.ChatCompletionToolParam {
-	if len(tools) == 0 {
-		return nil
-	}
-	out := make([]openai.ChatCompletionToolParam, 0, len(tools))
-	for _, t := range tools {
-		if t.Type != "function" {
-			continue
-		}
-		params := t.Function.Parameters
-		if params == nil {
-			params = map[string]any{}
-		}
-		fn := shared.FunctionDefinitionParam{
-			Name:       t.Function.Name,
-			Parameters: shared.FunctionParameters(params),
-			Strict:     param.NewOpt(false),
-		}
-		if t.Function.Description != "" {
-			fn.Description = param.NewOpt(t.Function.Description)
-		}
-		out = append(out, openai.ChatCompletionToolParam{
-			Type:     constant.ValueOf[constant.Function](),
-			Function: fn,
-		})
-	}
-	return out
-}
-
-func chatCompletionToChat(resp *openai.ChatCompletion) ChatResponse {
-	content := ""
-	toolCalls := []ToolCall(nil)
-	if resp != nil && len(resp.Choices) > 0 {
-		msg := resp.Choices[0].Message
-		content = msg.Content
-		for _, call := range msg.ToolCalls {
-			toolCalls = append(toolCalls, ToolCall{
-				ID:   call.ID,
-				Type: "function",
-				Function: ToolCallFn{
-					Name:      call.Function.Name,
-					Arguments: call.Function.Arguments,
-				},
-			})
-		}
-	}
-	msg := Message{
-		Role:      "assistant",
-		Content:   content,
-		ToolCalls: toolCalls,
-	}
-	model := ""
-	created := int64(0)
-	id := ""
-	if resp != nil {
-		model = resp.Model
-		created = resp.Created
-		id = resp.ID
-	}
-	return ChatResponse{
-		ID:      id,
-		Created: created,
-		Model:   model,
-		Choices: []ChatChoice{{Index: 0, Message: msg}},
-	}
-}
-
-func firstFinishReason(resp *openai.ChatCompletion) string {
-	if resp == nil || len(resp.Choices) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(resp.Choices[0].FinishReason)
-}
-
-func isContextWindowFinishReason(reason string) bool {
-	reason = strings.ToLower(strings.TrimSpace(reason))
-	if reason == "" {
-		return false
-	}
-	if strings.Contains(reason, "context_window") {
-		return true
-	}
-	if strings.Contains(reason, "context") && strings.Contains(reason, "exceed") {
-		return true
-	}
-	if strings.Contains(reason, "model_context") {
-		return true
-	}
-	return false
-}
-
-func isContextWindowError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "context_length_exceeded"):
-		return true
-	case strings.Contains(msg, "context window"):
-		return true
-	case strings.Contains(msg, "context_window"):
-		return true
-	case strings.Contains(msg, "model_context_window_exceeded"):
-		return true
-	default:
-		return false
-	}
 }

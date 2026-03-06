@@ -91,18 +91,16 @@ func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel strin
 	}
 	estimator := a.estimatorForModel(model)
 	budget := computeTokenBudget(a.contextConfig)
-	baseTokens := estimator.CountMessages(baseMessages)
-	available := budget.InputBudget - baseTokens
-	if available < 0 {
-		available = 0
-	}
-	selected, selectedTokens := selectMessagesByTokens(recent, estimator, available)
-	usage := anchorUsage{TokensUsed: baseTokens + selectedTokens, TokenBudget: budget.AnchorBudget}
+	llmMessages := toLLMMessages(recent)
+	previewMessages := append(append([]llm.Message{}, baseMessages...), llmMessages...)
+	budgeter := NewContextBudgeter(estimator, a.contextConfig)
+	_, previewInfo := budgeter.Trim(previewMessages, 1.0)
+	usage := anchorUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.AnchorBudget}
 	messages := baseMessages
-	if hint := anchorHint(selected, usage); hint != "" {
+	if hint := anchorHint(recent, usage); hint != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: hint})
 	}
-	messages = append(messages, toLLMMessagesForContext(selected)...) // includes user input
+	messages = append(messages, llmMessages...) // includes user input
 	output, err := a.runLoop(ctx, sessionID, userID, messages, model, nil)
 	if err != nil {
 		log.Error("handle failed", zap.Int64("session_id", sessionID), zap.Error(err))
@@ -140,25 +138,19 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 	}
 	estimator := a.estimatorForModel(model)
 	budget := computeTokenBudget(a.contextConfig)
-	baseTokens := estimator.CountMessages(baseMessages)
-	inputTokens := 0
+	llmMessages := toLLMMessages(recent)
 	if !storeInSession {
-		inputTokens = estimator.CountMessage(llm.Message{Role: "user", Content: input})
+		llmMessages = append(llmMessages, llm.Message{Role: "user", Content: input})
 	}
-	available := budget.InputBudget - baseTokens - inputTokens
-	if available < 0 {
-		available = 0
-	}
-	selected, selectedTokens := selectMessagesByTokens(recent, estimator, available)
-	usage := anchorUsage{TokensUsed: baseTokens + inputTokens + selectedTokens, TokenBudget: budget.AnchorBudget}
+	previewMessages := append(append([]llm.Message{}, baseMessages...), llmMessages...)
+	budgeter := NewContextBudgeter(estimator, a.contextConfig)
+	_, previewInfo := budgeter.Trim(previewMessages, 1.0)
+	usage := anchorUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.AnchorBudget}
 	messages := baseMessages
-	if hint := anchorHint(selected, usage); hint != "" {
+	if hint := anchorHint(recent, usage); hint != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: hint})
 	}
-	messages = append(messages, toLLMMessagesForContext(selected)...)
-	if !storeInSession {
-		messages = append(messages, llm.Message{Role: "user", Content: input})
-	}
+	messages = append(messages, llmMessages...)
 	resp, _, err := a.callLLMWithTrim(ctx, log, sessionID, model, messages, nil)
 	if err != nil {
 		log.Error("interrupt llm error", zap.Int64("session_id", sessionID), zap.Error(err))
