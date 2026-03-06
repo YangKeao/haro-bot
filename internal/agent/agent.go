@@ -102,7 +102,7 @@ func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel strin
 	if hint := anchorHint(selected, usage); hint != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: hint})
 	}
-	messages = append(messages, toLLMMessages(selected)...) // includes user input
+	messages = append(messages, toLLMMessagesForContext(selected)...) // includes user input
 	output, err := a.runLoop(ctx, sessionID, userID, messages, model, nil)
 	if err != nil {
 		log.Error("handle failed", zap.Int64("session_id", sessionID), zap.Error(err))
@@ -155,7 +155,7 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 	if hint := anchorHint(selected, usage); hint != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: hint})
 	}
-	messages = append(messages, toLLMMessages(selected)...)
+	messages = append(messages, toLLMMessagesForContext(selected)...)
 	if !storeInSession {
 		messages = append(messages, llm.Message{Role: "user", Content: input})
 	}
