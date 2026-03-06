@@ -74,7 +74,7 @@ func main() {
 		tools.NewBrowserPressKeyTool(browserMgr),
 		tools.NewBrowserScrollTool(browserMgr),
 		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
-		tools.NewSessionAnchorTool(store),
+		tools.NewSessionSummaryTool(store),
 		tools.NewMemorySearchTool(store),
 		tools.NewInstallSkillTool(skillsMgr),
 		tools.NewActivateSkillTool(skillsMgr),

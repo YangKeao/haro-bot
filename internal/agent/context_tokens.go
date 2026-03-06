@@ -3,10 +3,10 @@ package agent
 import "github.com/YangKeao/haro-bot/internal/llm"
 
 type tokenBudget struct {
-	Effective    int
-	AutoCompact  int
-	InputBudget  int
-	AnchorBudget int
+	Effective     int
+	AutoCompact   int
+	InputBudget   int
+	SummaryBudget int
 }
 
 func computeTokenBudget(cfg llm.ContextConfig) tokenBudget {
@@ -16,14 +16,14 @@ func computeTokenBudget(cfg llm.ContextConfig) tokenBudget {
 	if inputBudget == 0 && autoCompact > 0 {
 		inputBudget = autoCompact
 	}
-	anchorBudget := autoCompact
-	if anchorBudget == 0 {
-		anchorBudget = inputBudget
+	summaryBudget := autoCompact
+	if summaryBudget == 0 {
+		summaryBudget = inputBudget
 	}
 	return tokenBudget{
-		Effective:    effective,
-		AutoCompact:  autoCompact,
-		InputBudget:  inputBudget,
-		AnchorBudget: anchorBudget,
+		Effective:     effective,
+		AutoCompact:   autoCompact,
+		InputBudget:   inputBudget,
+		SummaryBudget: summaryBudget,
 	}
 }

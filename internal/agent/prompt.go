@@ -43,7 +43,7 @@ func buildPrompt(memories []memory.Memory, skillsList []skills.Metadata, format 
 		}
 	}
 	b.WriteString("You are an assistant. Use the provided long-term memory when relevant.\n")
-	b.WriteString("When the conversation gets long or you need a clean handoff, create a session anchor using the session_anchor tool with a concise summary and optional state.\n")
+	b.WriteString("When the conversation gets long or you need a clean handoff, create a session summary using the session_summary tool with a concise summary and optional state.\n")
 	if len(memories) > 0 {
 		b.WriteString("Long-term memory:\n")
 		for _, m := range memories {

@@ -9,11 +9,11 @@ import (
 	"github.com/YangKeao/haro-bot/internal/memory"
 )
 
-type SessionAnchorTool struct {
+type SessionSummaryTool struct {
 	store memory.StoreAPI
 }
 
-type sessionAnchorArgs struct {
+type sessionSummaryArgs struct {
 	Phase          string         `json:"phase"`
 	Summary        string         `json:"summary"`
 	State          map[string]any `json:"state"`
@@ -21,23 +21,23 @@ type sessionAnchorArgs struct {
 	EntryID        int64          `json:"entry_id"`
 }
 
-func NewSessionAnchorTool(store memory.StoreAPI) *SessionAnchorTool {
-	return &SessionAnchorTool{store: store}
+func NewSessionSummaryTool(store memory.StoreAPI) *SessionSummaryTool {
+	return &SessionSummaryTool{store: store}
 }
 
-func (t *SessionAnchorTool) Name() string { return "session_anchor" }
+func (t *SessionSummaryTool) Name() string { return "session_summary" }
 
-func (t *SessionAnchorTool) Description() string {
-	return "Create a session anchor (handoff) to summarize state and reset the view window."
+func (t *SessionSummaryTool) Description() string {
+	return "Create a session summary (handoff) to summarize state and reset the view window."
 }
 
-func (t *SessionAnchorTool) Parameters() map[string]any {
+func (t *SessionSummaryTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"phase": map[string]any{
 				"type":        "string",
-				"description": "Optional phase name for the new anchor.",
+				"description": "Optional phase name for the new summary.",
 			},
 			"summary": map[string]any{
 				"type":        "string",
@@ -49,34 +49,34 @@ func (t *SessionAnchorTool) Parameters() map[string]any {
 			},
 			"source_entry_ids": map[string]any{
 				"type":        "array",
-				"description": "Optional message IDs used to build this anchor.",
+				"description": "Optional message IDs used to build this summary.",
 				"items": map[string]any{
 					"type": "integer",
 				},
 			},
 			"entry_id": map[string]any{
 				"type":        "integer",
-				"description": "Optional message ID to anchor from (defaults to latest message).",
+				"description": "Optional message ID to summarize from (defaults to latest message).",
 			},
 		},
 	}
 }
 
-func (t *SessionAnchorTool) Execute(ctx context.Context, tc ToolContext, args json.RawMessage) (string, error) {
+func (t *SessionSummaryTool) Execute(ctx context.Context, tc ToolContext, args json.RawMessage) (string, error) {
 	if t == nil || t.store == nil {
-		return "", errors.New("anchor store not configured")
+		return "", errors.New("summary store not configured")
 	}
 	if tc.SessionID == 0 {
 		return "", errors.New("session_id required")
 	}
-	var a sessionAnchorArgs
+	var a sessionSummaryArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return "", err
 	}
 	if a.Summary == "" && len(a.State) == 0 && a.Phase == "" {
 		return "", errors.New("summary, state, or phase required")
 	}
-	anchor := memory.Anchor{
+	summary := memory.Summary{
 		SessionID:      tc.SessionID,
 		EntryID:        a.EntryID,
 		Phase:          a.Phase,
@@ -84,9 +84,9 @@ func (t *SessionAnchorTool) Execute(ctx context.Context, tc ToolContext, args js
 		State:          a.State,
 		SourceEntryIDs: a.SourceEntryIDs,
 	}
-	id, err := t.store.AppendAnchor(ctx, tc.SessionID, anchor)
+	id, err := t.store.AppendSummary(ctx, tc.SessionID, summary)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("anchor_id=%d", id), nil
+	return fmt.Sprintf("summary_id=%d", id), nil
 }

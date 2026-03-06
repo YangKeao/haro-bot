@@ -80,14 +80,14 @@ func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel strin
 		return "", err
 	}
 	availableSkills := a.skills.List()
-	recent, anchor, err := a.store.LoadViewMessages(ctx, sessionID, 0)
+	recent, summary, err := a.store.LoadViewMessages(ctx, sessionID, 0)
 	if err != nil {
 		return "", err
 	}
 	systemPrompt := a.promptBuilder.System(memories, availableSkills, a.promptFormat)
 	baseMessages := []llm.Message{{Role: "system", Content: systemPrompt}}
-	if anchorMsg := formatAnchorMessage(anchor); anchorMsg != "" {
-		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: anchorMsg})
+	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
+		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: summaryMsg})
 	}
 	estimator := a.estimatorForModel(model)
 	budget := computeTokenBudget(a.contextConfig)
@@ -95,10 +95,10 @@ func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel strin
 	previewMessages := append(append([]llm.Message{}, baseMessages...), llmMessages...)
 	budgeter := NewContextBudgeter(estimator, a.contextConfig)
 	_, previewInfo := budgeter.Trim(previewMessages, 1.0)
-	usage := anchorUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.AnchorBudget}
+	usage := summaryUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.SummaryBudget}
 	messages := baseMessages
-	if hint := anchorHint(recent, usage); hint != "" {
-		log.Debug("anchor hint",
+	if hint := summaryHint(recent, usage); hint != "" {
+		log.Debug("summary hint",
 			zap.Int64("session_id", sessionID),
 			zap.Int("tokens_used", usage.TokensUsed),
 			zap.Int("token_budget", usage.TokenBudget),
@@ -133,13 +133,13 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 		return "", err
 	}
 	systemPrompt := a.promptBuilder.Interrupt(memories, a.promptFormat)
-	recent, anchor, err := a.store.LoadViewMessages(ctx, sessionID, 0)
+	recent, summary, err := a.store.LoadViewMessages(ctx, sessionID, 0)
 	if err != nil {
 		return "", err
 	}
 	baseMessages := []llm.Message{{Role: "system", Content: systemPrompt}}
-	if anchorMsg := formatAnchorMessage(anchor); anchorMsg != "" {
-		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: anchorMsg})
+	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
+		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: summaryMsg})
 	}
 	estimator := a.estimatorForModel(model)
 	budget := computeTokenBudget(a.contextConfig)
@@ -150,10 +150,10 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 	previewMessages := append(append([]llm.Message{}, baseMessages...), llmMessages...)
 	budgeter := NewContextBudgeter(estimator, a.contextConfig)
 	_, previewInfo := budgeter.Trim(previewMessages, 1.0)
-	usage := anchorUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.AnchorBudget}
+	usage := summaryUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.SummaryBudget}
 	messages := baseMessages
-	if hint := anchorHint(recent, usage); hint != "" {
-		log.Debug("anchor hint",
+	if hint := summaryHint(recent, usage); hint != "" {
+		log.Debug("summary hint",
 			zap.Int64("session_id", sessionID),
 			zap.Int("tokens_used", usage.TokensUsed),
 			zap.Int("token_budget", usage.TokenBudget),
@@ -254,22 +254,22 @@ func toLLMMessage(m memory.Message) llm.Message {
 	return llmMsg
 }
 
-func formatAnchorMessage(anchor *memory.Anchor) string {
-	if anchor == nil {
+func formatSummaryMessage(summary *memory.Summary) string {
+	if summary == nil {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("Session anchor")
-	if anchor.Phase != "" {
+	b.WriteString("Session summary")
+	if summary.Phase != "" {
 		b.WriteString(" (phase: ")
-		b.WriteString(anchor.Phase)
+		b.WriteString(summary.Phase)
 		b.WriteString(")")
 	}
 	b.WriteString(":\n")
-	if anchor.Summary != "" {
-		b.WriteString(anchor.Summary)
-	} else if len(anchor.State) > 0 {
-		if data, err := json.Marshal(anchor.State); err == nil {
+	if summary.Summary != "" {
+		b.WriteString(summary.Summary)
+	} else if len(summary.State) > 0 {
+		if data, err := json.Marshal(summary.State); err == nil {
 			b.WriteString(string(data))
 		}
 	}

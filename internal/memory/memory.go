@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// store provides persistence for sessions, messages, anchors, and long-term memory.
+// store provides persistence for sessions, messages, summaries, and long-term memory.
 type store struct {
 	db *gorm.DB
 }
@@ -52,8 +52,8 @@ type Memory struct {
 	CreatedAt  time.Time
 }
 
-// Anchor is a session summary snapshot used to compact the view window.
-type Anchor struct {
+// Summary is a session summary snapshot used to compact the view window.
+type Summary struct {
 	ID             int64
 	SessionID      int64
 	EntryID        int64
@@ -127,13 +127,13 @@ func (s *store) AddMessage(ctx context.Context, sessionID int64, role, content s
 	return s.db.WithContext(ctx).Create(&msg).Error
 }
 
-// AppendAnchor stores a summary snapshot (anchor) for a session. If EntryID is 0,
-// it anchors the latest message in the session.
-func (s *store) AppendAnchor(ctx context.Context, sessionID int64, anchor Anchor) (int64, error) {
+// AppendSummary stores a summary snapshot for a session. If EntryID is 0,
+// it summarizes the latest message in the session.
+func (s *store) AppendSummary(ctx context.Context, sessionID int64, summary Summary) (int64, error) {
 	if sessionID == 0 {
 		return 0, errors.New("session id required")
 	}
-	entryID := anchor.EntryID
+	entryID := summary.EntryID
 	if entryID == 0 {
 		latest, err := s.latestMessageID(ctx, sessionID)
 		if err != nil {
@@ -141,19 +141,19 @@ func (s *store) AppendAnchor(ctx context.Context, sessionID int64, anchor Anchor
 		}
 		entryID = latest
 	}
-	stateJSON, err := json.Marshal(anchor.State)
+	stateJSON, err := json.Marshal(summary.State)
 	if err != nil {
 		return 0, err
 	}
-	sourceJSON, err := json.Marshal(anchor.SourceEntryIDs)
+	sourceJSON, err := json.Marshal(summary.SourceEntryIDs)
 	if err != nil {
 		return 0, err
 	}
-	record := dbmodel.SessionAnchor{
+	record := dbmodel.SessionSummary{
 		SessionID:      sessionID,
 		EntryID:        entryID,
-		Phase:          anchor.Phase,
-		Summary:        anchor.Summary,
+		Phase:          summary.Phase,
+		Summary:        summary.Summary,
 		StateJSON:      datatypes.JSON(stateJSON),
 		SourceEntryIDs: datatypes.JSON(sourceJSON),
 	}
@@ -163,12 +163,12 @@ func (s *store) AppendAnchor(ctx context.Context, sessionID int64, anchor Anchor
 	return record.ID, nil
 }
 
-// LoadLatestAnchor returns the most recent anchor for a session, or nil if none exists.
-func (s *store) LoadLatestAnchor(ctx context.Context, sessionID int64) (*Anchor, error) {
+// LoadLatestSummary returns the most recent summary for a session, or nil if none exists.
+func (s *store) LoadLatestSummary(ctx context.Context, sessionID int64) (*Summary, error) {
 	if sessionID == 0 {
 		return nil, errors.New("session id required")
 	}
-	var record dbmodel.SessionAnchor
+	var record dbmodel.SessionSummary
 	if err := s.db.WithContext(ctx).
 		Where("session_id = ?", sessionID).
 		Order("id DESC").
@@ -191,7 +191,7 @@ func (s *store) LoadLatestAnchor(ctx context.Context, sessionID int64) (*Anchor,
 			return nil, err
 		}
 	}
-	return &Anchor{
+	return &Summary{
 		ID:             record.ID,
 		SessionID:      record.SessionID,
 		EntryID:        record.EntryID,
@@ -203,17 +203,17 @@ func (s *store) LoadLatestAnchor(ctx context.Context, sessionID int64) (*Anchor,
 	}, nil
 }
 
-// LoadViewMessages returns messages after the latest anchor (if any) and the anchor itself.
+// LoadViewMessages returns messages after the latest summary (if any) and the summary itself.
 // This is the canonical "current view" for LLM context. If limit <= 0, all messages
-// after the anchor are returned. Invalid tool call/output pairs may be soft-deleted.
-func (s *store) LoadViewMessages(ctx context.Context, sessionID int64, limit int) ([]Message, *Anchor, error) {
-	anchor, err := s.LoadLatestAnchor(ctx, sessionID)
+// after the summary are returned. Invalid tool call/output pairs may be soft-deleted.
+func (s *store) LoadViewMessages(ctx context.Context, sessionID int64, limit int) ([]Message, *Summary, error) {
+	summary, err := s.LoadLatestSummary(ctx, sessionID)
 	if err != nil {
 		return nil, nil, err
 	}
 	entryID := int64(0)
-	if anchor != nil {
-		entryID = anchor.EntryID
+	if summary != nil {
+		entryID = summary.EntryID
 	}
 	msgs, err := s.loadMessagesAfter(ctx, sessionID, entryID, limit)
 	if err != nil {
@@ -225,7 +225,7 @@ func (s *store) LoadViewMessages(ctx context.Context, sessionID int64, limit int
 			return nil, nil, err
 		}
 	}
-	return filtered, anchor, nil
+	return filtered, summary, nil
 }
 
 // LoadLongMemories returns the user's long-term memories ordered by importance.

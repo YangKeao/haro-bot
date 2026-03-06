@@ -130,7 +130,7 @@ func TestLoadViewMessagesSoftDeletesInvalidToolOutputs(t *testing.T) {
 	}
 }
 
-func TestLoadViewMessagesUsesAnchor(t *testing.T) {
+func TestLoadViewMessagesUsesSummary(t *testing.T) {
 	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
 	t.Cleanup(cleanup)
 	store := memory.NewStore(gdb)
@@ -140,7 +140,7 @@ func TestLoadViewMessagesUsesAnchor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	sessionID, err := store.GetOrCreateSession(ctx, userID, "anchor")
+	sessionID, err := store.GetOrCreateSession(ctx, userID, "summary")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -161,23 +161,23 @@ func TestLoadViewMessagesUsesAnchor(t *testing.T) {
 	if len(records) != 3 {
 		t.Fatalf("expected 3 messages, got %d", len(records))
 	}
-	anchorID, err := store.AppendAnchor(ctx, sessionID, memory.Anchor{
+	summaryID, err := store.AppendSummary(ctx, sessionID, memory.Summary{
 		EntryID: records[1].ID,
 		Summary: "state after two",
 	})
 	if err != nil {
-		t.Fatalf("append anchor: %v", err)
+		t.Fatalf("append summary: %v", err)
 	}
-	if anchorID == 0 {
-		t.Fatalf("expected anchor id to be set")
+	if summaryID == 0 {
+		t.Fatalf("expected summary id to be set")
 	}
 
-	msgs, anchor, err := store.LoadViewMessages(ctx, sessionID, 10)
+	msgs, summary, err := store.LoadViewMessages(ctx, sessionID, 10)
 	if err != nil {
 		t.Fatalf("load view: %v", err)
 	}
-	if anchor == nil || anchor.ID != anchorID {
-		t.Fatalf("unexpected anchor: %+v", anchor)
+	if summary == nil || summary.ID != summaryID {
+		t.Fatalf("unexpected summary: %+v", summary)
 	}
 	if len(msgs) != 1 || msgs[0].Content != "three" {
 		t.Fatalf("unexpected view messages: %+v", msgs)

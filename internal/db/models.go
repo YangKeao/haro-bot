@@ -41,7 +41,7 @@ type Message struct {
 
 func (Message) TableName() string { return "messages" }
 
-type SessionAnchor struct {
+type SessionSummary struct {
 	ID             int64          `gorm:"primaryKey;autoIncrement"`
 	SessionID      int64          `gorm:"column:session_id"`
 	EntryID        int64          `gorm:"column:entry_id"`
@@ -52,7 +52,7 @@ type SessionAnchor struct {
 	CreatedAt      time.Time      `gorm:"column:created_at"`
 }
 
-func (SessionAnchor) TableName() string { return "session_anchors" }
+func (SessionSummary) TableName() string { return "session_summaries" }
 
 type Memory struct {
 	ID         int64     `gorm:"primaryKey;autoIncrement"`

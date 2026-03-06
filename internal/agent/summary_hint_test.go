@@ -8,7 +8,7 @@ import (
 	"github.com/YangKeao/haro-bot/internal/memory"
 )
 
-func TestAnchorHintToolPhase(t *testing.T) {
+func TestSummaryHintToolPhase(t *testing.T) {
 	toolCalls := []llm.ToolCall{{
 		ID:   "call-1",
 		Type: "function",
@@ -23,13 +23,13 @@ func TestAnchorHintToolPhase(t *testing.T) {
 		msg(3, "assistant", "done", nil),
 		msg(4, "user", "new task", nil),
 	}
-	hint := anchorHint(msgs, anchorUsage{})
+	hint := summaryHint(msgs, summaryUsage{})
 	if hint == "" || !strings.Contains(hint, "tool-driven phase") {
 		t.Fatalf("expected tool phase hint, got %q", hint)
 	}
 }
 
-func TestAnchorHintToolErrors(t *testing.T) {
+func TestSummaryHintToolErrors(t *testing.T) {
 	toolCalls := []llm.ToolCall{{
 		ID:   "call-1",
 		Type: "function",
@@ -52,13 +52,13 @@ func TestAnchorHintToolErrors(t *testing.T) {
 		msg(4, "assistant", "failed", nil),
 		msg(5, "user", "retry", nil),
 	}
-	hint := anchorHint(msgs, anchorUsage{})
+	hint := summaryHint(msgs, summaryUsage{})
 	if hint == "" || !strings.Contains(hint, "multiple tool errors occurred") {
 		t.Fatalf("expected tool error hint, got %q", hint)
 	}
 }
 
-func TestAnchorHintNearLimitCritical(t *testing.T) {
+func TestSummaryHintNearLimitCritical(t *testing.T) {
 	msgs := []memory.Message{
 		msg(1, "assistant", "a", nil),
 		msg(2, "user", "b", nil),
@@ -71,13 +71,13 @@ func TestAnchorHintNearLimitCritical(t *testing.T) {
 		msg(9, "assistant", "i", nil),
 		msg(10, "user", "j", nil),
 	}
-	hint := anchorHint(msgs, anchorUsage{TokensUsed: 95, TokenBudget: 100})
+	hint := summaryHint(msgs, summaryUsage{TokensUsed: 95, TokenBudget: 100})
 	if hint == "" || !strings.Contains(hint, "critical") {
 		t.Fatalf("expected critical limit hint, got %q", hint)
 	}
 }
 
-func TestAnchorHintNearLimitHigh(t *testing.T) {
+func TestSummaryHintNearLimitHigh(t *testing.T) {
 	var msgs []memory.Message
 	for i := 1; i <= 17; i++ {
 		role := "assistant"
@@ -86,13 +86,13 @@ func TestAnchorHintNearLimitHigh(t *testing.T) {
 		}
 		msgs = append(msgs, msg(int64(i), role, "x", nil))
 	}
-	hint := anchorHint(msgs, anchorUsage{TokensUsed: 86, TokenBudget: 100})
+	hint := summaryHint(msgs, summaryUsage{TokensUsed: 86, TokenBudget: 100})
 	if hint == "" || !strings.Contains(hint, "tight") {
 		t.Fatalf("expected high limit hint, got %q", hint)
 	}
 }
 
-func TestAnchorHintNearLimitMediumWithTooling(t *testing.T) {
+func TestSummaryHintNearLimitMediumWithTooling(t *testing.T) {
 	toolCalls := []llm.ToolCall{{
 		ID:   "call-1",
 		Type: "function",
@@ -113,7 +113,7 @@ func TestAnchorHintNearLimitMediumWithTooling(t *testing.T) {
 		msg(9, "assistant", "more", nil),
 		msg(10, "user", "more", nil),
 	}
-	hint := anchorHint(msgs, anchorUsage{TokensUsed: 75, TokenBudget: 100})
+	hint := summaryHint(msgs, summaryUsage{TokensUsed: 75, TokenBudget: 100})
 	if hint == "" || !strings.Contains(hint, "getting long") {
 		t.Fatalf("expected medium limit hint, got %q", hint)
 	}

@@ -18,8 +18,8 @@ This service provides an OpenAI-compatible API and a Telegram webhook, with all 
   - `LLM_REASONING_ENABLED` (default `false`)
   - `LLM_REASONING_EFFORT` (for example `low`/`medium`/`high` or custom values like `xhigh`; passed through to the API and only applied when enabled)
   - `LLM_HTTP_DEBUG` (default `false`; logs raw request/response bodies, with auth headers redacted)
-  - `LLM_CONTEXT_WINDOW` (model context window in tokens; enables token-based trimming and anchor hints)
-  - `LLM_AUTO_COMPACT_TOKEN_LIMIT` (optional; if set, clamp auto-compaction/anchor threshold to this value, but never above 90% of `LLM_CONTEXT_WINDOW`)
+  - `LLM_CONTEXT_WINDOW` (model context window in tokens; enables token-based trimming and summary hints)
+  - `LLM_AUTO_COMPACT_TOKEN_LIMIT` (optional; if set, clamp auto-compaction/summary threshold to this value, but never above 90% of `LLM_CONTEXT_WINDOW`)
   - `LLM_EFFECTIVE_CONTEXT_WINDOW_PERCENT` (default `95`; percentage of context window usable for inputs after headroom)
   - `TELEGRAM_BOT_TOKEN`
   - `SKILLS_DIR` (default `./skills`)
@@ -38,7 +38,7 @@ This service provides an OpenAI-compatible API and a Telegram webhook, with all 
 Each skill is a directory containing `SKILL.md` with YAML frontmatter. The skill directory name must match the `name` field in the frontmatter.
 Filesystem tools are global (available even without skill activation) and are protected by `FS_ALLOWED_ROOTS`: `read`, `write`, `search`, `edit`, `exec`.
 Search tools: `brave_search` (requires `BRAVE_SEARCH_API_KEY`).
-Session tools: `session_anchor` creates an anchor (handoff) so the session view only includes messages after that checkpoint.
+Session tools: `session_summary` creates a summary (handoff) so the session view only includes messages after that checkpoint.
 Browser tools use headless Playwright: `browser_goto`, `browser_go_back`, `browser_get_page_state`, `browser_take_screenshot`, `browser_click`, `browser_fill_text`, `browser_press_key`, `browser_scroll`.
 
 **Security Notes**

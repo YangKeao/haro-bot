@@ -9,7 +9,7 @@ import (
 	"github.com/YangKeao/haro-bot/internal/memory"
 )
 
-type anchorSignal struct {
+type summarySignal struct {
 	toolCallCount  int
 	fileEditCount  int
 	execCount      int
@@ -17,34 +17,34 @@ type anchorSignal struct {
 	phaseWithTools bool
 }
 
-type anchorUsage struct {
+type summaryUsage struct {
 	TokensUsed  int
 	TokenBudget int
 }
 
-func anchorHint(messages []memory.Message, usage anchorUsage) string {
+func summaryHint(messages []memory.Message, usage summaryUsage) string {
 	if len(messages) == 0 {
 		return ""
 	}
-	signal := analyzeAnchorSignal(messages)
+	signal := analyzeSummarySignal(messages)
 	hints := make([]string, 0, 3)
 	if level := nearLimitLevel(usage.TokensUsed, usage.TokenBudget); level != "" {
 		hints = append(hints, nearLimitHint(level))
 	}
 	if signal.phaseWithTools && (signal.fileEditCount > 0 || signal.execCount > 0 || signal.toolCallCount >= 6) {
-		hints = append(hints, "Optional anchor: a tool-driven phase just completed. Anchor if it helps preserve state before switching tasks.")
+		hints = append(hints, "Optional summary: a tool-driven phase just completed. Summarize if it helps preserve state before switching tasks.")
 	}
 	if signal.phaseWithTools && signal.toolErrorCount >= 2 {
-		hints = append(hints, "Recommended anchor: multiple tool errors occurred. Anchor to capture failure context before retrying or changing approach.")
+		hints = append(hints, "Recommended summary: multiple tool errors occurred. Summarize to capture failure context before retrying or changing approach.")
 	}
 	if len(hints) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("Host notice: %s Use session_anchor with a concise summary plus phase (if this is a transition) and state (key decisions, modified files/tests, open TODOs), then continue with the user request.", strings.Join(hints, " "))
+	return fmt.Sprintf("Host notice: %s Use session_summary with a concise summary plus phase (if this is a transition) and state (key decisions, modified files/tests, open TODOs), then continue with the user request.", strings.Join(hints, " "))
 }
 
-func analyzeAnchorSignal(messages []memory.Message) anchorSignal {
-	signal := anchorSignal{}
+func analyzeSummarySignal(messages []memory.Message) summarySignal {
+	signal := summarySignal{}
 	ordered := make([]memory.Message, len(messages))
 	copy(ordered, messages)
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
@@ -98,7 +98,7 @@ func countToolCalls(calls []llm.ToolCall) (toolCalls, fileEdits, execs int) {
 			fileEdits++
 		case "exec":
 			execs++
-		case "session_anchor":
+		case "session_summary":
 			// ignore
 		}
 	}
@@ -125,11 +125,11 @@ func nearLimitLevel(tokensUsed, tokenBudget int) string {
 func nearLimitHint(level string) string {
 	switch level {
 	case "critical":
-		return "Context window is critical. Anchor now unless you will finish in the next reply."
+		return "Context window is critical. Summarize now unless you will finish in the next reply."
 	case "high":
-		return "Context window is tight. Prefer anchoring unless you expect to finish within 1-2 replies."
+		return "Context window is tight. Prefer summarizing unless you expect to finish within 1-2 replies."
 	case "medium":
-		return "Context window is getting long. Consider anchoring if more steps remain."
+		return "Context window is getting long. Consider summarizing if more steps remain."
 	default:
 		return ""
 	}
