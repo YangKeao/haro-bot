@@ -154,7 +154,12 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 		}
 		out = responseToChat(final)
 	} else {
-		resp, err := c.client.Responses.New(ctx, params)
+		resp, err := c.client.Responses.New(
+			ctx,
+			params,
+			option.WithJSONSet("stream", false),
+			option.WithHeader("Accept", "application/json"),
+		)
 		if err != nil {
 			log.Error("responses request failed", zap.Duration("latency", time.Since(start)), zap.Error(err))
 			return out, err
