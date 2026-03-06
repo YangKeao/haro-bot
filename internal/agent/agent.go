@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
@@ -70,17 +72,20 @@ func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel strin
 		return "", err
 	}
 
-	recent, err := a.store.LoadRecentMessages(ctx, sessionID, a.maxContext)
-	if err != nil {
-		return "", err
-	}
 	memories, err := a.store.LoadLongMemories(ctx, userID, 8)
 	if err != nil {
 		return "", err
 	}
 	availableSkills := a.skills.List()
+	recent, anchor, err := a.store.LoadViewMessages(ctx, sessionID, a.maxContext)
+	if err != nil {
+		return "", err
+	}
 	systemPrompt := a.promptBuilder.System(memories, availableSkills, a.promptFormat)
 	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	if anchorMsg := formatAnchorMessage(anchor); anchorMsg != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: anchorMsg})
+	}
 	messages = append(messages, toLLMMessages(recent)...) // includes user input
 	output, err := a.runLoop(ctx, sessionID, userID, messages, model, nil)
 	if err != nil {
@@ -104,16 +109,19 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 			return "", err
 		}
 	}
-	recent, err := a.store.LoadRecentMessages(ctx, sessionID, a.maxContext)
-	if err != nil {
-		return "", err
-	}
 	memories, err := a.store.LoadLongMemories(ctx, userID, 8)
 	if err != nil {
 		return "", err
 	}
 	systemPrompt := a.promptBuilder.Interrupt(memories, a.promptFormat)
+	recent, anchor, err := a.store.LoadViewMessages(ctx, sessionID, a.maxContext)
+	if err != nil {
+		return "", err
+	}
 	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	if anchorMsg := formatAnchorMessage(anchor); anchorMsg != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: anchorMsg})
+	}
 	messages = append(messages, toLLMMessages(recent)...)
 	if !storeInSession {
 		messages = append(messages, llm.Message{Role: "user", Content: input})
@@ -215,6 +223,28 @@ func toLLMMessages(msgs []memory.Message) []llm.Message {
 		out = append(out, llmMsg)
 	}
 	return out
+}
+
+func formatAnchorMessage(anchor *memory.Anchor) string {
+	if anchor == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Session anchor")
+	if anchor.Phase != "" {
+		b.WriteString(" (phase: ")
+		b.WriteString(anchor.Phase)
+		b.WriteString(")")
+	}
+	b.WriteString(":\n")
+	if anchor.Summary != "" {
+		b.WriteString(anchor.Summary)
+	} else if len(anchor.State) > 0 {
+		if data, err := json.Marshal(anchor.State); err == nil {
+			b.WriteString(string(data))
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func (a *Agent) toolsFor() []llm.Tool {

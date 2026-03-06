@@ -25,13 +25,14 @@ type migration struct {
 	stmts   []string
 }
 
-const currentSchemaVersion int64 = 4
+const currentSchemaVersion int64 = 5
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
 	{version: 2, stmts: appConfigSQL},
 	{version: 3, stmts: dropSkillCallsSQL},
 	{version: 4, stmts: addMessageSoftDeleteSQL},
+	{version: 5, stmts: addSessionAnchorsSQL},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -199,4 +200,20 @@ var dropSkillCallsSQL = []string{
 var addMessageSoftDeleteSQL = []string{
 	`ALTER TABLE messages ADD COLUMN deleted_at TIMESTAMP NULL`,
 	`CREATE INDEX idx_messages_session_deleted ON messages (session_id, deleted_at)`,
+}
+
+var addSessionAnchorsSQL = []string{
+	`CREATE TABLE IF NOT EXISTS session_anchors (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  session_id BIGINT NOT NULL,
+  entry_id BIGINT NOT NULL,
+  phase VARCHAR(64) DEFAULT '',
+  summary TEXT,
+  state_json JSON,
+  source_entry_ids JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_session_anchors_session (session_id, id),
+  INDEX idx_session_anchors_entry (session_id, entry_id),
+  FOREIGN KEY (session_id) REFERENCES sessions(id)
+)`,
 }

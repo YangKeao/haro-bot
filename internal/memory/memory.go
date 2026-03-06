@@ -46,6 +46,17 @@ type Memory struct {
 	CreatedAt  time.Time
 }
 
+type Anchor struct {
+	ID             int64
+	SessionID      int64
+	EntryID        int64
+	Phase          string
+	Summary        string
+	State          map[string]any
+	SourceEntryIDs []int64
+	CreatedAt      time.Time
+}
+
 func (s *Store) GetOrCreateUserByTelegramID(ctx context.Context, telegramID int64) (int64, error) {
 	var user dbmodel.User
 	tx := s.db.WithContext(ctx)
@@ -134,45 +145,104 @@ func (s *Store) AddMessage(ctx context.Context, sessionID int64, role, content s
 	return s.db.WithContext(ctx).Create(&msg).Error
 }
 
-func (s *Store) LoadRecentMessages(ctx context.Context, sessionID int64, limit int) ([]Message, error) {
-	if limit <= 0 {
-		limit = 20
+func (s *Store) AppendAnchor(ctx context.Context, sessionID int64, anchor Anchor) (int64, error) {
+	if sessionID == 0 {
+		return 0, errors.New("session id required")
 	}
-	var records []dbmodel.Message
+	entryID := anchor.EntryID
+	if entryID == 0 {
+		latest, err := s.latestMessageID(ctx, sessionID)
+		if err != nil {
+			return 0, err
+		}
+		entryID = latest
+	}
+	stateJSON, err := json.Marshal(anchor.State)
+	if err != nil {
+		return 0, err
+	}
+	sourceJSON, err := json.Marshal(anchor.SourceEntryIDs)
+	if err != nil {
+		return 0, err
+	}
+	record := dbmodel.SessionAnchor{
+		SessionID:      sessionID,
+		EntryID:        entryID,
+		Phase:          anchor.Phase,
+		Summary:        anchor.Summary,
+		StateJSON:      datatypes.JSON(stateJSON),
+		SourceEntryIDs: datatypes.JSON(sourceJSON),
+	}
+	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
+		return 0, err
+	}
+	return record.ID, nil
+}
+
+func (s *Store) LoadLatestAnchor(ctx context.Context, sessionID int64) (*Anchor, error) {
+	if sessionID == 0 {
+		return nil, errors.New("session id required")
+	}
+	var record dbmodel.SessionAnchor
 	if err := s.db.WithContext(ctx).
-		Where("session_id = ? AND deleted_at IS NULL", sessionID).
+		Where("session_id = ?", sessionID).
 		Order("id DESC").
-		Limit(limit).
-		Find(&records).Error; err != nil {
+		Limit(1).
+		Find(&record).Error; err != nil {
 		return nil, err
 	}
-	msgs := make([]Message, 0, len(records))
-	for _, r := range records {
-		var meta *MessageMetadata
-		if len(r.Metadata) > 0 {
-			var parsed MessageMetadata
-			if err := json.Unmarshal(r.Metadata, &parsed); err != nil {
-				return nil, err
-			}
-			meta = &parsed
-		}
-		msgs = append(msgs, Message{
-			ID:        r.ID,
-			SessionID: r.SessionID,
-			Role:      r.Role,
-			Content:   r.Content,
-			Metadata:  meta,
-			CreatedAt: r.CreatedAt,
-		})
+	if record.ID == 0 {
+		return nil, nil
 	}
-	msgs = reverseMessages(msgs)
-	filtered, toDelete := filterInvalidToolOutputs(msgs)
-	if len(toDelete) > 0 {
-		if err := s.softDeleteMessages(ctx, toDelete); err != nil {
+	var state map[string]any
+	if len(record.StateJSON) > 0 {
+		if err := json.Unmarshal(record.StateJSON, &state); err != nil {
 			return nil, err
 		}
 	}
-	return filtered, nil
+	var sourceIDs []int64
+	if len(record.SourceEntryIDs) > 0 {
+		if err := json.Unmarshal(record.SourceEntryIDs, &sourceIDs); err != nil {
+			return nil, err
+		}
+	}
+	return &Anchor{
+		ID:             record.ID,
+		SessionID:      record.SessionID,
+		EntryID:        record.EntryID,
+		Phase:          record.Phase,
+		Summary:        record.Summary,
+		State:          state,
+		SourceEntryIDs: sourceIDs,
+		CreatedAt:      record.CreatedAt,
+	}, nil
+}
+
+func (s *Store) LoadViewMessages(ctx context.Context, sessionID int64, limit int) ([]Message, *Anchor, error) {
+	anchor, err := s.LoadLatestAnchor(ctx, sessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+	entryID := int64(0)
+	if anchor != nil {
+		entryID = anchor.EntryID
+	}
+	msgs, err := s.loadMessagesAfter(ctx, sessionID, entryID, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	filtered, toDelete := filterInvalidToolOutputs(msgs)
+	if len(toDelete) > 0 {
+		if err := s.softDeleteMessages(ctx, toDelete); err != nil {
+			return nil, nil, err
+		}
+	}
+	return filtered, anchor, nil
+}
+
+func (s *Store) LoadRecentMessages(ctx context.Context, sessionID int64, limit int) ([]Message, error) {
+	msgs, _, err := s.LoadViewMessages(ctx, sessionID, limit)
+	return msgs, err
 }
 
 func (s *Store) LoadLongMemories(ctx context.Context, userID int64, limit int) ([]Memory, error) {
@@ -252,4 +322,53 @@ func (s *Store) softDeleteMessages(ctx context.Context, ids []int64) error {
 		Model(&dbmodel.Message{}).
 		Where("id IN ? AND deleted_at IS NULL", ids).
 		Update("deleted_at", now).Error
+}
+
+func (s *Store) loadMessagesAfter(ctx context.Context, sessionID, afterID int64, limit int) ([]Message, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	query := s.db.WithContext(ctx).
+		Where("session_id = ? AND deleted_at IS NULL", sessionID)
+	if afterID > 0 {
+		query = query.Where("id > ?", afterID)
+	}
+	var records []dbmodel.Message
+	if err := query.Order("id DESC").
+		Limit(limit).
+		Find(&records).Error; err != nil {
+		return nil, err
+	}
+	msgs := make([]Message, 0, len(records))
+	for _, r := range records {
+		var meta *MessageMetadata
+		if len(r.Metadata) > 0 {
+			var parsed MessageMetadata
+			if err := json.Unmarshal(r.Metadata, &parsed); err != nil {
+				return nil, err
+			}
+			meta = &parsed
+		}
+		msgs = append(msgs, Message{
+			ID:        r.ID,
+			SessionID: r.SessionID,
+			Role:      r.Role,
+			Content:   r.Content,
+			Metadata:  meta,
+			CreatedAt: r.CreatedAt,
+		})
+	}
+	return reverseMessages(msgs), nil
+}
+
+func (s *Store) latestMessageID(ctx context.Context, sessionID int64) (int64, error) {
+	var record dbmodel.Message
+	if err := s.db.WithContext(ctx).
+		Where("session_id = ? AND deleted_at IS NULL", sessionID).
+		Order("id DESC").
+		Limit(1).
+		Find(&record).Error; err != nil {
+		return 0, err
+	}
+	return record.ID, nil
 }

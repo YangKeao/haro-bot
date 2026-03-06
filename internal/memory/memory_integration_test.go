@@ -129,3 +129,57 @@ func TestLoadRecentMessagesSoftDeletesInvalidToolOutputs(t *testing.T) {
 		t.Fatalf("expected 2 soft deleted messages, got %d", len(deleted))
 	}
 }
+
+func TestLoadViewMessagesUsesAnchor(t *testing.T) {
+	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
+	t.Cleanup(cleanup)
+	store := memory.NewStore(gdb)
+	ctx := context.Background()
+
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "user-anchor")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	sessionID, err := store.GetOrCreateSession(ctx, userID, "anchor")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := store.AddMessage(ctx, sessionID, "user", "one", nil); err != nil {
+		t.Fatalf("add message 1: %v", err)
+	}
+	if err := store.AddMessage(ctx, sessionID, "assistant", "two", nil); err != nil {
+		t.Fatalf("add message 2: %v", err)
+	}
+	if err := store.AddMessage(ctx, sessionID, "user", "three", nil); err != nil {
+		t.Fatalf("add message 3: %v", err)
+	}
+
+	var records []dbmodel.Message
+	if err := gdb.Where("session_id = ?", sessionID).Order("id asc").Find(&records).Error; err != nil {
+		t.Fatalf("load messages: %v", err)
+	}
+	if len(records) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(records))
+	}
+	anchorID, err := store.AppendAnchor(ctx, sessionID, memory.Anchor{
+		EntryID: records[1].ID,
+		Summary: "state after two",
+	})
+	if err != nil {
+		t.Fatalf("append anchor: %v", err)
+	}
+	if anchorID == 0 {
+		t.Fatalf("expected anchor id to be set")
+	}
+
+	msgs, anchor, err := store.LoadViewMessages(ctx, sessionID, 10)
+	if err != nil {
+		t.Fatalf("load view: %v", err)
+	}
+	if anchor == nil || anchor.ID != anchorID {
+		t.Fatalf("unexpected anchor: %+v", anchor)
+	}
+	if len(msgs) != 1 || msgs[0].Content != "three" {
+		t.Fatalf("unexpected view messages: %+v", msgs)
+	}
+}

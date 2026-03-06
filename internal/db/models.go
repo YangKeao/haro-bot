@@ -41,6 +41,19 @@ type Message struct {
 
 func (Message) TableName() string { return "messages" }
 
+type SessionAnchor struct {
+	ID             int64          `gorm:"primaryKey;autoIncrement"`
+	SessionID      int64          `gorm:"column:session_id"`
+	EntryID        int64          `gorm:"column:entry_id"`
+	Phase          string         `gorm:"column:phase;size:64"`
+	Summary        string         `gorm:"column:summary;type:text"`
+	StateJSON      datatypes.JSON `gorm:"column:state_json;type:json"`
+	SourceEntryIDs datatypes.JSON `gorm:"column:source_entry_ids;type:json"`
+	CreatedAt      time.Time      `gorm:"column:created_at"`
+}
+
+func (SessionAnchor) TableName() string { return "session_anchors" }
+
 type Memory struct {
 	ID         int64     `gorm:"primaryKey;autoIncrement"`
 	UserID     int64     `gorm:"column:user_id"`

@@ -35,6 +35,7 @@ This service provides an OpenAI-compatible API and a Telegram webhook, with all 
 Each skill is a directory containing `SKILL.md` with YAML frontmatter. The skill directory name must match the `name` field in the frontmatter.
 Filesystem tools are global (available even without skill activation) and are protected by `FS_ALLOWED_ROOTS`: `read`, `write`, `search`, `edit`, `exec`.
 Search tools: `brave_search` (requires `BRAVE_SEARCH_API_KEY`).
+Session tools: `session_anchor` creates an anchor (handoff) so the session view only includes messages after that checkpoint.
 Browser tools use headless Playwright: `browser_goto`, `browser_go_back`, `browser_get_page_state`, `browser_take_screenshot`, `browser_click`, `browser_fill_text`, `browser_press_key`, `browser_scroll`.
 
 **Security Notes**
