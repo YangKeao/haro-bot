@@ -5,7 +5,6 @@ package llm_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/testutil"
@@ -13,9 +12,7 @@ import (
 
 func TestLLMChat(t *testing.T) {
 	client, model := testutil.NewLLMClientFromEnv(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	resp, err := client.Chat(ctx, llm.ChatRequest{
+	resp, err := client.Chat(context.Background(), llm.ChatRequest{
 		Model:  model,
 		Stream: true,
 		Messages: []llm.Message{

@@ -12,7 +12,7 @@ import (
 func TestChatUsesStreaming(t *testing.T) {
 	var gotStream any
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/responses" {
+		if r.URL.Path != "/chat/completions" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		body, err := io.ReadAll(r.Body)
@@ -26,11 +26,7 @@ func TestChatUsesStreaming(t *testing.T) {
 		gotStream = payload["stream"]
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := w.(http.Flusher)
-		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":0,\"output_index\":0,\"content_index\":0,\"item_id\":\"item_1\",\"delta\":\"ok\"}\n\n")
-		if flusher != nil {
-			flusher.Flush()
-		}
-		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.done\",\"sequence_number\":1,\"output_index\":0,\"content_index\":0,\"item_id\":\"item_1\",\"text\":\"ok\"}\n\n")
+		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl_1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n")
 		if flusher != nil {
 			flusher.Flush()
 		}

@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -11,8 +12,8 @@ import (
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
-	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
+	"github.com/openai/openai-go/shared/constant"
 	"go.uber.org/zap"
 )
 
@@ -56,7 +57,7 @@ func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
 			opt(&options)
 		}
 	}
-	httpClient := &http.Client{Timeout: 60 * time.Second}
+	httpClient := &http.Client{}
 	if options.httpDebug {
 		httpClient.Transport = newDebugTransport(http.DefaultTransport, options.httpDebugMaxBod)
 	}
@@ -84,35 +85,34 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 	if c == nil || c.client == nil {
 		return out, errors.New("llm client not configured")
 	}
-	input := buildResponseInput(req.Messages)
-	tools := buildResponseTools(req.Tools)
-	params := responses.ResponseNewParams{
-		Model: openai.ResponsesModel(req.Model),
-		Input: responses.ResponseNewParamsInputUnion{
-			OfInputItemList: responses.ResponseInputParam(input),
-		},
+	if ctx != nil {
+		ctx = context.WithoutCancel(ctx)
+	}
+	input := buildChatMessages(req.Messages)
+	tools := buildChatTools(req.Tools)
+	params := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel(req.Model),
+		Messages: input,
 	}
 	if len(tools) > 0 {
 		params.Tools = tools
-		params.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{
-			OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsAuto),
+		params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
+			OfAuto: openai.String("auto"),
 		}
 	}
 	if req.Temperature != 0 {
 		params.Temperature = param.NewOpt(req.Temperature)
 	}
 	if req.ReasoningEnabled {
-		reasoning := shared.ReasoningParam{}
 		if effort := strings.TrimSpace(req.ReasoningEffort); effort != "" {
-			reasoning.Effort = shared.ReasoningEffort(effort)
+			params.ReasoningEffort = shared.ReasoningEffort(effort)
 		} else {
-			reasoning.Effort = shared.ReasoningEffortMedium
+			params.ReasoningEffort = shared.ReasoningEffortMedium
 		}
-		params.Reasoning = reasoning
 	}
 
 	forceStream := true
-	log.Debug("responses request",
+	log.Debug("chat completions request",
 		zap.String("base_url", c.baseURL),
 		zap.String("model", req.Model),
 		zap.Int("messages", len(req.Messages)),
@@ -121,65 +121,34 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 		zap.Bool("stream", forceStream),
 	)
 
-	stream := c.client.Responses.NewStreaming(ctx, params)
+	stream := c.client.Chat.Completions.NewStreaming(ctx, params)
 	if stream == nil {
 		return out, errors.New("llm stream not initialized")
 	}
 	defer stream.Close()
-	acc := newStreamAccumulator()
-	var final *responses.Response
+	var acc openai.ChatCompletionAccumulator
 	for stream.Next() {
-		event := stream.Current()
-		switch ev := event.AsAny().(type) {
-		case responses.ResponseCreatedEvent:
-			acc.setMeta(ev.Response)
-		case responses.ResponseInProgressEvent:
-			acc.setMeta(ev.Response)
-		case responses.ResponseCompletedEvent:
-			final = &ev.Response
-		case responses.ResponseIncompleteEvent:
-			if final == nil {
-				final = &ev.Response
-			}
-		case responses.ResponseOutputItemAddedEvent:
-			acc.addOutputItem(ev.Item)
-		case responses.ResponseOutputItemDoneEvent:
-			acc.addOutputItem(ev.Item)
-		case responses.ResponseFunctionCallArgumentsDeltaEvent:
-			acc.addToolArgsDelta(ev.ItemID, ev.Delta)
-		case responses.ResponseFunctionCallArgumentsDoneEvent:
-			acc.setToolArgsDone(ev.ItemID, ev.Arguments)
-		case responses.ResponseTextDeltaEvent:
-			acc.addTextDelta(ev.Delta)
-		case responses.ResponseTextDoneEvent:
-			acc.setTextDone(ev.Text)
-		case responses.ResponseFailedEvent:
-			msg := ev.Response.Error.Message
-			if msg == "" {
-				msg = "response failed"
-			}
-			return out, errors.New(msg)
-		case responses.ResponseErrorEvent:
-			if ev.Message != "" {
-				return out, errors.New(ev.Message)
-			}
-			return out, errors.New("response error")
+		chunk := stream.Current()
+		if ok := acc.AddChunk(chunk); !ok {
+			return out, errors.New("failed to accumulate stream chunk")
 		}
 	}
 	if err := stream.Err(); err != nil {
-		log.Error("responses stream error", zap.Duration("latency", time.Since(start)), zap.Error(err))
+		if isContextWindowError(err) {
+			return out, fmt.Errorf("%w: %v", ErrContextWindowExceeded, err)
+		}
+		log.Error("chat completions stream error", zap.Duration("latency", time.Since(start)), zap.Error(err))
 		return out, err
 	}
-	if final != nil {
-		out = responseToChat(final)
-	} else {
-		out = acc.buildChatResponse(req.Model)
+	if finishReason := firstFinishReason(&acc.ChatCompletion); isContextWindowFinishReason(finishReason) {
+		return out, fmt.Errorf("%w: finish_reason=%s", ErrContextWindowExceeded, finishReason)
 	}
+	out = chatCompletionToChat(&acc.ChatCompletion)
 	if len(out.Choices) == 0 || (out.Choices[0].Message.Content == "" && len(out.Choices[0].Message.ToolCalls) == 0) {
 		return out, errors.New("empty llm response")
 	}
 
-	log.Debug("responses response",
+	log.Debug("chat completions response",
 		zap.Duration("latency", time.Since(start)),
 		zap.Int("choices", len(out.Choices)),
 		zap.String("model", out.Model),
@@ -187,48 +156,103 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 	return out, nil
 }
 
-func buildResponseInput(messages []Message) []responses.ResponseInputItemUnionParam {
-	out := make([]responses.ResponseInputItemUnionParam, 0, len(messages))
+func buildChatMessages(messages []Message) []openai.ChatCompletionMessageParamUnion {
+	out := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 	for _, msg := range messages {
 		switch msg.Role {
+		case "system":
+			if msg.Content == "" {
+				continue
+			}
+			out = append(out, openai.ChatCompletionMessageParamUnion{
+				OfSystem: &openai.ChatCompletionSystemMessageParam{
+					Role: constant.ValueOf[constant.System](),
+					Content: openai.ChatCompletionSystemMessageParamContentUnion{
+						OfString: openai.String(msg.Content),
+					},
+				},
+			})
+		case "developer":
+			if msg.Content == "" {
+				continue
+			}
+			out = append(out, openai.ChatCompletionMessageParamUnion{
+				OfDeveloper: &openai.ChatCompletionDeveloperMessageParam{
+					Role: constant.ValueOf[constant.Developer](),
+					Content: openai.ChatCompletionDeveloperMessageParamContentUnion{
+						OfString: openai.String(msg.Content),
+					},
+				},
+			})
+		case "assistant":
+			assistant := openai.ChatCompletionAssistantMessageParam{
+				Role: constant.ValueOf[constant.Assistant](),
+			}
+			if msg.Content != "" {
+				assistant.Content = openai.ChatCompletionAssistantMessageParamContentUnion{
+					OfString: openai.String(msg.Content),
+				}
+			}
+			if len(msg.ToolCalls) > 0 {
+				assistant.ToolCalls = buildChatToolCalls(msg.ToolCalls)
+			}
+			if msg.Content == "" && len(assistant.ToolCalls) == 0 {
+				continue
+			}
+			out = append(out, openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant})
 		case "tool":
 			if msg.ToolCallID == "" {
 				continue
 			}
-			out = append(out, responses.ResponseInputItemParamOfFunctionCallOutput(msg.ToolCallID, msg.Content))
-			continue
-		case "assistant":
-			if msg.Content != "" {
-				out = append(out, responses.ResponseInputItemParamOfMessage(msg.Content, mapRole(msg.Role)))
-			}
-			if len(msg.ToolCalls) > 0 {
-				for _, call := range msg.ToolCalls {
-					if call.ID == "" {
-						continue
-					}
-					out = append(out, responses.ResponseInputItemParamOfFunctionCall(
-						call.Function.Arguments,
-						call.ID,
-						call.Function.Name,
-					))
-				}
-			}
-			continue
+			out = append(out, openai.ChatCompletionMessageParamUnion{
+				OfTool: &openai.ChatCompletionToolMessageParam{
+					Role:       constant.ValueOf[constant.Tool](),
+					ToolCallID: msg.ToolCallID,
+					Content: openai.ChatCompletionToolMessageParamContentUnion{
+						OfString: openai.String(msg.Content),
+					},
+				},
+			})
 		default:
 			if msg.Content == "" {
 				continue
 			}
-			out = append(out, responses.ResponseInputItemParamOfMessage(msg.Content, mapRole(msg.Role)))
+			out = append(out, openai.ChatCompletionMessageParamUnion{
+				OfUser: &openai.ChatCompletionUserMessageParam{
+					Role: constant.ValueOf[constant.User](),
+					Content: openai.ChatCompletionUserMessageParamContentUnion{
+						OfString: openai.String(msg.Content),
+					},
+				},
+			})
 		}
 	}
 	return out
 }
 
-func buildResponseTools(tools []Tool) []responses.ToolUnionParam {
+func buildChatToolCalls(calls []ToolCall) []openai.ChatCompletionMessageToolCallParam {
+	out := make([]openai.ChatCompletionMessageToolCallParam, 0, len(calls))
+	for _, call := range calls {
+		if call.ID == "" || call.Function.Name == "" {
+			continue
+		}
+		out = append(out, openai.ChatCompletionMessageToolCallParam{
+			ID:   call.ID,
+			Type: constant.ValueOf[constant.Function](),
+			Function: openai.ChatCompletionMessageToolCallFunctionParam{
+				Name:      call.Function.Name,
+				Arguments: call.Function.Arguments,
+			},
+		})
+	}
+	return out
+}
+
+func buildChatTools(tools []Tool) []openai.ChatCompletionToolParam {
 	if len(tools) == 0 {
 		return nil
 	}
-	out := make([]responses.ToolUnionParam, 0, len(tools))
+	out := make([]openai.ChatCompletionToolParam, 0, len(tools))
 	for _, t := range tools {
 		if t.Type != "function" {
 			continue
@@ -237,47 +261,35 @@ func buildResponseTools(tools []Tool) []responses.ToolUnionParam {
 		if params == nil {
 			params = map[string]any{}
 		}
-		fn := responses.FunctionToolParam{
+		fn := shared.FunctionDefinitionParam{
 			Name:       t.Function.Name,
-			Parameters: params,
+			Parameters: shared.FunctionParameters(params),
 			Strict:     param.NewOpt(false),
 		}
 		if t.Function.Description != "" {
 			fn.Description = param.NewOpt(t.Function.Description)
 		}
-		out = append(out, responses.ToolUnionParam{OfFunction: &fn})
+		out = append(out, openai.ChatCompletionToolParam{
+			Type:     constant.ValueOf[constant.Function](),
+			Function: fn,
+		})
 	}
 	return out
 }
 
-func mapRole(role string) responses.EasyInputMessageRole {
-	switch role {
-	case "system":
-		return responses.EasyInputMessageRoleSystem
-	case "assistant":
-		return responses.EasyInputMessageRoleAssistant
-	case "developer":
-		return responses.EasyInputMessageRoleDeveloper
-	default:
-		return responses.EasyInputMessageRoleUser
-	}
-}
-
-func responseToChat(resp *responses.Response) ChatResponse {
+func chatCompletionToChat(resp *openai.ChatCompletion) ChatResponse {
 	content := ""
 	toolCalls := []ToolCall(nil)
-	if resp != nil {
-		content = resp.OutputText()
-		for _, item := range resp.Output {
-			if item.Type != "function_call" {
-				continue
-			}
+	if resp != nil && len(resp.Choices) > 0 {
+		msg := resp.Choices[0].Message
+		content = msg.Content
+		for _, call := range msg.ToolCalls {
 			toolCalls = append(toolCalls, ToolCall{
-				ID:   item.CallID,
+				ID:   call.ID,
 				Type: "function",
 				Function: ToolCallFn{
-					Name:      item.Name,
-					Arguments: item.Arguments,
+					Name:      call.Function.Name,
+					Arguments: call.Function.Arguments,
 				},
 			})
 		}
@@ -291,8 +303,8 @@ func responseToChat(resp *responses.Response) ChatResponse {
 	created := int64(0)
 	id := ""
 	if resp != nil {
-		model = string(resp.Model)
-		created = int64(resp.CreatedAt)
+		model = resp.Model
+		created = resp.Created
 		id = resp.ID
 	}
 	return ChatResponse{
@@ -300,5 +312,48 @@ func responseToChat(resp *responses.Response) ChatResponse {
 		Created: created,
 		Model:   model,
 		Choices: []ChatChoice{{Index: 0, Message: msg}},
+	}
+}
+
+func firstFinishReason(resp *openai.ChatCompletion) string {
+	if resp == nil || len(resp.Choices) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(resp.Choices[0].FinishReason)
+}
+
+func isContextWindowFinishReason(reason string) bool {
+	reason = strings.ToLower(strings.TrimSpace(reason))
+	if reason == "" {
+		return false
+	}
+	if strings.Contains(reason, "context_window") {
+		return true
+	}
+	if strings.Contains(reason, "context") && strings.Contains(reason, "exceed") {
+		return true
+	}
+	if strings.Contains(reason, "model_context") {
+		return true
+	}
+	return false
+}
+
+func isContextWindowError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "context_length_exceeded"):
+		return true
+	case strings.Contains(msg, "context window"):
+		return true
+	case strings.Contains(msg, "context_window"):
+		return true
+	case strings.Contains(msg, "model_context_window_exceeded"):
+		return true
+	default:
+		return false
 	}
 }

@@ -159,12 +159,7 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 	if !storeInSession {
 		messages = append(messages, llm.Message{Role: "user", Content: input})
 	}
-	resp, err := a.llm.Chat(ctx, llm.ChatRequest{
-		Model:            model,
-		Messages:         messages,
-		ReasoningEnabled: a.reasoning.Enabled,
-		ReasoningEffort:  a.reasoning.Effort,
-	})
+	resp, _, err := a.callLLMWithTrim(ctx, log, sessionID, model, messages, nil)
 	if err != nil {
 		log.Error("interrupt llm error", zap.Int64("session_id", sessionID), zap.Error(err))
 		return "", err
@@ -195,17 +190,12 @@ func (a *Agent) runLoop(ctx context.Context, sessionID int64, userID int64, mess
 		)
 		tools := a.toolsFor()
 		log.Debug("tools prepared", zap.Int("count", len(tools)))
-		resp, err := a.llm.Chat(ctx, llm.ChatRequest{
-			Model:            model,
-			Messages:         messages,
-			Tools:            tools,
-			ReasoningEnabled: a.reasoning.Enabled,
-			ReasoningEffort:  a.reasoning.Effort,
-		})
+		resp, trimmed, err := a.callLLMWithTrim(ctx, log, sessionID, model, messages, tools)
 		if err != nil {
 			log.Error("llm chat error", zap.Int64("session_id", sessionID), zap.Error(err))
 			return "", err
 		}
+		messages = trimmed
 		if len(resp.Choices) == 0 {
 			return "", errors.New("empty llm response")
 		}

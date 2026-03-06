@@ -369,6 +369,11 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 }
 
 const pageStateScript = `(() => {
+  const IGNORED_TAGS = new Set(['script', 'style', 'noscript', 'svg', 'canvas', 'iframe', 'template']);
+  const NOISE_CONTAINER_TAGS = new Set(['nav', 'footer', 'header', 'aside']);
+  const PRESENTATION_ROLES = new Set(['presentation', 'none']);
+  const GENERIC_CONTAINER_TAGS = new Set(['div', 'span', 'section', 'main', 'article']);
+
   const isVisible = (el) => {
     const style = window.getComputedStyle(el);
     if (!style) return false;
@@ -376,6 +381,38 @@ const pageStateScript = `(() => {
     const rect = el.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
   };
+
+  const isHiddenLike = (el) => {
+    if (!el) return true;
+    if (el.hidden) return true;
+    if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return true;
+    const tag = (el.tagName || '').toLowerCase();
+    if (IGNORED_TAGS.has(tag)) return true;
+    const role = (el.getAttribute && el.getAttribute('role')) || '';
+    if (PRESENTATION_ROLES.has(role)) return true;
+    return false;
+  };
+
+  const isNoiseContainer = (el) => {
+    if (!el) return false;
+    const tag = (el.tagName || '').toLowerCase();
+    if (NOISE_CONTAINER_TAGS.has(tag)) return true;
+    const role = (el.getAttribute && el.getAttribute('role')) || '';
+    if (role === 'navigation' || role === 'banner' || role === 'contentinfo' || role === 'complementary') {
+      return true;
+    }
+    return false;
+  };
+
+  const hasIgnoredAncestor = (el, predicate) => {
+    let cur = el;
+    while (cur) {
+      if (predicate(cur)) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  };
+
   const interactive = Array.from(document.querySelectorAll(
     'a,button,input,textarea,select,[role="button"],[role="link"],[role="textbox"],[contenteditable="true"],[onclick]'
   ));
@@ -385,17 +422,28 @@ const pageStateScript = `(() => {
   const elements = [];
   for (const el of interactive) {
     if (!isVisible(el)) continue;
+    if (isHiddenLike(el)) continue;
+    const tag = (el.tagName || '').toLowerCase();
+    const text = (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('alt') || el.getAttribute('title') || '').trim();
+    const placeholder = (el.getAttribute && el.getAttribute('placeholder')) || '';
+    const href = (el.getAttribute && el.getAttribute('href')) || '';
+    const role = (el.getAttribute && el.getAttribute('role')) || '';
+    const type = (el.getAttribute && el.getAttribute('type')) || '';
+    const hasLabel = text !== '' || placeholder !== '';
+    const isFormControl = tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'button';
+    if (GENERIC_CONTAINER_TAGS.has(tag) && !hasLabel && !href && !isFormControl) {
+      continue;
+    }
     el.setAttribute('data-haro-id', String(id));
     const rect = el.getBoundingClientRect();
-    const text = (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('alt') || '').trim();
     elements.push({
       id,
-      tag: (el.tagName || '').toLowerCase(),
+      tag,
       text,
-      role: el.getAttribute('role') || '',
-      type: el.getAttribute('type') || '',
-      placeholder: el.getAttribute('placeholder') || '',
-      href: el.getAttribute('href') || '',
+      role,
+      type,
+      placeholder,
+      href,
       rect: {
         x: Math.round(rect.x),
         y: Math.round(rect.y),
@@ -405,9 +453,30 @@ const pageStateScript = `(() => {
     });
     id++;
   }
-  const bodyText = document.body ? (document.body.innerText || '') : '';
+
+  const content = (() => {
+    if (!document.body) return '';
+    const parts = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => {
+        const value = (node.nodeValue || '').trim();
+        if (!value) return NodeFilter.FILTER_REJECT;
+        const parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        if (hasIgnoredAncestor(parent, isHiddenLike)) return NodeFilter.FILTER_REJECT;
+        if (hasIgnoredAncestor(parent, isNoiseContainer)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    while (walker.nextNode()) {
+      const value = (walker.currentNode && walker.currentNode.nodeValue || '').trim();
+      if (value) parts.push(value);
+    }
+    return parts.join('\n');
+  })();
+
   const viewport = { width: window.innerWidth || 0, height: window.innerHeight || 0 };
-  return { url: location.href, title: document.title || '', content: bodyText, elements, viewport };
+  return { url: location.href, title: document.title || '', content, elements, viewport };
 })()`
 
 const overlayScript = `(() => {
