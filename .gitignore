@@ -20,10 +20,6 @@
 # OS
 .DS_Store
 
-# Local env/config
-.env
-.env.*
-!.env.example
 
 # Runtime data
 /skills/
