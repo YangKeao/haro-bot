@@ -98,6 +98,11 @@ func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel strin
 	usage := anchorUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.AnchorBudget}
 	messages := baseMessages
 	if hint := anchorHint(recent, usage); hint != "" {
+		log.Debug("anchor hint",
+			zap.Int64("session_id", sessionID),
+			zap.Int("tokens_used", usage.TokensUsed),
+			zap.Int("token_budget", usage.TokenBudget),
+		)
 		messages = append(messages, llm.Message{Role: "system", Content: hint})
 	}
 	messages = append(messages, llmMessages...) // includes user input
@@ -148,6 +153,11 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 	usage := anchorUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.AnchorBudget}
 	messages := baseMessages
 	if hint := anchorHint(recent, usage); hint != "" {
+		log.Debug("anchor hint",
+			zap.Int64("session_id", sessionID),
+			zap.Int("tokens_used", usage.TokensUsed),
+			zap.Int("token_budget", usage.TokenBudget),
+		)
 		messages = append(messages, llm.Message{Role: "system", Content: hint})
 	}
 	messages = append(messages, llmMessages...)

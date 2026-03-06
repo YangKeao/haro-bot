@@ -23,6 +23,18 @@ func (a *Agent) callLLMWithTrim(ctx context.Context, log *zap.Logger, sessionID 
 
 	for attempt := 0; attempt <= maxContextRetries; attempt++ {
 		trimmed, info := budgeter.Trim(messages, scale)
+		if log != nil && len(trimmed) != len(messages) {
+			log.Debug("context trimmed",
+				zap.Int64("session_id", sessionID),
+				zap.Int("attempt", attempt),
+				zap.Float64("scale", scale),
+				zap.String("mode", info.Mode),
+				zap.Int("budget", info.Budget),
+				zap.Int("tokens_used", info.TokensUsed),
+				zap.Int("messages_before", len(messages)),
+				zap.Int("messages_after", len(trimmed)),
+			)
+		}
 		if attempt > 0 && log != nil {
 			log.Warn("context retry",
 				zap.Int64("session_id", sessionID),

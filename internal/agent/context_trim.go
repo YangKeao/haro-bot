@@ -72,10 +72,8 @@ func selectLLMMessagesByTokens(messages []llm.Message, estimator *llm.TokenEstim
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		mustInclude := false
-		if msg.Role == "tool" && msg.ToolCallID != "" {
-			if !includedAny {
-				continue
-			}
+		if msg.Role == "tool" && msg.ToolCallID == "" {
+			continue
 		}
 		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
 			paired := make([]llm.ToolCall, 0, len(msg.ToolCalls))
@@ -97,6 +95,9 @@ func selectLLMMessagesByTokens(messages []llm.Message, estimator *llm.TokenEstim
 				msg.ToolCalls = paired
 				mustInclude = true
 			}
+		}
+		if msg.Role == "tool" && !includedAny {
+			mustInclude = true
 		}
 		if !includedAny && msg.Role != "tool" {
 			mustInclude = true
@@ -138,10 +139,8 @@ func selectLLMMessagesByCount(messages []llm.Message, maxMessages int) []llm.Mes
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		mustInclude := false
-		if msg.Role == "tool" && msg.ToolCallID != "" {
-			if !includedAny {
-				continue
-			}
+		if msg.Role == "tool" && msg.ToolCallID == "" {
+			continue
 		}
 		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
 			paired := make([]llm.ToolCall, 0, len(msg.ToolCalls))
@@ -163,6 +162,9 @@ func selectLLMMessagesByCount(messages []llm.Message, maxMessages int) []llm.Mes
 				msg.ToolCalls = paired
 				mustInclude = true
 			}
+		}
+		if msg.Role == "tool" && !includedAny {
+			mustInclude = true
 		}
 		if !includedAny && msg.Role != "tool" {
 			mustInclude = true

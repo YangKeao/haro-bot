@@ -373,13 +373,19 @@ const pageStateScript = `(() => {
   const NOISE_CONTAINER_TAGS = new Set(['nav', 'footer', 'header', 'aside']);
   const PRESENTATION_ROLES = new Set(['presentation', 'none']);
   const GENERIC_CONTAINER_TAGS = new Set(['div', 'span', 'section', 'main', 'article']);
-
   const isVisible = (el) => {
     const style = window.getComputedStyle(el);
     if (!style) return false;
     if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
     const rect = el.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
+  };
+
+  const isDisabled = (el) => {
+    if (!el) return false;
+    if (el.disabled) return true;
+    const ariaDisabled = el.getAttribute && el.getAttribute('aria-disabled');
+    return ariaDisabled === 'true';
   };
 
   const isHiddenLike = (el) => {
@@ -423,6 +429,7 @@ const pageStateScript = `(() => {
   for (const el of interactive) {
     if (!isVisible(el)) continue;
     if (isHiddenLike(el)) continue;
+    if (isDisabled(el)) continue;
     const tag = (el.tagName || '').toLowerCase();
     const text = (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('alt') || el.getAttribute('title') || '').trim();
     const placeholder = (el.getAttribute && el.getAttribute('placeholder')) || '';
