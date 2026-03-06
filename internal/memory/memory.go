@@ -140,7 +140,7 @@ func (s *Store) LoadRecentMessages(ctx context.Context, sessionID int64, limit i
 	}
 	var records []dbmodel.Message
 	if err := s.db.WithContext(ctx).
-		Where("session_id = ?", sessionID).
+		Where("session_id = ? AND deleted_at IS NULL", sessionID).
 		Order("id DESC").
 		Limit(limit).
 		Find(&records).Error; err != nil {
@@ -165,7 +165,14 @@ func (s *Store) LoadRecentMessages(ctx context.Context, sessionID int64, limit i
 			CreatedAt: r.CreatedAt,
 		})
 	}
-	return reverseMessages(msgs), nil
+	msgs = reverseMessages(msgs)
+	filtered, toDelete := filterInvalidToolOutputs(msgs)
+	if len(toDelete) > 0 {
+		if err := s.softDeleteMessages(ctx, toDelete); err != nil {
+			return nil, err
+		}
+	}
+	return filtered, nil
 }
 
 func (s *Store) LoadLongMemories(ctx context.Context, userID int64, limit int) ([]Memory, error) {
@@ -199,4 +206,50 @@ func reverseMessages(in []Message) []Message {
 		in[i], in[j] = in[j], in[i]
 	}
 	return in
+}
+
+func filterInvalidToolOutputs(msgs []Message) ([]Message, []int64) {
+	if len(msgs) == 0 {
+		return msgs, nil
+	}
+	seenCalls := make(map[string]struct{})
+	out := make([]Message, 0, len(msgs))
+	var invalidIDs []int64
+	for _, msg := range msgs {
+		if msg.Role == "assistant" && msg.Metadata != nil {
+			for _, call := range msg.Metadata.ToolCalls {
+				if call.ID == "" {
+					continue
+				}
+				seenCalls[call.ID] = struct{}{}
+			}
+		}
+		if msg.Role == "tool" {
+			callID := ""
+			if msg.Metadata != nil {
+				callID = msg.Metadata.ToolCallID
+			}
+			if callID == "" {
+				invalidIDs = append(invalidIDs, msg.ID)
+				continue
+			}
+			if _, ok := seenCalls[callID]; !ok {
+				invalidIDs = append(invalidIDs, msg.ID)
+				continue
+			}
+		}
+		out = append(out, msg)
+	}
+	return out, invalidIDs
+}
+
+func (s *Store) softDeleteMessages(ctx context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	now := time.Now()
+	return s.db.WithContext(ctx).
+		Model(&dbmodel.Message{}).
+		Where("id IN ? AND deleted_at IS NULL", ids).
+		Update("deleted_at", now).Error
 }

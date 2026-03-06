@@ -36,6 +36,7 @@ type Message struct {
 	Content   string         `gorm:"column:content;type:mediumtext"`
 	Metadata  datatypes.JSON `gorm:"column:metadata_json;type:json"`
 	CreatedAt time.Time      `gorm:"column:created_at"`
+	DeletedAt *time.Time     `gorm:"column:deleted_at"`
 }
 
 func (Message) TableName() string { return "messages" }

@@ -25,12 +25,13 @@ type migration struct {
 	stmts   []string
 }
 
-const currentSchemaVersion int64 = 3
+const currentSchemaVersion int64 = 4
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
 	{version: 2, stmts: appConfigSQL},
 	{version: 3, stmts: dropSkillCallsSQL},
+	{version: 4, stmts: addMessageSoftDeleteSQL},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -193,4 +194,9 @@ var appConfigSQL = []string{
 
 var dropSkillCallsSQL = []string{
 	`DROP TABLE IF EXISTS skill_calls`,
+}
+
+var addMessageSoftDeleteSQL = []string{
+	`ALTER TABLE messages ADD COLUMN deleted_at TIMESTAMP NULL`,
+	`CREATE INDEX idx_messages_session_deleted ON messages (session_id, deleted_at)`,
 }
