@@ -16,7 +16,8 @@ func TestLLMChat(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	resp, err := client.Chat(ctx, llm.ChatRequest{
-		Model: model,
+		Model:  model,
+		Stream: true,
 		Messages: []llm.Message{
 			{Role: "user", Content: "Say hello in one word."},
 		},

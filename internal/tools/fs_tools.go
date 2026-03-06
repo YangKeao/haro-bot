@@ -20,7 +20,7 @@ func NewReadTool(fs *FS, maxBytes int64) *ReadTool {
 	return &ReadTool{fs: fs, maxBytes: maxBytes}
 }
 
-func (t *ReadTool) Name() string { return "read" }
+func (t *ReadTool) Name() string        { return "read" }
 func (t *ReadTool) Description() string { return "Read a file from allowed paths." }
 func (t *ReadTool) Parameters() map[string]any {
 	return map[string]any{
@@ -54,7 +54,7 @@ type writeArgs struct {
 
 func NewWriteTool(fs *FS) *WriteTool { return &WriteTool{fs: fs} }
 
-func (t *WriteTool) Name() string { return "write" }
+func (t *WriteTool) Name() string        { return "write" }
 func (t *WriteTool) Description() string { return "Write a file to allowed paths." }
 func (t *WriteTool) Parameters() map[string]any {
 	return map[string]any{
@@ -137,7 +137,7 @@ type editArgs struct {
 
 func NewEditTool(fs *FS) *EditTool { return &EditTool{fs: fs} }
 
-func (t *EditTool) Name() string { return "edit" }
+func (t *EditTool) Name() string        { return "edit" }
 func (t *EditTool) Description() string { return "Edit a file by replacing text within allowed paths." }
 func (t *EditTool) Parameters() map[string]any {
 	return map[string]any{
@@ -191,7 +191,7 @@ func NewExecTool(fs *FS, maxOutputBytes int) *ExecTool {
 	return &ExecTool{fs: fs, maxOutputBytes: maxOutputBytes}
 }
 
-func (t *ExecTool) Name() string { return "exec" }
+func (t *ExecTool) Name() string        { return "exec" }
 func (t *ExecTool) Description() string { return "Execute an allowed script within allowed paths." }
 func (t *ExecTool) Parameters() map[string]any {
 	return map[string]any{

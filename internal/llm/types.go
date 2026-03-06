@@ -1,10 +1,10 @@
 package llm
 
 type Message struct {
-	Role      string     `json:"role"`
-	Content   string     `json:"content,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string    `json:"tool_call_id,omitempty"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
 type Tool struct {
@@ -19,9 +19,9 @@ type FunctionSpec struct {
 }
 
 type ToolCall struct {
-	ID       string        `json:"id"`
-	Type     string        `json:"type"`
-	Function ToolCallFn    `json:"function"`
+	ID       string     `json:"id"`
+	Type     string     `json:"type"`
+	Function ToolCallFn `json:"function"`
 }
 
 type ToolCallFn struct {
@@ -35,13 +35,14 @@ type ChatRequest struct {
 	Tools       []Tool    `json:"tools,omitempty"`
 	ToolChoice  any       `json:"tool_choice,omitempty"`
 	Temperature float64   `json:"temperature,omitempty"`
+	Stream      bool      `json:"stream,omitempty"`
 }
 
 type ChatResponse struct {
-	ID      string        `json:"id"`
-	Created int64         `json:"created"`
-	Model   string        `json:"model"`
-	Choices []ChatChoice  `json:"choices"`
+	ID      string       `json:"id"`
+	Created int64        `json:"created"`
+	Model   string       `json:"model"`
+	Choices []ChatChoice `json:"choices"`
 }
 
 type ChatChoice struct {

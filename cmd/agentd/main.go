@@ -49,7 +49,7 @@ func main() {
 	if err != nil {
 		log.Fatal("config load failed", zap.Error(err))
 	}
-	log.Info("config loaded", zap.String("server_addr", cfg.ServerAddr), zap.String("llm_model", cfg.LLMModel))
+	log.Info("config loaded", zap.Any("cfg", cfg))
 
 	store := memory.NewStore(dbConn)
 	skillsStore := skills.NewStore(dbConn)
