@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	dbmodel "github.com/YangKeao/haro-bot/internal/db"
@@ -255,6 +256,52 @@ func (s *store) LoadLongMemories(ctx context.Context, userID int64, limit int) (
 	return memories, nil
 }
 
+// SearchMessages searches session messages by content substring.
+// Results are ordered by most recent first. If limit <= 0, a default limit is used.
+func (s *store) SearchMessages(ctx context.Context, sessionID int64, query string, limit int, includeTool bool) ([]Message, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, errors.New("query required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	like := "%" + escapeLike(strings.ToLower(query)) + "%"
+	tx := s.db.WithContext(ctx).
+		Where("session_id = ? AND deleted_at IS NULL", sessionID).
+		Where("LOWER(content) LIKE ? ESCAPE '\\\\'", like)
+	if !includeTool {
+		tx = tx.Where("role <> ?", "tool")
+	}
+	var records []dbmodel.Message
+	if err := tx.Order("id DESC").Limit(limit).Find(&records).Error; err != nil {
+		return nil, err
+	}
+	msgs := make([]Message, 0, len(records))
+	for _, r := range records {
+		var meta *MessageMetadata
+		if len(r.Metadata) > 0 {
+			var parsed MessageMetadata
+			if err := json.Unmarshal(r.Metadata, &parsed); err != nil {
+				return nil, err
+			}
+			meta = &parsed
+		}
+		msgs = append(msgs, Message{
+			ID:        r.ID,
+			SessionID: r.SessionID,
+			Role:      r.Role,
+			Content:   r.Content,
+			Metadata:  meta,
+			CreatedAt: r.CreatedAt,
+		})
+	}
+	return msgs, nil
+}
+
 func reverseMessages(in []Message) []Message {
 	for i, j := 0, len(in)-1; i < j; i, j = i+1, j-1 {
 		in[i], in[j] = in[j], in[i]
@@ -353,4 +400,9 @@ func (s *store) latestMessageID(ctx context.Context, sessionID int64) (int64, er
 		return 0, err
 	}
 	return record.ID, nil
+}
+
+func escapeLike(value string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return replacer.Replace(value)
 }
