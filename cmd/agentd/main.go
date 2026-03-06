@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,19 +23,29 @@ import (
 )
 
 func main() {
-	logger, err := logging.InitFromEnv()
+	configPath := flag.String("config", "config.toml", "path to config file")
+	flag.Parse()
+
+	bootLogger, _ := zap.NewProduction()
+	cfg, err := config.LoadFromFile(*configPath)
 	if err != nil {
-		fallback, _ := zap.NewProduction()
-		logging.Set(fallback)
-		logger = fallback
+		bootLogger.Fatal("config load failed", zap.String("path", *configPath), zap.Error(err))
+	}
+
+	logger, err := logging.Init(logging.Config{
+		Level:       cfg.Log.Level,
+		Development: cfg.Log.Development,
+		Encoding:    cfg.Log.Encoding,
+	})
+	if err != nil {
+		logging.Set(bootLogger)
+		logger = bootLogger
 		logger.Warn("invalid log config, using production defaults", zap.Error(err))
 	}
 	defer func() { _ = logger.Sync() }()
 	log := logger.Named("agentd")
 
-	baseCfg := config.LoadBase()
-
-	dbConn, err := db.Open(baseCfg.TiDBDSN)
+	dbConn, err := db.Open(cfg.TiDBDSN)
 	if err != nil {
 		log.Fatal("db open failed", zap.Error(err))
 	}
@@ -42,14 +53,10 @@ func main() {
 		log.Fatal("db migrations failed", zap.Error(err))
 	}
 
+	log.Info("config loaded", zap.Any("cfg", cfg))
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	cfg, err := config.LoadFromDB(ctx, dbConn, baseCfg)
-	if err != nil {
-		log.Fatal("config load failed", zap.Error(err))
-	}
-	log.Info("config loaded", zap.Any("cfg", cfg))
 
 	store := memory.NewStore(dbConn)
 	skillsStore := skills.NewStore(dbConn)

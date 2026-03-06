@@ -1,21 +1,19 @@
 package config
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	dbmodel "github.com/YangKeao/haro-bot/internal/db"
-	"github.com/YangKeao/haro-bot/internal/logging"
-	"go.uber.org/zap"
-	"gorm.io/datatypes"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
+	"github.com/pelletier/go-toml/v2"
 )
+
+type LogConfig struct {
+	Level       string `toml:"level"`
+	Development bool   `toml:"development"`
+	Encoding    string `toml:"encoding"`
+}
 
 type Config struct {
 	ServerAddr string
@@ -46,109 +44,66 @@ type Config struct {
 	FSAllowedExecDirs []string
 
 	ToolMaxTurns int
+
+	Log LogConfig
 }
 
-type ConfigRecord struct {
-	ServerAddr                       string   `json:"server_addr"`
-	LLMBaseURL                       string   `json:"llm_base_url"`
-	LLMAPIKey                        string   `json:"llm_api_key"`
-	LLMModel                         string   `json:"llm_model"`
-	LLMPromptFormat                  string   `json:"llm_prompt_format"`
-	LLMReasoningEnabled              bool     `json:"llm_reasoning_enabled"`
-	LLMReasoningEffort               string   `json:"llm_reasoning_effort"`
-	LLMHTTPDebug                     bool     `json:"llm_http_debug"`
-	LLMContextWindow                 int      `json:"llm_context_window"`
-	LLMAutoCompactTokenLimit         int      `json:"llm_auto_compact_token_limit"`
-	LLMEffectiveContextWindowPercent int      `json:"llm_effective_context_window_percent"`
-	TelegramToken                    string   `json:"telegram_token"`
-	SkillsDir                        string   `json:"skills_dir"`
-	SkillsRepoAllowlist              []string `json:"skills_repo_allowlist"`
-	SkillsSyncInterval               string   `json:"skills_sync_interval"`
-	BraveSearchAPIKey                string   `json:"brave_search_api_key"`
-	FSAllowedRoots                   []string `json:"fs_allowed_roots"`
-	FSAllowedExecDirs                []string `json:"fs_allowed_exec_dirs"`
-	ToolMaxTurns                     int      `json:"tool_max_turns"`
+type fileConfig struct {
+	ServerAddr string `toml:"server_addr"`
+
+	TiDBDSN string `toml:"tidb_dsn"`
+
+	LLMBaseURL      string `toml:"llm_base_url"`
+	LLMAPIKey       string `toml:"llm_api_key"`
+	LLMModel        string `toml:"llm_model"`
+	LLMPromptFormat string `toml:"llm_prompt_format"`
+
+	LLMReasoningEnabled              bool   `toml:"llm_reasoning_enabled"`
+	LLMReasoningEffort               string `toml:"llm_reasoning_effort"`
+	LLMHTTPDebug                     bool   `toml:"llm_http_debug"`
+	LLMContextWindow                 int    `toml:"llm_context_window"`
+	LLMAutoCompactTokenLimit         int    `toml:"llm_auto_compact_token_limit"`
+	LLMEffectiveContextWindowPercent int    `toml:"llm_effective_context_window_percent"`
+
+	TelegramToken string `toml:"telegram_token"`
+
+	SkillsDir           string   `toml:"skills_dir"`
+	SkillsRepoAllowlist []string `toml:"skills_repo_allowlist"`
+	SkillsSyncInterval  string   `toml:"skills_sync_interval"`
+
+	BraveSearchAPIKey string `toml:"brave_search_api_key"`
+
+	FSAllowedRoots    []string `toml:"fs_allowed_roots"`
+	FSAllowedExecDirs []string `toml:"fs_allowed_exec_dirs"`
+
+	ToolMaxTurns int `toml:"tool_max_turns"`
+
+	Log LogConfig `toml:"log"`
 }
 
-func LoadBase() Config {
-	return Config{
-		TiDBDSN: envDefault("TIDB_DSN", "root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true"),
+func LoadFromFile(path string) (Config, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return Config{}, errors.New("config path required")
 	}
-}
-
-func LoadFromDB(ctx context.Context, db *gorm.DB, base Config) (Config, error) {
-	log := logging.L().Named("config")
-	if db == nil {
-		return Config{}, errors.New("db required")
-	}
-	rec, found, err := loadRecord(ctx, db)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, err
 	}
-	if !found {
-		rec = defaultRecord()
-		rec.applyEnvOverrides()
-		rec.normalize()
-		if err := saveRecord(ctx, db, rec); err != nil {
-			return Config{}, err
-		}
-		log.Info("seeded default config in db")
-	} else {
-		rec = rec.withDefaults()
-		rec.applyEnvOverrides()
-		rec.normalize()
-		if err := saveRecord(ctx, db, rec); err != nil {
-			return Config{}, err
-		}
-		log.Debug("loaded config from db")
+	var rec fileConfig
+	if err := toml.Unmarshal(data, &rec); err != nil {
+		return Config{}, err
 	}
-	cfg := rec.toConfig()
-	cfg.TiDBDSN = base.TiDBDSN
-	log.Info("config ready",
-		zap.String("server_addr", cfg.ServerAddr),
-		zap.String("llm_model", cfg.LLMModel),
-		zap.String("prompt_format", string(cfg.LLMPromptFormat)),
-		zap.Bool("telegram_enabled", cfg.TelegramToken != ""),
-	)
-	return cfg, nil
+	rec = rec.withDefaults()
+	rec.normalize()
+	return rec.toConfig(), nil
 }
 
-func loadRecord(ctx context.Context, db *gorm.DB) (ConfigRecord, bool, error) {
-	var row dbmodel.AppConfig
-	if err := db.WithContext(ctx).First(&row).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ConfigRecord{}, false, nil
-		}
-		return ConfigRecord{}, false, err
-	}
-	if len(row.ConfigJSON) == 0 {
-		return ConfigRecord{}, true, nil
-	}
-	var rec ConfigRecord
-	if err := json.Unmarshal(row.ConfigJSON, &rec); err != nil {
-		return ConfigRecord{}, false, err
-	}
-	return rec, true, nil
-}
-
-func saveRecord(ctx context.Context, db *gorm.DB, rec ConfigRecord) error {
-	raw, err := json.Marshal(rec)
-	if err != nil {
-		return err
-	}
-	row := dbmodel.AppConfig{
-		ID:         1,
-		ConfigJSON: datatypes.JSON(raw),
-	}
-	return db.WithContext(ctx).Clauses(clause.OnConflict{
-		UpdateAll: true,
-	}).Create(&row).Error
-}
-
-func defaultRecord() ConfigRecord {
+func defaultFileConfig() fileConfig {
 	skillsDir := "./skills"
-	return ConfigRecord{
+	return fileConfig{
 		ServerAddr:                       ":8080",
+		TiDBDSN:                          "root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true",
 		LLMBaseURL:                       "https://api.openai.com/v1",
 		LLMModel:                         "gpt-4o-mini",
 		LLMPromptFormat:                  string(PromptFormatOpenAI),
@@ -157,13 +112,21 @@ func defaultRecord() ConfigRecord {
 		SkillsSyncInterval:               "10m",
 		FSAllowedRoots:                   []string{skillsDir},
 		ToolMaxTurns:                     1024,
+		Log: LogConfig{
+			Level:       "info",
+			Development: false,
+			Encoding:    "json",
+		},
 	}
 }
 
-func (r ConfigRecord) withDefaults() ConfigRecord {
-	def := defaultRecord()
+func (r fileConfig) withDefaults() fileConfig {
+	def := defaultFileConfig()
 	if r.ServerAddr == "" {
 		r.ServerAddr = def.ServerAddr
+	}
+	if r.TiDBDSN == "" {
+		r.TiDBDSN = def.TiDBDSN
 	}
 	if r.LLMBaseURL == "" {
 		r.LLMBaseURL = def.LLMBaseURL
@@ -189,10 +152,27 @@ func (r ConfigRecord) withDefaults() ConfigRecord {
 	if r.ToolMaxTurns <= 0 {
 		r.ToolMaxTurns = def.ToolMaxTurns
 	}
+	if strings.TrimSpace(r.Log.Level) == "" {
+		r.Log.Level = def.Log.Level
+	}
+	if strings.TrimSpace(r.Log.Encoding) == "" {
+		r.Log.Encoding = def.Log.Encoding
+	}
 	return r
 }
 
-func (r ConfigRecord) toConfig() Config {
+func (r *fileConfig) normalize() {
+	r.LLMPromptFormat = string(NormalizePromptFormat(r.LLMPromptFormat))
+	r.LLMReasoningEffort = strings.ToLower(strings.TrimSpace(r.LLMReasoningEffort))
+	if r.LLMEffectiveContextWindowPercent <= 0 {
+		r.LLMEffectiveContextWindowPercent = 95
+	}
+	if r.LLMEffectiveContextWindowPercent > 100 {
+		r.LLMEffectiveContextWindowPercent = 100
+	}
+}
+
+func (r fileConfig) toConfig() Config {
 	r = r.withDefaults()
 	syncInterval := parseDurationDefault(r.SkillsSyncInterval, 10*time.Minute)
 	fsRoots := r.FSAllowedRoots
@@ -200,8 +180,9 @@ func (r ConfigRecord) toConfig() Config {
 		fsRoots = []string{r.SkillsDir}
 	}
 	format := NormalizePromptFormat(r.LLMPromptFormat)
-	cfg := Config{
+	return Config{
 		ServerAddr:                       r.ServerAddr,
+		TiDBDSN:                          r.TiDBDSN,
 		LLMBaseURL:                       r.LLMBaseURL,
 		LLMAPIKey:                        r.LLMAPIKey,
 		LLMModel:                         r.LLMModel,
@@ -220,103 +201,8 @@ func (r ConfigRecord) toConfig() Config {
 		FSAllowedRoots:                   fsRoots,
 		FSAllowedExecDirs:                r.FSAllowedExecDirs,
 		ToolMaxTurns:                     r.ToolMaxTurns,
+		Log:                              r.Log,
 	}
-	return cfg
-}
-
-func (r *ConfigRecord) normalize() {
-	r.LLMPromptFormat = string(NormalizePromptFormat(r.LLMPromptFormat))
-	r.LLMReasoningEffort = strings.ToLower(strings.TrimSpace(r.LLMReasoningEffort))
-	if r.LLMEffectiveContextWindowPercent <= 0 {
-		r.LLMEffectiveContextWindowPercent = 95
-	}
-	if r.LLMEffectiveContextWindowPercent > 100 {
-		r.LLMEffectiveContextWindowPercent = 100
-	}
-}
-
-func (r *ConfigRecord) applyEnvOverrides() {
-	if v := os.Getenv("SERVER_ADDR"); v != "" {
-		r.ServerAddr = v
-	}
-	if v := os.Getenv("LLM_BASE_URL"); v != "" {
-		r.LLMBaseURL = v
-	}
-	if v := os.Getenv("LLM_API_KEY"); v != "" {
-		r.LLMAPIKey = v
-	}
-	if v := os.Getenv("LLM_MODEL"); v != "" {
-		r.LLMModel = v
-	}
-	if v := os.Getenv("LLM_PROMPT_FORMAT"); v != "" {
-		r.LLMPromptFormat = v
-	}
-	if v := os.Getenv("LLM_REASONING_ENABLED"); v != "" {
-		if b, err := parseBool(v); err == nil {
-			r.LLMReasoningEnabled = b
-		}
-	}
-	if v := os.Getenv("LLM_REASONING_EFFORT"); v != "" {
-		r.LLMReasoningEffort = v
-	}
-	if v := os.Getenv("LLM_HTTP_DEBUG"); v != "" {
-		if b, err := parseBool(v); err == nil {
-			r.LLMHTTPDebug = b
-		}
-	}
-	if v := os.Getenv("LLM_CONTEXT_WINDOW"); v != "" {
-		if n, err := parseInt(v); err == nil {
-			r.LLMContextWindow = n
-		}
-	}
-	if v := os.Getenv("LLM_AUTO_COMPACT_TOKEN_LIMIT"); v != "" {
-		if n, err := parseInt(v); err == nil {
-			r.LLMAutoCompactTokenLimit = n
-		}
-	}
-	if v := os.Getenv("LLM_EFFECTIVE_CONTEXT_WINDOW_PERCENT"); v != "" {
-		if n, err := parseInt(v); err == nil {
-			r.LLMEffectiveContextWindowPercent = n
-		}
-	}
-	if v := os.Getenv("TELEGRAM_BOT_TOKEN"); v != "" {
-		r.TelegramToken = v
-	}
-	if v := os.Getenv("SKILLS_DIR"); v != "" {
-		r.SkillsDir = v
-	}
-	if v := os.Getenv("SKILLS_REPO_ALLOWLIST"); v != "" {
-		r.SkillsRepoAllowlist = splitComma(v)
-	}
-	if v := os.Getenv("SKILLS_SYNC_INTERVAL"); v != "" {
-		r.SkillsSyncInterval = v
-	}
-	if v := os.Getenv("BRAVE_SEARCH_API_KEY"); v != "" {
-		r.BraveSearchAPIKey = v
-	} else if v := os.Getenv("BRAVE_API_KEY"); v != "" {
-		r.BraveSearchAPIKey = v
-	}
-	if v := os.Getenv("FS_ALLOWED_ROOTS"); v != "" {
-		r.FSAllowedRoots = splitComma(v)
-	}
-	if v := os.Getenv("FS_ALLOWED_EXEC_DIRS"); v != "" {
-		r.FSAllowedExecDirs = splitComma(v)
-	} else if v := os.Getenv("SKILLS_ALLOWED_SCRIPT_DIRS"); v != "" {
-		r.FSAllowedExecDirs = splitComma(v)
-	}
-	if v := os.Getenv("TOOL_MAX_TURNS"); v != "" {
-		if n, err := parseInt(v); err == nil {
-			r.ToolMaxTurns = n
-		}
-	}
-}
-
-func envDefault(key, def string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	return v
 }
 
 func parseDurationDefault(v string, def time.Duration) time.Duration {
@@ -329,45 +215,4 @@ func parseDurationDefault(v string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
-}
-
-func parseInt(v string) (int, error) {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return 0, errors.New("empty")
-	}
-	var n int
-	_, err := fmt.Sscanf(v, "%d", &n)
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
-}
-
-func parseBool(v string) (bool, error) {
-	v = strings.ToLower(strings.TrimSpace(v))
-	switch v {
-	case "1", "true", "yes", "on":
-		return true, nil
-	case "0", "false", "no", "off":
-		return false, nil
-	default:
-		return false, errors.New("invalid bool")
-	}
-}
-
-func splitComma(v string) []string {
-	if v == "" {
-		return nil
-	}
-	parts := strings.Split(v, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
 }
