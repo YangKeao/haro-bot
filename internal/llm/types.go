@@ -49,7 +49,14 @@ type ChatResponse struct {
 	ID      string       `json:"id"`
 	Created int64        `json:"created"`
 	Model   string       `json:"model"`
+	Usage   Usage        `json:"usage,omitempty"`
 	Choices []ChatChoice `json:"choices"`
+}
+
+type Usage struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
 }
 
 type ChatChoice struct {

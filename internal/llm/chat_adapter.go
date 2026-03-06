@@ -153,15 +153,22 @@ func chatCompletionToChat(resp *openai.ChatCompletion) ChatResponse {
 	model := ""
 	created := int64(0)
 	id := ""
+	usage := Usage{}
 	if resp != nil {
 		model = resp.Model
 		created = resp.Created
 		id = resp.ID
+		usage = Usage{
+			PromptTokens:     resp.Usage.PromptTokens,
+			CompletionTokens: resp.Usage.CompletionTokens,
+			TotalTokens:      resp.Usage.TotalTokens,
+		}
 	}
 	return ChatResponse{
 		ID:      id,
 		Created: created,
 		Model:   model,
+		Usage:   usage,
 		Choices: []ChatChoice{{Index: 0, Message: msg}},
 	}
 }

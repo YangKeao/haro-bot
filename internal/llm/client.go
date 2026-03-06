@@ -110,6 +110,11 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 	}
 
 	forceStream := true
+	if forceStream {
+		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true),
+		}
+	}
 	log.Debug("chat completions request",
 		zap.String("base_url", c.baseURL),
 		zap.String("model", req.Model),
@@ -139,6 +144,9 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 		zap.Duration("latency", time.Since(start)),
 		zap.Int("choices", len(out.Choices)),
 		zap.String("model", out.Model),
+		zap.Int64("prompt_tokens", out.Usage.PromptTokens),
+		zap.Int64("completion_tokens", out.Usage.CompletionTokens),
+		zap.Int64("total_tokens", out.Usage.TotalTokens),
 	)
 	return out, nil
 }
