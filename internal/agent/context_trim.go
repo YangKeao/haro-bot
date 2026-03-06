@@ -1,6 +1,10 @@
 package agent
 
-import "github.com/YangKeao/haro-bot/internal/llm"
+import (
+	"github.com/YangKeao/haro-bot/internal/llm"
+	"github.com/YangKeao/haro-bot/internal/logging"
+	"go.uber.org/zap"
+)
 
 func trimMessagesForBudget(messages []llm.Message, estimator *llm.TokenEstimator, budget int) []llm.Message {
 	if len(messages) == 0 {
@@ -68,6 +72,8 @@ func selectLLMMessagesByTokens(messages []llm.Message, estimator *llm.TokenEstim
 	selected := make([]llm.Message, 0, len(messages))
 	used := 0
 	includedAny := false
+	seenTool := false
+	log := logging.L().Named("context_trim")
 
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
@@ -96,14 +102,25 @@ func selectLLMMessagesByTokens(messages []llm.Message, estimator *llm.TokenEstim
 				mustInclude = true
 			}
 		}
-		if msg.Role == "tool" && !includedAny {
-			mustInclude = true
+		firstTool := msg.Role == "tool" && !seenTool
+		if msg.Role == "tool" {
+			seenTool = true
 		}
 		if !includedAny && msg.Role != "tool" {
 			mustInclude = true
 		}
 
 		tokens := estimator.CountMessage(msg)
+		if firstTool && tokens > budget {
+			originalTokens := tokens
+			msg = llm.Message{
+				Role:       "tool",
+				ToolCallID: msg.ToolCallID,
+				Content:    "tool response omitted: output too large for context window",
+			}
+			tokens = estimator.CountMessage(msg)
+			log.Debug("rewrote oversized tool response", zap.String("tool_call_id", msg.ToolCallID), zap.Int("original_tokens", originalTokens), zap.Int("rewritten_tokens", tokens), zap.Int("budget", budget))
+		}
 		if mustInclude || used+tokens <= budget {
 			used += tokens
 			selected = append(selected, msg)
@@ -162,9 +179,6 @@ func selectLLMMessagesByCount(messages []llm.Message, maxMessages int) []llm.Mes
 				msg.ToolCalls = paired
 				mustInclude = true
 			}
-		}
-		if msg.Role == "tool" && !includedAny {
-			mustInclude = true
 		}
 		if !includedAny && msg.Role != "tool" {
 			mustInclude = true
