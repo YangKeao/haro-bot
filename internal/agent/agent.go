@@ -24,9 +24,10 @@ type Agent struct {
 	model          string
 	promptFormat   string
 	maxContext     int
+	reasoning      llm.ReasoningConfig
 }
 
-func New(store *memory.Store, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string) *Agent {
+func New(store *memory.Store, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig) *Agent {
 	if maxToolTurns <= 0 {
 		maxToolTurns = 1024
 	}
@@ -44,6 +45,7 @@ func New(store *memory.Store, skills *skills.Manager, toolRegistry *tools.Regist
 		model:          model,
 		promptFormat:   promptFormat,
 		maxContext:     20,
+		reasoning:      reasoning,
 	}
 }
 
@@ -117,8 +119,10 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 		messages = append(messages, llm.Message{Role: "user", Content: input})
 	}
 	resp, err := a.llm.Chat(ctx, llm.ChatRequest{
-		Model:    model,
-		Messages: messages,
+		Model:            model,
+		Messages:         messages,
+		ReasoningEnabled: a.reasoning.Enabled,
+		ReasoningEffort:  a.reasoning.Effort,
 	})
 	if err != nil {
 		log.Error("interrupt llm error", zap.Int64("session_id", sessionID), zap.Error(err))
@@ -151,9 +155,11 @@ func (a *Agent) runLoop(ctx context.Context, sessionID int64, userID int64, mess
 		tools := a.toolsFor()
 		log.Debug("tools prepared", zap.Int("count", len(tools)))
 		resp, err := a.llm.Chat(ctx, llm.ChatRequest{
-			Model:    model,
-			Messages: messages,
-			Tools:    tools,
+			Model:            model,
+			Messages:         messages,
+			Tools:            tools,
+			ReasoningEnabled: a.reasoning.Enabled,
+			ReasoningEffort:  a.reasoning.Effort,
 		})
 		if err != nil {
 			log.Error("llm chat error", zap.Int64("session_id", sessionID), zap.Error(err))

@@ -8,6 +8,7 @@ import (
 
 	"github.com/YangKeao/haro-bot/internal/agent"
 	"github.com/YangKeao/haro-bot/internal/db"
+	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/testutil"
@@ -23,7 +24,7 @@ func TestAgentStoresAssistantResponse(t *testing.T) {
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai")
+	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "u-tool-loop")

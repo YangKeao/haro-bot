@@ -15,6 +15,9 @@ This service provides an OpenAI-compatible API and a Telegram webhook, with all 
   - `LLM_API_KEY`
   - `LLM_MODEL` (default `gpt-4o-mini`)
   - `LLM_PROMPT_FORMAT` (default `openai`; use `claude`/`anthropic`/`xml` for XML skill injection)
+  - `LLM_REASONING_ENABLED` (default `false`)
+  - `LLM_REASONING_EFFORT` (for example `low`/`medium`/`high` or custom values like `xhigh`; passed through to the API and only applied when enabled)
+  - `LLM_HTTP_DEBUG` (default `false`; logs raw request/response bodies, with auth headers redacted)
   - `TELEGRAM_BOT_TOKEN`
   - `SKILLS_DIR` (default `./skills`)
   - `SKILLS_REPO_ALLOWLIST` (comma-separated URL prefixes)

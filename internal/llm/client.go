@@ -12,6 +12,7 @@ import (
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
+	"github.com/openai/openai-go/shared"
 	"go.uber.org/zap"
 )
 
@@ -22,8 +23,43 @@ type Client struct {
 	client  *openai.Client
 }
 
-func NewClient(baseURL, apiKey string) *Client {
+type clientOptions struct {
+	httpDebug       bool
+	httpDebugMaxBod int64
+}
+
+type ClientOption func(*clientOptions)
+
+func WithHTTPDebug(enabled bool) ClientOption {
+	return func(opts *clientOptions) {
+		if opts != nil {
+			opts.httpDebug = enabled
+		}
+	}
+}
+
+func WithHTTPDebugMaxBody(maxBytes int64) ClientOption {
+	return func(opts *clientOptions) {
+		if opts == nil {
+			return
+		}
+		if maxBytes > 0 {
+			opts.httpDebugMaxBod = maxBytes
+		}
+	}
+}
+
+func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
+	options := clientOptions{httpDebugMaxBod: defaultHTTPDebugMaxBody}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&options)
+		}
+	}
 	httpClient := &http.Client{Timeout: 60 * time.Second}
+	if options.httpDebug {
+		httpClient.Transport = newDebugTransport(http.DefaultTransport, options.httpDebugMaxBod)
+	}
 	opts := []option.RequestOption{option.WithHTTPClient(httpClient)}
 	baseURL = strings.TrimRight(baseURL, "/")
 	if baseURL != "" {
@@ -64,6 +100,15 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 	}
 	if req.Temperature != 0 {
 		params.Temperature = param.NewOpt(req.Temperature)
+	}
+	if req.ReasoningEnabled {
+		reasoning := shared.ReasoningParam{}
+		if effort := strings.TrimSpace(req.ReasoningEffort); effort != "" {
+			reasoning.Effort = shared.ReasoningEffort(effort)
+		} else {
+			reasoning.Effort = shared.ReasoningEffortMedium
+		}
+		params.Reasoning = reasoning
 	}
 
 	log.Debug("responses request",

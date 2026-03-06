@@ -27,6 +27,10 @@ type Config struct {
 	LLMModel        string
 	LLMPromptFormat PromptFormat
 
+	LLMReasoningEnabled bool
+	LLMReasoningEffort  string
+	LLMHTTPDebug        bool
+
 	TelegramToken string
 
 	SkillsDir           string
@@ -47,6 +51,9 @@ type ConfigRecord struct {
 	LLMAPIKey           string   `json:"llm_api_key"`
 	LLMModel            string   `json:"llm_model"`
 	LLMPromptFormat     string   `json:"llm_prompt_format"`
+	LLMReasoningEnabled bool     `json:"llm_reasoning_enabled"`
+	LLMReasoningEffort  string   `json:"llm_reasoning_effort"`
+	LLMHTTPDebug        bool     `json:"llm_http_debug"`
 	TelegramToken       string   `json:"telegram_token"`
 	SkillsDir           string   `json:"skills_dir"`
 	SkillsRepoAllowlist []string `json:"skills_repo_allowlist"`
@@ -189,6 +196,9 @@ func (r ConfigRecord) toConfig() Config {
 		LLMAPIKey:           r.LLMAPIKey,
 		LLMModel:            r.LLMModel,
 		LLMPromptFormat:     format,
+		LLMReasoningEnabled: r.LLMReasoningEnabled,
+		LLMReasoningEffort:  r.LLMReasoningEffort,
+		LLMHTTPDebug:        r.LLMHTTPDebug,
 		TelegramToken:       r.TelegramToken,
 		SkillsDir:           r.SkillsDir,
 		SkillsRepoAllowlist: r.SkillsRepoAllowlist,
@@ -203,6 +213,7 @@ func (r ConfigRecord) toConfig() Config {
 
 func (r *ConfigRecord) normalize() {
 	r.LLMPromptFormat = string(NormalizePromptFormat(r.LLMPromptFormat))
+	r.LLMReasoningEffort = strings.ToLower(strings.TrimSpace(r.LLMReasoningEffort))
 }
 
 func (r *ConfigRecord) applyEnvOverrides() {
@@ -220,6 +231,19 @@ func (r *ConfigRecord) applyEnvOverrides() {
 	}
 	if v := os.Getenv("LLM_PROMPT_FORMAT"); v != "" {
 		r.LLMPromptFormat = v
+	}
+	if v := os.Getenv("LLM_REASONING_ENABLED"); v != "" {
+		if b, err := parseBool(v); err == nil {
+			r.LLMReasoningEnabled = b
+		}
+	}
+	if v := os.Getenv("LLM_REASONING_EFFORT"); v != "" {
+		r.LLMReasoningEffort = v
+	}
+	if v := os.Getenv("LLM_HTTP_DEBUG"); v != "" {
+		if b, err := parseBool(v); err == nil {
+			r.LLMHTTPDebug = b
+		}
 	}
 	if v := os.Getenv("TELEGRAM_BOT_TOKEN"); v != "" {
 		r.TelegramToken = v
@@ -284,6 +308,18 @@ func parseInt(v string) (int, error) {
 		return 0, err
 	}
 	return n, nil
+}
+
+func parseBool(v string) (bool, error) {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, errors.New("invalid bool")
+	}
 }
 
 func splitComma(v string) []string {

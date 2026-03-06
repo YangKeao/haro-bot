@@ -75,9 +75,19 @@ func main() {
 		tools.NewEditTool(fsTools),
 	)
 	toolRegistry.Register(tools.NewExecTool(fsTools, 64*1024))
-	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey)
+	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
 
-	agentSvc := agent.New(store, skillsMgr, toolRegistry, fsTools.DefaultBase(), cfg.ToolMaxTurns, llmClient, cfg.LLMModel, string(cfg.LLMPromptFormat))
+	agentSvc := agent.New(
+		store,
+		skillsMgr,
+		toolRegistry,
+		fsTools.DefaultBase(),
+		cfg.ToolMaxTurns,
+		llmClient,
+		cfg.LLMModel,
+		string(cfg.LLMPromptFormat),
+		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
+	)
 	forkMgr := fork.NewManager(agentSvc, store)
 	toolRegistry.Register(fork.NewForkTool(forkMgr))
 	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))
