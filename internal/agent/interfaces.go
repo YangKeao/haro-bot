@@ -8,13 +8,9 @@ import (
 	"github.com/YangKeao/haro-bot/internal/skills"
 )
 
-type ConversationStore interface {
-	GetOrCreateSession(ctx context.Context, userID int64, channel string) (int64, error)
-	AddMessage(ctx context.Context, sessionID int64, role, content string, metadata *memory.MessageMetadata) error
-	LoadViewMessages(ctx context.Context, sessionID int64, limit int) ([]memory.Message, *memory.Anchor, error)
-	LoadRecentMessages(ctx context.Context, sessionID int64, limit int) ([]memory.Message, error)
-	LoadLongMemories(ctx context.Context, userID int64, limit int) ([]memory.Memory, error)
-}
+// ConversationStore is the persistence API used by the agent and tool runner.
+// It is aliased to memory.StoreAPI to keep method semantics centralized.
+type ConversationStore = memory.StoreAPI
 
 type PromptBuilder interface {
 	System(memories []memory.Memory, skillsList []skills.Metadata, format string) string

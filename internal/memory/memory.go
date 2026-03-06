@@ -13,14 +13,17 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// Store provides persistence for sessions, messages, anchors, and long-term memory.
 type Store struct {
 	db *gorm.DB
 }
 
+// NewStore creates a Store backed by the provided database handle.
 func NewStore(db *gorm.DB) *Store {
 	return &Store{db: db}
 }
 
+// Message is a persisted chat message within a session.
 type Message struct {
 	ID        int64
 	SessionID int64
@@ -30,6 +33,7 @@ type Message struct {
 	CreatedAt time.Time
 }
 
+// MessageMetadata captures tool calls, tool outputs, and other message state.
 type MessageMetadata struct {
 	ToolCallID           string         `json:"tool_call_id,omitempty"`
 	ToolCalls            []llm.ToolCall `json:"tool_calls,omitempty"`
@@ -37,6 +41,7 @@ type MessageMetadata struct {
 	InheritedFromSession *int64         `json:"inherited_from_session,omitempty"`
 }
 
+// Memory is a long-term memory record for a user.
 type Memory struct {
 	ID         int64
 	UserID     int64
@@ -46,6 +51,7 @@ type Memory struct {
 	CreatedAt  time.Time
 }
 
+// Anchor is a session summary snapshot used to compact the view window.
 type Anchor struct {
 	ID             int64
 	SessionID      int64
@@ -57,6 +63,8 @@ type Anchor struct {
 	CreatedAt      time.Time
 }
 
+// GetOrCreateUserByTelegramID returns the internal user ID for a Telegram user,
+// creating the user if it does not exist.
 func (s *Store) GetOrCreateUserByTelegramID(ctx context.Context, telegramID int64) (int64, error) {
 	var user dbmodel.User
 	tx := s.db.WithContext(ctx)
@@ -75,6 +83,8 @@ func (s *Store) GetOrCreateUserByTelegramID(ctx context.Context, telegramID int6
 	return user.ID, nil
 }
 
+// GetOrCreateUserByExternalID returns the internal user ID for an external identifier,
+// creating the user if it does not exist.
 func (s *Store) GetOrCreateUserByExternalID(ctx context.Context, externalID string) (int64, error) {
 	var user dbmodel.User
 	tx := s.db.WithContext(ctx)
@@ -93,6 +103,8 @@ func (s *Store) GetOrCreateUserByExternalID(ctx context.Context, externalID stri
 	return user.ID, nil
 }
 
+// GetOrCreateSession returns the active session ID for a user/channel pair,
+// creating a new session if none exists.
 func (s *Store) GetOrCreateSession(ctx context.Context, userID int64, channel string) (int64, error) {
 	var session dbmodel.Session
 	tx := s.db.WithContext(ctx)
@@ -111,6 +123,7 @@ func (s *Store) GetOrCreateSession(ctx context.Context, userID int64, channel st
 	return session.ID, nil
 }
 
+// CreateSession creates a new session explicitly without checking for existing ones.
 func (s *Store) CreateSession(ctx context.Context, userID int64, channel string) (int64, error) {
 	session := dbmodel.Session{
 		UserID:  userID,
@@ -123,6 +136,7 @@ func (s *Store) CreateSession(ctx context.Context, userID int64, channel string)
 	return session.ID, nil
 }
 
+// AddMessage appends a message to a session. Metadata captures tool calls/outputs and status.
 func (s *Store) AddMessage(ctx context.Context, sessionID int64, role, content string, metadata *MessageMetadata) error {
 	var metaJSON []byte
 	if metadata != nil {
@@ -145,6 +159,8 @@ func (s *Store) AddMessage(ctx context.Context, sessionID int64, role, content s
 	return s.db.WithContext(ctx).Create(&msg).Error
 }
 
+// AppendAnchor stores a summary snapshot (anchor) for a session. If EntryID is 0,
+// it anchors the latest message in the session.
 func (s *Store) AppendAnchor(ctx context.Context, sessionID int64, anchor Anchor) (int64, error) {
 	if sessionID == 0 {
 		return 0, errors.New("session id required")
@@ -179,6 +195,7 @@ func (s *Store) AppendAnchor(ctx context.Context, sessionID int64, anchor Anchor
 	return record.ID, nil
 }
 
+// LoadLatestAnchor returns the most recent anchor for a session, or nil if none exists.
 func (s *Store) LoadLatestAnchor(ctx context.Context, sessionID int64) (*Anchor, error) {
 	if sessionID == 0 {
 		return nil, errors.New("session id required")
@@ -218,6 +235,9 @@ func (s *Store) LoadLatestAnchor(ctx context.Context, sessionID int64) (*Anchor,
 	}, nil
 }
 
+// LoadViewMessages returns messages after the latest anchor (if any) and the anchor itself.
+// This is the canonical "current view" for LLM context. If limit <= 0, all messages
+// after the anchor are returned. Invalid tool call/output pairs may be soft-deleted.
 func (s *Store) LoadViewMessages(ctx context.Context, sessionID int64, limit int) ([]Message, *Anchor, error) {
 	anchor, err := s.LoadLatestAnchor(ctx, sessionID)
 	if err != nil {
@@ -240,11 +260,15 @@ func (s *Store) LoadViewMessages(ctx context.Context, sessionID int64, limit int
 	return filtered, anchor, nil
 }
 
+// LoadRecentMessages is a convenience wrapper for LoadViewMessages that returns only messages.
+// If limit <= 0, all messages after the latest anchor are returned.
 func (s *Store) LoadRecentMessages(ctx context.Context, sessionID int64, limit int) ([]Message, error) {
 	msgs, _, err := s.LoadViewMessages(ctx, sessionID, limit)
 	return msgs, err
 }
 
+// LoadLongMemories returns the user's long-term memories ordered by importance.
+// If limit <= 0, a default limit is used.
 func (s *Store) LoadLongMemories(ctx context.Context, userID int64, limit int) ([]Memory, error) {
 	if limit <= 0 {
 		limit = 10

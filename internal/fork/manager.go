@@ -17,7 +17,7 @@ import (
 
 type Manager struct {
 	agent *agent.Agent
-	store *memory.Store
+	store memory.StoreAPI
 
 	mu   sync.Mutex
 	runs map[int64]*run
@@ -49,11 +49,11 @@ type run struct {
 	mu sync.Mutex
 }
 
-func NewManager(agentSvc *agent.Agent, store *memory.Store) *Manager {
+func NewManager(agentSvc *agent.Agent, store memory.StoreAPI) *Manager {
 	return NewManagerWithOptions(agentSvc, store, ManagerOptions{CleanupAfter: defaultCleanupAfter})
 }
 
-func NewManagerWithOptions(agentSvc *agent.Agent, store *memory.Store, opts ManagerOptions) *Manager {
+func NewManagerWithOptions(agentSvc *agent.Agent, store memory.StoreAPI, opts ManagerOptions) *Manager {
 	cleanupAfter := opts.CleanupAfter
 	if cleanupAfter < 0 {
 		cleanupAfter = 0

@@ -10,7 +10,7 @@ import (
 )
 
 type SessionAnchorTool struct {
-	store *memory.Store
+	store memory.StoreAPI
 }
 
 type sessionAnchorArgs struct {
@@ -21,7 +21,7 @@ type sessionAnchorArgs struct {
 	EntryID        int64          `json:"entry_id"`
 }
 
-func NewSessionAnchorTool(store *memory.Store) *SessionAnchorTool {
+func NewSessionAnchorTool(store memory.StoreAPI) *SessionAnchorTool {
 	return &SessionAnchorTool{store: store}
 }
 

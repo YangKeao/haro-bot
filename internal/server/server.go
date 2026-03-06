@@ -13,12 +13,12 @@ import (
 type Server struct {
 	cfg      config.Config
 	agent    *agent.Agent
-	store    *memory.Store
+	store    memory.StoreAPI
 	skills   *skills.Manager
 	telegram *bot.Bot
 }
 
-func New(cfg config.Config, agent *agent.Agent, store *memory.Store, skillsMgr *skills.Manager) *Server {
+func New(cfg config.Config, agent *agent.Agent, store memory.StoreAPI, skillsMgr *skills.Manager) *Server {
 	return &Server{
 		cfg:    cfg,
 		agent:  agent,
