@@ -33,6 +33,8 @@ type Config struct {
 	SkillsRepoAllowlist []string
 	SkillsSyncInterval  time.Duration
 
+	BraveSearchAPIKey string
+
 	FSAllowedRoots    []string
 	FSAllowedExecDirs []string
 
@@ -49,6 +51,7 @@ type ConfigRecord struct {
 	SkillsDir           string   `json:"skills_dir"`
 	SkillsRepoAllowlist []string `json:"skills_repo_allowlist"`
 	SkillsSyncInterval  string   `json:"skills_sync_interval"`
+	BraveSearchAPIKey   string   `json:"brave_search_api_key"`
 	FSAllowedRoots      []string `json:"fs_allowed_roots"`
 	FSAllowedExecDirs   []string `json:"fs_allowed_exec_dirs"`
 	ToolMaxTurns        int      `json:"tool_max_turns"`
@@ -190,6 +193,7 @@ func (r ConfigRecord) toConfig() Config {
 		SkillsDir:           r.SkillsDir,
 		SkillsRepoAllowlist: r.SkillsRepoAllowlist,
 		SkillsSyncInterval:  syncInterval,
+		BraveSearchAPIKey:   r.BraveSearchAPIKey,
 		FSAllowedRoots:      fsRoots,
 		FSAllowedExecDirs:   r.FSAllowedExecDirs,
 		ToolMaxTurns:        r.ToolMaxTurns,
@@ -228,6 +232,11 @@ func (r *ConfigRecord) applyEnvOverrides() {
 	}
 	if v := os.Getenv("SKILLS_SYNC_INTERVAL"); v != "" {
 		r.SkillsSyncInterval = v
+	}
+	if v := os.Getenv("BRAVE_SEARCH_API_KEY"); v != "" {
+		r.BraveSearchAPIKey = v
+	} else if v := os.Getenv("BRAVE_API_KEY"); v != "" {
+		r.BraveSearchAPIKey = v
 	}
 	if v := os.Getenv("FS_ALLOWED_ROOTS"); v != "" {
 		r.FSAllowedRoots = splitComma(v)

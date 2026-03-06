@@ -66,6 +66,7 @@ func main() {
 		tools.NewBrowserFillTextTool(browserMgr),
 		tools.NewBrowserPressKeyTool(browserMgr),
 		tools.NewBrowserScrollTool(browserMgr),
+		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
 		tools.NewInstallSkillTool(skillsMgr),
 		tools.NewActivateSkillTool(skillsMgr),
 		tools.NewReadTool(fsTools, 64*1024),
