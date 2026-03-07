@@ -40,8 +40,7 @@ type Config struct {
 
 	BraveSearchAPIKey string
 
-	FSAllowedRoots    []string
-	FSAllowedExecDirs []string
+	FSAllowedRoots []string
 
 	ToolMaxTurns int
 
@@ -85,8 +84,7 @@ type braveConfig struct {
 }
 
 type fsConfig struct {
-	AllowedRoots    []string `toml:"allowed_roots"`
-	AllowedExecDirs []string `toml:"allowed_exec_dirs"`
+	AllowedRoots []string `toml:"allowed_roots"`
 }
 
 type toolConfig struct {
@@ -235,7 +233,6 @@ func (r fileConfig) toConfig() Config {
 		SkillsSyncInterval:               syncInterval,
 		BraveSearchAPIKey:                r.Brave.SearchAPIKey,
 		FSAllowedRoots:                   fsRoots,
-		FSAllowedExecDirs:                r.FS.AllowedExecDirs,
 		ToolMaxTurns:                     r.Tool.MaxTurns,
 		Log:                              r.Log,
 	}

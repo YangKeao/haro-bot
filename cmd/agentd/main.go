@@ -62,8 +62,9 @@ func main() {
 	skillsStore := skills.NewStore(dbConn)
 	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
 	auditStore := tools.NewAuditStore(dbConn)
-	fsTools := tools.NewFS(cfg.FSAllowedRoots, cfg.FSAllowedExecDirs, auditStore)
+	fsTools := tools.NewFS(cfg.FSAllowedRoots, auditStore)
 	browserMgr := tools.NewBrowserManager()
+	execMgr := tools.NewExecManager()
 	toolRegistry := tools.NewRegistry(
 		tools.NewBrowserGotoTool(browserMgr),
 		tools.NewBrowserGoBackTool(browserMgr),
@@ -78,12 +79,12 @@ func main() {
 		tools.NewMemorySearchTool(store),
 		tools.NewInstallSkillTool(skillsMgr),
 		tools.NewActivateSkillTool(skillsMgr),
-		tools.NewReadTool(fsTools, 64*1024),
-		tools.NewWriteTool(fsTools),
-		tools.NewSearchTool(fsTools),
-		tools.NewEditTool(fsTools),
+		tools.NewGrepFilesTool(fsTools),
+		tools.NewReadFileTool(fsTools),
+		tools.NewListDirTool(fsTools),
+		tools.NewExecCommandTool(fsTools, execMgr),
+		tools.NewWriteStdinTool(execMgr),
 	)
-	toolRegistry.Register(tools.NewExecTool(fsTools, 64*1024))
 	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
 	contextCfg := llm.ContextConfig{
 		WindowTokens:                  cfg.LLMContextWindow,

@@ -1,19 +1,11 @@
 package tools
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"time"
-
-	"github.com/YangKeao/haro-bot/internal/logging"
-	"go.uber.org/zap"
 )
 
 var (
@@ -23,16 +15,14 @@ var (
 )
 
 type FS struct {
-	allowedRoots    []string
-	allowedExecDirs []string
-	audit           AuditLogger
+	allowedRoots []string
+	audit        AuditLogger
 }
 
-func NewFS(allowedRoots []string, allowedExecDirs []string, audit AuditLogger) *FS {
+func NewFS(allowedRoots []string, audit AuditLogger) *FS {
 	return &FS{
-		allowedRoots:    canonicalizeRoots(allowedRoots),
-		allowedExecDirs: allowedExecDirs,
-		audit:           audit,
+		allowedRoots: canonicalizeRoots(allowedRoots),
+		audit:        audit,
 	}
 }
 
@@ -41,200 +31,6 @@ func (f *FS) DefaultBase() string {
 		return ""
 	}
 	return f.allowedRoots[0]
-}
-
-func (f *FS) Read(ctx context.Context, sessionID, userID int64, baseDir, path string, maxBytes int64) (string, error) {
-	log := logging.L().Named("fs")
-	abs, allowed, err := f.resolvePath(baseDir, path, false)
-	if err != nil {
-		f.auditError(ctx, sessionID, userID, "read", path, allowed, err)
-		log.Warn("read denied", zap.String("path", path), zap.Error(err))
-		return "", err
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		f.auditError(ctx, sessionID, userID, "read", abs, true, err)
-		log.Warn("read failed", zap.String("path", abs), zap.Error(err))
-		return "", err
-	}
-	if info.IsDir() {
-		err = errors.New("path is a directory")
-		f.auditError(ctx, sessionID, userID, "read", abs, true, err)
-		log.Warn("read failed", zap.String("path", abs), zap.Error(err))
-		return "", err
-	}
-	if maxBytes > 0 && info.Size() > maxBytes {
-		err = errors.New("file too large")
-		f.auditError(ctx, sessionID, userID, "read", abs, true, err)
-		log.Warn("read too large", zap.String("path", abs), zap.Error(err))
-		return "", err
-	}
-	data, err := os.ReadFile(abs)
-	if err != nil {
-		f.auditError(ctx, sessionID, userID, "read", abs, true, err)
-		log.Warn("read failed", zap.String("path", abs), zap.Error(err))
-		return "", err
-	}
-	f.auditOK(ctx, sessionID, userID, "read", abs, nil)
-	log.Debug("read ok", zap.String("path", abs))
-	return string(data), nil
-}
-
-func (f *FS) Write(ctx context.Context, sessionID, userID int64, baseDir, path, content string) error {
-	log := logging.L().Named("fs")
-	abs, allowed, err := f.resolvePath(baseDir, path, true)
-	if err != nil {
-		f.auditError(ctx, sessionID, userID, "write", path, allowed, err)
-		log.Warn("write denied", zap.String("path", path), zap.Error(err))
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		f.auditError(ctx, sessionID, userID, "write", abs, true, err)
-		log.Warn("write mkdir failed", zap.String("path", abs), zap.Error(err))
-		return err
-	}
-	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
-		f.auditError(ctx, sessionID, userID, "write", abs, true, err)
-		log.Warn("write failed", zap.String("path", abs), zap.Error(err))
-		return err
-	}
-	f.auditOK(ctx, sessionID, userID, "write", abs, nil)
-	log.Debug("write ok", zap.String("path", abs))
-	return nil
-}
-
-func (f *FS) Edit(ctx context.Context, sessionID, userID int64, baseDir, path, oldText, newText string, replaceAll bool) (int, error) {
-	log := logging.L().Named("fs")
-	abs, allowed, err := f.resolvePath(baseDir, path, false)
-	if err != nil {
-		f.auditError(ctx, sessionID, userID, "edit", path, allowed, err)
-		log.Warn("edit denied", zap.String("path", path), zap.Error(err))
-		return 0, err
-	}
-	data, err := os.ReadFile(abs)
-	if err != nil {
-		f.auditError(ctx, sessionID, userID, "edit", abs, true, err)
-		log.Warn("edit read failed", zap.String("path", abs), zap.Error(err))
-		return 0, err
-	}
-	content := string(data)
-	count := strings.Count(content, oldText)
-	if count == 0 {
-		err = errors.New("pattern not found")
-		f.auditError(ctx, sessionID, userID, "edit", abs, true, err)
-		log.Warn("edit pattern not found", zap.String("path", abs))
-		return 0, err
-	}
-	if replaceAll {
-		content = strings.ReplaceAll(content, oldText, newText)
-	} else {
-		content = strings.Replace(content, oldText, newText, 1)
-		count = 1
-	}
-	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
-		f.auditError(ctx, sessionID, userID, "edit", abs, true, err)
-		log.Warn("edit write failed", zap.String("path", abs), zap.Error(err))
-		return 0, err
-	}
-	f.auditOK(ctx, sessionID, userID, "edit", abs, map[string]any{"replacements": count})
-	log.Debug("edit ok", zap.String("path", abs), zap.Int("replacements", count))
-	return count, nil
-}
-
-func (f *FS) Search(ctx context.Context, sessionID, userID int64, baseDir, pattern string, maxResults int) (string, error) {
-	log := logging.L().Named("fs")
-	if baseDir == "" {
-		err := errRelativeNoBase
-		f.auditError(ctx, sessionID, userID, "search", baseDir, false, err)
-		log.Warn("search failed", zap.Error(err))
-		return "", err
-	}
-	root, allowed, err := f.resolvePath("", baseDir, false)
-	if err != nil {
-		f.auditError(ctx, sessionID, userID, "search", baseDir, allowed, err)
-		log.Warn("search denied", zap.String("base", baseDir), zap.Error(err))
-		return "", err
-	}
-	if maxResults <= 0 {
-		maxResults = 50
-	}
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		f.auditError(ctx, sessionID, userID, "search", root, true, err)
-		log.Warn("search regex failed", zap.String("pattern", pattern), zap.Error(err))
-		return "", err
-	}
-	results := make([]SearchMatch, 0, maxResults)
-	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if d.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			return nil
-		}
-		scanner := bufio.NewScanner(f)
-		lineNum := 0
-		for scanner.Scan() {
-			lineNum++
-			line := scanner.Text()
-			if re.MatchString(line) {
-				rel, _ := filepath.Rel(root, path)
-				results = append(results, SearchMatch{Path: rel, Line: lineNum, Text: line})
-				if len(results) >= maxResults {
-					_ = f.Close()
-					return errSearchLimit
-				}
-			}
-		}
-		_ = f.Close()
-		return nil
-	})
-	if walkErr != nil && walkErr != errSearchLimit {
-		f.auditError(ctx, sessionID, userID, "search", root, true, walkErr)
-		log.Warn("search failed", zap.String("base", root), zap.Error(walkErr))
-		return "", walkErr
-	}
-	payload, err := json.Marshal(results)
-	if err != nil {
-		f.auditError(ctx, sessionID, userID, "search", root, true, err)
-		log.Warn("search marshal failed", zap.Error(err))
-		return "", err
-	}
-	f.auditOK(ctx, sessionID, userID, "search", root, map[string]any{"count": len(results)})
-	log.Debug("search ok", zap.String("base", root), zap.Int("count", len(results)))
-	return string(payload), nil
-}
-
-func (f *FS) Exec(ctx context.Context, sessionID, userID int64, baseDir, path string, args []string, timeout time.Duration, maxOutputBytes int) (string, error) {
-	log := logging.L().Named("fs")
-	abs, allowed, err := f.resolvePath(baseDir, path, false)
-	if err != nil {
-		f.auditError(ctx, sessionID, userID, "exec", path, allowed, err)
-		log.Warn("exec denied", zap.String("path", path), zap.Error(err))
-		return "", err
-	}
-	if !f.execPathAllowed(baseDir, abs) {
-		err := errors.New("exec path not allowed")
-		f.auditError(ctx, sessionID, userID, "exec", abs, true, err)
-		log.Warn("exec path not allowed", zap.String("path", abs))
-		return "", err
-	}
-	output, err := runScript(ctx, abs, baseDir, args, timeout, maxOutputBytes)
-	if err != nil {
-		f.auditError(ctx, sessionID, userID, "exec", abs, true, err)
-		log.Warn("exec failed", zap.String("path", abs), zap.Error(err))
-	} else {
-		f.auditOK(ctx, sessionID, userID, "exec", abs, nil)
-		log.Debug("exec ok", zap.String("path", abs))
-	}
-	return output, err
 }
 
 func (f *FS) resolvePath(baseDir, path string, allowMissing bool) (string, bool, error) {
@@ -271,30 +67,6 @@ func (f *FS) resolvePath(baseDir, path string, allowMissing bool) (string, bool,
 		}
 	}
 	return resolvedTarget, false, errPathDenied
-}
-
-func (f *FS) execPathAllowed(baseDir, abs string) bool {
-	if baseDir == "" {
-		return false
-	}
-	rel, err := filepath.Rel(baseDir, abs)
-	if err != nil {
-		return false
-	}
-	rel = filepath.Clean(rel)
-	if rel == "." || strings.HasPrefix(rel, "..") {
-		return false
-	}
-	if len(f.allowedExecDirs) == 0 {
-		return strings.HasPrefix(rel, "scripts"+string(filepath.Separator)) || rel == "scripts"
-	}
-	for _, dir := range f.allowedExecDirs {
-		dir = filepath.Clean(dir)
-		if rel == dir || strings.HasPrefix(rel, dir+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
 }
 
 func (f *FS) auditMaybe(ctx context.Context, entry AuditEntry) {
@@ -392,14 +164,4 @@ func isWithin(root, target string) bool {
 		return true
 	}
 	return false
-}
-
-var errSearchLimit = errors.New("limit reached")
-
-// SearchMatch mirrors the match results for the search tool.
-// Declared here to keep tools independent from skills.
-type SearchMatch struct {
-	Path string `json:"path"`
-	Line int    `json:"line"`
-	Text string `json:"text"`
 }

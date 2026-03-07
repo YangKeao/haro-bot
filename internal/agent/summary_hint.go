@@ -94,9 +94,9 @@ func countToolCalls(calls []llm.ToolCall) (toolCalls, fileEdits, execs int) {
 	for _, call := range calls {
 		toolCalls++
 		switch strings.ToLower(call.Function.Name) {
-		case "write", "edit":
+		case "apply_patch":
 			fileEdits++
-		case "exec":
+		case "exec_command":
 			execs++
 		case "session_summary":
 			// ignore

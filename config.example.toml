@@ -29,7 +29,6 @@ search_api_key = ""
 
 [fs]
 allowed_roots = ["./skills"]
-allowed_exec_dirs = []
 
 [tool]
 max_turns = 1024

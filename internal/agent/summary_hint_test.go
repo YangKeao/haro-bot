@@ -13,8 +13,8 @@ func TestSummaryHintToolPhase(t *testing.T) {
 		ID:   "call-1",
 		Type: "function",
 		Function: llm.ToolCallFn{
-			Name:      "write",
-			Arguments: `{"path":"a","content":"b"}`,
+			Name:      "exec_command",
+			Arguments: `{"cmd":"echo ok","workdir":"/tmp"}`,
 		},
 	}}
 	msgs := []memory.Message{
@@ -34,15 +34,15 @@ func TestSummaryHintToolErrors(t *testing.T) {
 		ID:   "call-1",
 		Type: "function",
 		Function: llm.ToolCallFn{
-			Name:      "read",
-			Arguments: `{"path":"a"}`,
+			Name:      "read_file",
+			Arguments: `{"file_path":"/tmp/a"}`,
 		},
 	}, {
 		ID:   "call-2",
 		Type: "function",
 		Function: llm.ToolCallFn{
-			Name:      "exec",
-			Arguments: `{"path":"./run.sh"}`,
+			Name:      "exec_command",
+			Arguments: `{"cmd":"./run.sh","workdir":"/tmp"}`,
 		},
 	}}
 	msgs := []memory.Message{
@@ -97,8 +97,8 @@ func TestSummaryHintNearLimitMediumWithTooling(t *testing.T) {
 		ID:   "call-1",
 		Type: "function",
 		Function: llm.ToolCallFn{
-			Name:      "read",
-			Arguments: `{"path":"a"}`,
+			Name:      "read_file",
+			Arguments: `{"file_path":"/tmp/a"}`,
 		},
 	}}
 	msgs := []memory.Message{
