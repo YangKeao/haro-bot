@@ -143,7 +143,10 @@ func (p *telegramProgress) sendTyping(ctx context.Context) {
 	if p.businessConnectionID != "" {
 		params.BusinessConnectionID = p.businessConnectionID
 	}
-	if _, err := p.bot.SendChatAction(ctx, params); err != nil && p.log != nil {
+	if err := withTelegramRetry(ctx, p.log, "sendChatAction", func(ctx context.Context) error {
+		_, err := p.bot.SendChatAction(ctx, params)
+		return err
+	}); err != nil && p.log != nil {
 		p.log.Debug("telegram sendChatAction failed", zap.Error(err))
 	}
 }
@@ -194,7 +197,10 @@ func (p *telegramProgress) sendDraft(ctx context.Context, baseID int64, text str
 		if p.businessConnectionID != "" {
 			params.BusinessConnectionID = p.businessConnectionID
 		}
-		if _, err := p.bot.SendMessageDraft(ctx, params); err != nil && p.log != nil {
+		if err := withTelegramRetry(ctx, p.log, "sendMessageDraft", func(ctx context.Context) error {
+			_, err := p.bot.SendMessageDraft(ctx, params)
+			return err
+		}); err != nil && p.log != nil {
 			p.log.Debug("telegram sendMessageDraft failed", zap.Error(err))
 			return
 		}

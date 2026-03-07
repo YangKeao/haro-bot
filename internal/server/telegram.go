@@ -75,7 +75,10 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 		if businessConnID != "" {
 			params.BusinessConnectionID = businessConnID
 		}
-		if _, err := b.SendMessage(ctx, params); err != nil {
+		if err := withTelegramRetry(ctx, log, "sendMessage", func(ctx context.Context) error {
+			_, err := b.SendMessage(ctx, params)
+			return err
+		}); err != nil {
 			log.Error("telegram send error", zap.Error(err))
 			return
 		}
