@@ -9,7 +9,9 @@ import (
 func TestLoadFromFileNormalizesPromptFormat(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	data := []byte(`[llm]\nprompt_format = "bogus-format"\n`)
+	data := []byte(`[llm]
+prompt_format = "bogus-format"
+`)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
