@@ -29,6 +29,38 @@ type telegramSendCapture struct {
 	ChatID int64
 }
 
+func parseTelegramPayload(t *testing.T, r *http.Request) map[string]string {
+	t.Helper()
+	ct := r.Header.Get("Content-Type")
+	if strings.Contains(ct, "application/json") {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode json: %v", err)
+		}
+		out := make(map[string]string, len(payload))
+		for k, v := range payload {
+			switch val := v.(type) {
+			case string:
+				out[k] = val
+			case float64:
+				out[k] = strconv.FormatInt(int64(val), 10)
+			default:
+				out[k] = ""
+			}
+		}
+		return out
+	}
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+	}
+	return map[string]string{
+		"chat_id": r.FormValue("chat_id"),
+		"text":    r.FormValue("text"),
+	}
+}
+
 func TestTelegramHandlerSendsMessage(t *testing.T) {
 	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
 	t.Cleanup(cleanup)
@@ -48,31 +80,37 @@ func TestTelegramHandlerSendsMessage(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
-		if r.URL.Path != "/bot"+token+"/sendMessage" {
+		switch r.URL.Path {
+		case "/bot" + token + "/sendMessage":
+			payload := parseTelegramPayload(t, r)
+			chatIDStr := payload["chat_id"]
+			chatID, _ := strconv.ParseInt(chatIDStr, 10, 64)
+			captureCh <- telegramSendCapture{
+				Text:   payload["text"],
+				ChatID: chatID,
+			}
+			resp := map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"message_id": 1,
+					"date":       time.Now().Unix(),
+					"chat": map[string]any{
+						"id":   chatID,
+						"type": "private",
+					},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/bot" + token + "/sendMessageDraft":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": true})
+		case "/bot" + token + "/sendChatAction":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": true})
+		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		if err := r.ParseMultipartForm(1 << 20); err != nil {
-			t.Fatalf("parse multipart: %v", err)
-		}
-		chatIDStr := r.FormValue("chat_id")
-		chatID, _ := strconv.ParseInt(chatIDStr, 10, 64)
-		captureCh <- telegramSendCapture{
-			Text:   r.FormValue("text"),
-			ChatID: chatID,
-		}
-		resp := map[string]any{
-			"ok": true,
-			"result": map[string]any{
-				"message_id": 1,
-				"date":       time.Now().Unix(),
-				"chat": map[string]any{
-					"id":   chatID,
-					"type": "private",
-				},
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	t.Cleanup(ts.Close)
 

@@ -124,7 +124,7 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 		zap.Bool("stream", forceStream),
 	)
 
-	resp, err := streamChatCompletion(ctx, c.client, params)
+	resp, err := streamChatCompletion(ctx, c.client, params, req.StreamHandler)
 	if err != nil {
 		if norm := normalizeChatCompletionError(err, nil); norm != nil {
 			return out, norm

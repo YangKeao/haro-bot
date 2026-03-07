@@ -55,10 +55,18 @@ func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Regi
 }
 
 func (a *Agent) Handle(ctx context.Context, userID int64, channel string, input string) (string, error) {
-	return a.HandleWithModel(ctx, userID, channel, input, "")
+	return a.handleWithObserver(ctx, userID, channel, input, "", nil)
 }
 
 func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel string, input string, modelOverride string) (string, error) {
+	return a.handleWithObserver(ctx, userID, channel, input, modelOverride, nil)
+}
+
+func (a *Agent) HandleWithObserver(ctx context.Context, userID int64, channel string, input string, modelOverride string, observer ProgressObserver) (string, error) {
+	return a.handleWithObserver(ctx, userID, channel, input, modelOverride, observer)
+}
+
+func (a *Agent) handleWithObserver(ctx context.Context, userID int64, channel string, input string, modelOverride string, observer ProgressObserver) (string, error) {
 	log := logging.L().Named("agent")
 	model := a.model
 	if modelOverride != "" {
@@ -106,7 +114,7 @@ func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel strin
 		messages = append(messages, llm.Message{Role: "system", Content: hint})
 	}
 	messages = append(messages, llmMessages...) // includes user input
-	output, err := a.runLoop(ctx, sessionID, userID, messages, model, nil)
+	output, err := a.runLoop(ctx, sessionID, userID, messages, model, nil, observer)
 	if err != nil {
 		log.Error("handle failed", zap.Int64("session_id", sessionID), zap.Error(err))
 		return "", err
@@ -161,7 +169,7 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 		messages = append(messages, llm.Message{Role: "system", Content: hint})
 	}
 	messages = append(messages, llmMessages...)
-	resp, _, err := a.callLLMWithTrim(ctx, log, sessionID, model, messages, nil)
+	resp, _, err := a.callLLMWithTrim(ctx, log, sessionID, model, messages, nil, nil)
 	if err != nil {
 		log.Error("interrupt llm error", zap.Int64("session_id", sessionID), zap.Error(err))
 		return "", err
@@ -180,7 +188,7 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 	return content, nil
 }
 
-func (a *Agent) runLoop(ctx context.Context, sessionID int64, userID int64, messages []llm.Message, model string, activeSkill *skills.Skill) (string, error) {
+func (a *Agent) runLoop(ctx context.Context, sessionID int64, userID int64, messages []llm.Message, model string, activeSkill *skills.Skill, observer ProgressObserver) (string, error) {
 	log := logging.L().Named("agent_loop")
 	maxTurns := a.maxToolTurns
 	for i := 0; i < maxTurns; i++ {
@@ -192,7 +200,7 @@ func (a *Agent) runLoop(ctx context.Context, sessionID int64, userID int64, mess
 		)
 		tools := a.toolsFor()
 		log.Debug("tools prepared", zap.Int("count", len(tools)))
-		resp, trimmed, err := a.callLLMWithTrim(ctx, log, sessionID, model, messages, tools)
+		resp, trimmed, err := a.callLLMWithTrim(ctx, log, sessionID, model, messages, tools, observer)
 		if err != nil {
 			log.Error("llm chat error", zap.Int64("session_id", sessionID), zap.Error(err))
 			return "", err
@@ -216,6 +224,9 @@ func (a *Agent) runLoop(ctx context.Context, sessionID int64, userID int64, mess
 		}
 
 		log.Debug("tool calls received", zap.Int("count", len(msg.ToolCalls)), zap.Int64("session_id", sessionID))
+		if observer != nil {
+			observer.OnToolCalls(ctx, msg.ToolCalls)
+		}
 		if err := a.store.AddMessage(ctx, sessionID, "assistant", msg.Content, &memory.MessageMetadata{ToolCalls: msg.ToolCalls}); err != nil {
 			return "", err
 		}

@@ -30,15 +30,22 @@ type ToolCallFn struct {
 }
 
 type ChatRequest struct {
-	Model            string    `json:"model"`
-	Messages         []Message `json:"messages"`
-	Tools            []Tool    `json:"tools,omitempty"`
-	ToolChoice       any       `json:"tool_choice,omitempty"`
-	Temperature      float64   `json:"temperature,omitempty"`
-	Stream           bool      `json:"stream,omitempty"`
-	ReasoningEnabled bool      `json:"reasoning_enabled,omitempty"`
-	ReasoningEffort  string    `json:"reasoning_effort,omitempty"`
+	Model            string        `json:"model"`
+	Messages         []Message     `json:"messages"`
+	Tools            []Tool        `json:"tools,omitempty"`
+	ToolChoice       any           `json:"tool_choice,omitempty"`
+	Temperature      float64       `json:"temperature,omitempty"`
+	Stream           bool          `json:"stream,omitempty"`
+	ReasoningEnabled bool          `json:"reasoning_enabled,omitempty"`
+	ReasoningEffort  string        `json:"reasoning_effort,omitempty"`
+	StreamHandler    StreamHandler `json:"-"`
 }
+
+type StreamEvent struct {
+	Delta string
+}
+
+type StreamHandler func(StreamEvent)
 
 type ReasoningConfig struct {
 	Enabled bool

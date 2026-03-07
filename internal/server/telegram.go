@@ -48,16 +48,34 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 		log.Warn("telegram user error", zap.Error(err))
 		return
 	}
-	output, err := s.agent.Handle(ctx, uid, "telegram", update.Message.Text)
+	threadID := update.Message.MessageThreadID
+	businessConnID := update.Message.BusinessConnectionID
+	progress := newTelegramProgress(b, update.Message.Chat.ID, threadID, businessConnID)
+	defer progress.Stop()
+	output, err := s.agent.HandleWithObserver(ctx, uid, "telegram", update.Message.Text, "", progress)
 	if err != nil {
 		log.Error("telegram agent error", zap.Error(err))
 		return
 	}
+	directTopicID := 0
+	if update.Message.DirectMessagesTopic != nil {
+		directTopicID = update.Message.DirectMessagesTopic.TopicID
+	}
 	for _, chunk := range splitTelegramMessage(output) {
-		if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		params := &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   chunk,
-		}); err != nil {
+		}
+		if threadID > 0 {
+			params.MessageThreadID = threadID
+		}
+		if directTopicID > 0 {
+			params.DirectMessagesTopicID = directTopicID
+		}
+		if businessConnID != "" {
+			params.BusinessConnectionID = businessConnID
+		}
+		if _, err := b.SendMessage(ctx, params); err != nil {
 			log.Error("telegram send error", zap.Error(err))
 			return
 		}
