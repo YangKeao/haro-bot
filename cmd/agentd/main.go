@@ -49,7 +49,7 @@ func main() {
 	if err != nil {
 		log.Fatal("db open failed", zap.Error(err))
 	}
-	if err := db.ApplyMigrations(dbConn); err != nil {
+	if err := db.ApplyMigrations(dbConn, cfg.Memory); err != nil {
 		log.Fatal("db migrations failed", zap.Error(err))
 	}
 

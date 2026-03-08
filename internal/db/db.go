@@ -1,6 +1,7 @@
 package db
 
 import (
+	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
@@ -27,6 +28,6 @@ func Open(dsn string) (*gorm.DB, error) {
 	return gdb, nil
 }
 
-func ApplyMigrations(db *gorm.DB) error {
-	return applyMigrations(db)
+func ApplyMigrations(db *gorm.DB, memCfg config.MemoryConfig) error {
+	return applyMigrations(db, memCfg)
 }

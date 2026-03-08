@@ -19,6 +19,9 @@ func TestTiDBVectorStoreRoundTripWithConfig(t *testing.T) {
 	if cfg.TiDBDSN == "" {
 		t.Skip("tidb dsn missing in config")
 	}
+	if !cfg.Memory.Enabled {
+		t.Skip("memory disabled in config")
+	}
 	if cfg.Memory.Embedder.Dimensions <= 0 {
 		t.Skip("memory embedder dimensions not set")
 	}
@@ -28,7 +31,7 @@ func TestTiDBVectorStoreRoundTripWithConfig(t *testing.T) {
 		_ = os.Setenv("TIDB_DSN", prev)
 	})
 
-	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
+	gdb, cleanup := testutil.NewTestDBWithMigrationsConfig(t, cfg.Memory)
 	t.Cleanup(cleanup)
 
 	store := memory.NewTiDBVectorStore(gdb, cfg.Memory.Vector.Distance)

@@ -61,10 +61,7 @@ func (s *TiDBVectorStore) EnsureSchema(ctx context.Context, cfg config.MemoryCon
 	if err := s.ensureVectorDimensions(ctx, cfg.Embedder.Dimensions); err != nil {
 		return err
 	}
-	if err := s.ensureTiFlashReplica(ctx); err != nil {
-		return err
-	}
-	return s.ensureVectorIndex(ctx, cfg.Vector.Distance)
+	return nil
 }
 
 func (s *TiDBVectorStore) ensureVectorDimensions(ctx context.Context, dims int) error {
@@ -106,9 +103,24 @@ func (s *TiDBVectorStore) ensureVectorIndex(ctx context.Context, distance string
 	if distance == "l2" || distance == "euclidean" {
 		funcName = "VEC_L2_DISTANCE"
 	}
-	indexSQL := fmt.Sprintf("ALTER TABLE %s ADD VECTOR INDEX idx_%s_embedding ((%s(embedding)))", s.table, s.table, funcName)
+	indexName := fmt.Sprintf("idx_%s_embedding", s.table)
+	var count int
+	if err := s.db.WithContext(ctx).
+		Raw(`SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?`, s.table, indexName).
+		Scan(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	indexSQL := fmt.Sprintf("ALTER TABLE %s ADD VECTOR INDEX %s ((%s(embedding)))", s.table, indexName, funcName)
 	if err := s.db.WithContext(ctx).Exec(indexSQL).Error; err != nil {
+		if strings.Contains(err.Error(), "Duplicate key name") {
+			log.Debug("vector index already exists", zap.String("index", indexName))
+			return nil
+		}
 		log.Warn("vector index create failed", zap.Error(err))
+		return err
 	}
 	return nil
 }

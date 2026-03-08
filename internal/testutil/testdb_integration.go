@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/db"
 	"github.com/go-sql-driver/mysql"
 	gormmysql "gorm.io/driver/mysql"
@@ -65,8 +66,13 @@ func NewTestDB(t *testing.T) (*gorm.DB, func()) {
 
 func NewTestDBWithMigrations(t *testing.T) (*gorm.DB, func()) {
 	t.Helper()
+	return NewTestDBWithMigrationsConfig(t, config.MemoryConfig{Enabled: false})
+}
+
+func NewTestDBWithMigrationsConfig(t *testing.T, memCfg config.MemoryConfig) (*gorm.DB, func()) {
+	t.Helper()
 	gdb, cleanup := NewTestDB(t)
-	if err := db.ApplyMigrations(gdb); err != nil {
+	if err := db.ApplyMigrations(gdb, memCfg); err != nil {
 		cleanup()
 		t.Fatalf("apply migrations: %v", err)
 	}

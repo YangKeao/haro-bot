@@ -3,9 +3,11 @@ package db
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -23,9 +25,10 @@ func (schemaMigration) TableName() string { return "schema_migrations" }
 type migration struct {
 	version int64
 	stmts   []string
+	apply   func(*gorm.DB, config.MemoryConfig) error
 }
 
-const currentSchemaVersion int64 = 8
+const currentSchemaVersion int64 = 9
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -36,9 +39,10 @@ var migrations = []migration{
 	{version: 6, stmts: renameSessionSummariesSQL},
 	{version: 7, stmts: renameSessionSummaryIndexesSQL},
 	{version: 8, stmts: replaceMemoriesTableSQL},
+	{version: 9, apply: applyMemoryVectorIndex},
 }
 
-func applyMigrations(db *gorm.DB) error {
+func applyMigrations(db *gorm.DB, memCfg config.MemoryConfig) error {
 	log := logging.L().Named("migrations")
 	if db == nil {
 		return errors.New("db required")
@@ -71,8 +75,17 @@ func applyMigrations(db *gorm.DB) error {
 					return err
 				}
 			}
-			return setSchemaVersion(tx, m.version)
+			return nil
 		}); err != nil {
+			return fmt.Errorf("apply migration v%d: %w", m.version, err)
+		}
+		if m.apply != nil {
+			if err := m.apply(db, memCfg); err != nil {
+				log.Error("migration hook failed", zap.Int64("version", m.version), zap.Error(err))
+				return fmt.Errorf("apply migration v%d: %w", m.version, err)
+			}
+		}
+		if err := setSchemaVersion(db, m.version); err != nil {
 			return fmt.Errorf("apply migration v%d: %w", m.version, err)
 		}
 		current = m.version
@@ -246,4 +259,99 @@ var renameSessionSummariesSQL = []string{
 var renameSessionSummaryIndexesSQL = []string{
 	`ALTER TABLE session_summaries RENAME INDEX idx_session_anchors_session TO idx_session_summaries_session`,
 	`ALTER TABLE session_summaries RENAME INDEX idx_session_anchors_entry TO idx_session_summaries_entry`,
+}
+
+func applyMemoryVectorIndex(db *gorm.DB, cfg config.MemoryConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if cfg.Embedder.Dimensions <= 0 {
+		return errors.New("memory embedder dimensions required for vector index")
+	}
+	if err := ensureMemoryEmbeddingDimensions(db, cfg.Embedder.Dimensions); err != nil {
+		return err
+	}
+	if err := ensureMemoryTiFlashReplica(db); err != nil {
+		return err
+	}
+	return ensureMemoryVectorIndex(db, cfg.Vector.Distance)
+}
+
+func ensureMemoryEmbeddingDimensions(db *gorm.DB, dims int) error {
+	var columnType string
+	err := db.
+		Raw(`SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'memories' AND COLUMN_NAME = 'embedding'`).
+		Scan(&columnType).Error
+	if err != nil {
+		return err
+	}
+	columnType = strings.ToLower(strings.TrimSpace(columnType))
+	if columnType == "" {
+		return errors.New("embedding column not found")
+	}
+	if strings.HasPrefix(columnType, "vector(") {
+		start := strings.Index(columnType, "(")
+		end := strings.Index(columnType, ")")
+		if start > 0 && end > start+1 {
+			if parsed, err := strconv.Atoi(columnType[start+1 : end]); err == nil && parsed != dims {
+				return fmt.Errorf("embedding dimensions mismatch: column=%d config=%d", parsed, dims)
+			}
+			return nil
+		}
+	}
+	if columnType == "vector" {
+		alter := fmt.Sprintf("ALTER TABLE memories MODIFY COLUMN embedding VECTOR(%d)", dims)
+		return db.Exec(alter).Error
+	}
+	return fmt.Errorf("unexpected embedding column type: %s", columnType)
+}
+
+func ensureMemoryTiFlashReplica(db *gorm.DB) error {
+	setSQL := "ALTER TABLE memories SET TIFLASH REPLICA 1"
+	if err := db.Exec(setSQL).Error; err != nil {
+		return err
+	}
+	for i := 0; i < 60; i++ {
+		var row struct {
+			Available int     `gorm:"column:AVAILABLE"`
+			Progress  float64 `gorm:"column:PROGRESS"`
+		}
+		err := db.
+			Raw("SELECT AVAILABLE, PROGRESS FROM information_schema.tiflash_replica WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'memories'").
+			Scan(&row).Error
+		if err != nil {
+			return err
+		}
+		if row.Available == 1 {
+			return nil
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return errors.New("tiflash replica not ready")
+}
+
+func ensureMemoryVectorIndex(db *gorm.DB, distance string) error {
+	distance = strings.ToLower(strings.TrimSpace(distance))
+	funcName := "VEC_COSINE_DISTANCE"
+	if distance == "l2" || distance == "euclidean" {
+		funcName = "VEC_L2_DISTANCE"
+	}
+	indexName := "idx_memories_embedding"
+	var count int
+	if err := db.
+		Raw(`SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'memories' AND index_name = ?`, indexName).
+		Scan(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	indexSQL := fmt.Sprintf("ALTER TABLE memories ADD VECTOR INDEX %s ((%s(embedding)))", indexName, funcName)
+	if err := db.Exec(indexSQL).Error; err != nil {
+		if strings.Contains(err.Error(), "Duplicate key name") {
+			return nil
+		}
+		return err
+	}
+	return nil
 }

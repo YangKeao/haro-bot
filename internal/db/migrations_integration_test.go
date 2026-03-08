@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/go-sql-driver/mysql"
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -19,7 +20,7 @@ import (
 func TestApplyMigrationsSetsSchemaVersion(t *testing.T) {
 	gdb, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
-	if err := ApplyMigrations(gdb); err != nil {
+	if err := ApplyMigrations(gdb, config.MemoryConfig{Enabled: false}); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
 	ver, err := getSchemaVersion(gdb)
@@ -34,10 +35,10 @@ func TestApplyMigrationsSetsSchemaVersion(t *testing.T) {
 func TestApplyMigrationsIdempotent(t *testing.T) {
 	gdb, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
-	if err := ApplyMigrations(gdb); err != nil {
+	if err := ApplyMigrations(gdb, config.MemoryConfig{Enabled: false}); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
-	if err := ApplyMigrations(gdb); err != nil {
+	if err := ApplyMigrations(gdb, config.MemoryConfig{Enabled: false}); err != nil {
 		t.Fatalf("apply migrations second time: %v", err)
 	}
 	ver, err := getSchemaVersion(gdb)
