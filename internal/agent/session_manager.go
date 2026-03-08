@@ -70,3 +70,18 @@ func (m *sessionManager) Release(sessionID int64) {
 		delete(m.sessions, sessionID)
 	}
 }
+
+// Cancel cancels any ongoing operation for the session.
+// It returns true if there was an active operation to cancel.
+func (m *sessionManager) Cancel(sessionID int64) bool {
+	if m == nil || sessionID == 0 {
+		return false
+	}
+	m.mu.Lock()
+	session := m.sessions[sessionID]
+	m.mu.Unlock()
+	if session == nil {
+		return false
+	}
+	return session.cancel()
+}

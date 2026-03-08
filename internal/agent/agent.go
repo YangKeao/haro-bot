@@ -155,6 +155,15 @@ func (a *Agent) SetSessionWaitingForApproval(sessionID int64, message string) {
 	}
 }
 
+// CancelSession cancels any ongoing operation for the session.
+// Returns true if there was an operation to cancel.
+func (a *Agent) CancelSession(sessionID int64) bool {
+	if a == nil || a.sessions == nil {
+		return false
+	}
+	return a.sessions.Cancel(sessionID)
+}
+
 func toLLMMessages(msgs []memory.Message) []llm.Message {
 	out := make([]llm.Message, 0, len(msgs))
 	for _, m := range msgs {

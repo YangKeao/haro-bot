@@ -17,6 +17,10 @@ type Session struct {
 	refs int
 	deps *sessionDeps
 	mu   sync.Mutex
+
+	// For session interruption
+	cancelMu   sync.Mutex
+	cancelFunc context.CancelFunc
 }
 
 func (s *Session) setState(state SessionState) {
@@ -37,6 +41,29 @@ func (s *Session) setWaitingForApproval(message string) {
 	}
 }
 
+func (s *Session) setCancelFunc(cancel context.CancelFunc) {
+	s.cancelMu.Lock()
+	defer s.cancelMu.Unlock()
+	s.cancelFunc = cancel
+}
+
+func (s *Session) clearCancelFunc() {
+	s.cancelMu.Lock()
+	defer s.cancelMu.Unlock()
+	s.cancelFunc = nil
+}
+
+func (s *Session) cancel() bool {
+	s.cancelMu.Lock()
+	defer s.cancelMu.Unlock()
+	if s.cancelFunc != nil {
+		s.cancelFunc()
+		s.cancelFunc = nil
+		return true
+	}
+	return false
+}
+
 func (s *Session) Handle(ctx context.Context, userID int64, channel string, input string, modelOverride string, observer ProgressObserver) (string, error) {
 	if s == nil || s.deps == nil {
 		return "", errors.New("session not configured")
@@ -49,6 +76,15 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 	if modelOverride != "" {
 		model = modelOverride
 	}
+
+	// Create a cancellable context for this session operation
+	ctx, cancel := context.WithCancel(ctx)
+	s.setCancelFunc(cancel)
+	defer func() {
+		s.clearCancelFunc()
+		cancel()
+	}()
+
 	s.setState(StateWaitingForLLM)
 	s.deps.stateManager.SetLLMModel(s.id, model)
 	defer s.setState(StateIdle)
