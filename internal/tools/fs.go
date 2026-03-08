@@ -15,21 +15,22 @@ var (
 )
 
 type FS struct {
-	dangerous    bool
+	unrestricted bool
 	allowedRoots []string
 	audit        AuditLogger
 	approver     Approver
 }
 
-func NewFS(allowedRoots []string, audit AuditLogger) *FS {
+func NewFS(allowedRoots []string, audit AuditLogger, unrestricted bool) *FS {
 	return &FS{
+		unrestricted: unrestricted,
 		allowedRoots: canonicalizeRoots(allowedRoots),
 		audit:        audit,
 	}
 }
 
 func (f *FS) SetApprover(approver Approver) {
-	if f == nil || f.dangerous {
+	if f == nil || f.unrestricted {
 		return
 	}
 	f.approver = approver
@@ -39,7 +40,7 @@ func (f *FS) DefaultBase() string {
 	if f == nil {
 		return ""
 	}
-	if f.dangerous {
+	if f.unrestricted {
 		if cwd, err := os.Getwd(); err == nil {
 			return cwd
 		}
@@ -69,8 +70,8 @@ func (f *FS) resolvePath(baseDir, path string, allowMissing bool) (string, bool,
 		return "", false, err
 	}
 
-	// Dangerous mode: skip all security checks
-	if f.dangerous {
+	// Unrestricted mode: skip path restrictions and symlink checks
+	if f.unrestricted {
 		return abs, true, nil
 	}
 
@@ -98,7 +99,7 @@ func (f *FS) resolvePathWithApproval(ctx context.Context, tc ToolContext, tool, 
 	if err == nil {
 		return abs, allowed, nil
 	}
-	if f.dangerous {
+	if f.unrestricted {
 		return abs, allowed, err
 	}
 	if !errors.Is(err, errPathDenied) || f.approver == nil {
@@ -111,7 +112,7 @@ func (f *FS) resolvePathWithApproval(ctx context.Context, tc ToolContext, tool, 
 }
 
 func (f *FS) requestApproval(ctx context.Context, tc ToolContext, tool, path, reason string) error {
-	if f == nil || f.dangerous || f.approver == nil {
+	if f == nil || f.unrestricted || f.approver == nil {
 		return nil
 	}
 	decision, reqErr := f.approver.RequestApproval(ctx, ApprovalRequest{
@@ -137,14 +138,14 @@ func (f *FS) requestApproval(ctx context.Context, tc ToolContext, tool, path, re
 }
 
 func (f *FS) auditMaybe(ctx context.Context, entry AuditEntry) {
-	if f == nil || f.dangerous || f.audit == nil {
+	if f == nil || f.audit == nil {
 		return
 	}
 	_ = f.audit.Record(ctx, entry)
 }
 
 func (f *FS) auditError(ctx context.Context, sessionID, userID int64, tool, path string, allowed bool, err error) {
-	if err == nil || f.dangerous {
+	if err == nil {
 		return
 	}
 	f.auditMaybe(ctx, AuditEntry{
@@ -159,9 +160,6 @@ func (f *FS) auditError(ctx context.Context, sessionID, userID int64, tool, path
 }
 
 func (f *FS) auditOK(ctx context.Context, sessionID, userID int64, tool, path string, meta map[string]any) {
-	if f.dangerous {
-		return
-	}
 	f.auditMaybe(ctx, AuditEntry{
 		SessionID: sessionID,
 		UserID:    userID,
