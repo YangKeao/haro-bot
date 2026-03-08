@@ -15,27 +15,38 @@ var (
 )
 
 type FS struct {
+	unrestricted bool
 	allowedRoots []string
 	audit        AuditLogger
 	approver     Approver
 }
 
-func NewFS(allowedRoots []string, audit AuditLogger) *FS {
+func NewFS(allowedRoots []string, audit AuditLogger, unrestricted bool) *FS {
 	return &FS{
+		unrestricted: unrestricted,
 		allowedRoots: canonicalizeRoots(allowedRoots),
 		audit:        audit,
 	}
 }
 
 func (f *FS) SetApprover(approver Approver) {
-	if f == nil {
+	if f == nil || f.unrestricted {
 		return
 	}
 	f.approver = approver
 }
 
 func (f *FS) DefaultBase() string {
-	if f == nil || len(f.allowedRoots) == 0 {
+	if f == nil {
+		return ""
+	}
+	if f.unrestricted {
+		if cwd, err := os.Getwd(); err == nil {
+			return cwd
+		}
+		return "/"
+	}
+	if len(f.allowedRoots) == 0 {
 		return ""
 	}
 	return f.allowedRoots[0]
@@ -58,6 +69,12 @@ func (f *FS) resolvePath(baseDir, path string, allowMissing bool) (string, bool,
 	if err != nil {
 		return "", false, err
 	}
+
+	// Unrestricted mode: skip path restrictions and symlink checks
+	if f.unrestricted {
+		return abs, true, nil
+	}
+
 	resolvedTarget, err := resolvePathWithSymlinks(abs, allowMissing)
 	if err != nil {
 		return "", false, err
@@ -82,6 +99,9 @@ func (f *FS) resolvePathWithApproval(ctx context.Context, tc ToolContext, tool, 
 	if err == nil {
 		return abs, allowed, nil
 	}
+	if f.unrestricted {
+		return abs, allowed, err
+	}
 	if !errors.Is(err, errPathDenied) || f.approver == nil {
 		return abs, allowed, err
 	}
@@ -92,7 +112,7 @@ func (f *FS) resolvePathWithApproval(ctx context.Context, tc ToolContext, tool, 
 }
 
 func (f *FS) requestApproval(ctx context.Context, tc ToolContext, tool, path, reason string) error {
-	if f == nil || f.approver == nil {
+	if f == nil || f.unrestricted || f.approver == nil {
 		return nil
 	}
 	decision, reqErr := f.approver.RequestApproval(ctx, ApprovalRequest{
@@ -118,7 +138,7 @@ func (f *FS) requestApproval(ctx context.Context, tc ToolContext, tool, path, re
 }
 
 func (f *FS) auditMaybe(ctx context.Context, entry AuditEntry) {
-	if f.audit == nil {
+	if f == nil || f.audit == nil {
 		return
 	}
 	_ = f.audit.Record(ctx, entry)

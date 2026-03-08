@@ -24,6 +24,7 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.toml", "path to config file")
+	unrestricted := flag.Bool("unrestricted", false, "skip path restrictions and symlink checks (audit logging still enabled)")
 	flag.Parse()
 
 	bootLogger, _ := zap.NewProduction()
@@ -61,8 +62,13 @@ func main() {
 	store := memory.NewStore(dbConn)
 	skillsStore := skills.NewStore(dbConn)
 	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
+
+	if *unrestricted {
+		log.Warn("running in UNRESTRICTED mode - path restrictions and symlink checks are disabled!")
+	}
 	auditStore := tools.NewAuditStore(dbConn)
-	fsTools := tools.NewFS(cfg.FSAllowedRoots, auditStore)
+	fsTools := tools.NewFS(cfg.FSAllowedRoots, auditStore, *unrestricted)
+
 	browserMgr := tools.NewBrowserManager()
 	execMgr := tools.NewExecManager()
 	toolRegistry := tools.NewRegistry(
@@ -115,11 +121,11 @@ func main() {
 	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
 	toolRegistry.Register(fork.NewForkStatusTool(forkMgr))
 	srv := server.New(cfg, agentSvc, store, skillsMgr, memoryEngine)
-	if cfg.TelegramToken != "" {
+	if cfg.TelegramToken != "" && !*unrestricted {
 		agentSvc.SetSessionMessenger(srv)
 		fsTools.SetApprover(srv)
 	}
-	if cfg.SecurityAuditModel != "" {
+	if cfg.SecurityAuditModel != "" && !*unrestricted {
 		auditClient := llm.NewClient(cfg.SecurityAuditBaseURL, cfg.SecurityAuditAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
 		srv.SetSecurityAudit(auditClient, cfg.SecurityAuditModel)
 	}
