@@ -60,24 +60,24 @@ func (s *Server) handleStatusCommand(ctx context.Context, b *bot.Bot, update *mo
 	var statusText string
 	switch status.State {
 	case agent.StateIdle:
-		statusText = "🟢 Idle - waiting for input"
+		statusText = "🟢 Idle — waiting for input"
 	case agent.StateWaitingForLLM:
 		elapsed := time.Since(status.StartTime)
-		statusText = fmt.Sprintf("🟡 Waiting for LLM response\n⏱️ Elapsed: %s\n🤖 Model: %s", formatDuration(elapsed), status.LLMModel)
+		statusText = fmt.Sprintf("🟡 Waiting for LLM response\n⏱ Elapsed: %s\n🤖 Model: %s", formatDuration(elapsed), status.LLMModel)
 	case agent.StateRunningTools:
 		elapsed := time.Since(status.StartTime)
-		statusText = fmt.Sprintf("🔧 Running tool: %s\n⏱️ Elapsed: %s", status.CurrentTool, formatDuration(elapsed))
+		statusText = fmt.Sprintf("🔧 Running tool: %s\n⏱ Elapsed: %s", status.CurrentTool, formatDuration(elapsed))
 	case agent.StateWaitingForApproval:
 		elapsed := time.Since(status.StartTime)
-		statusText = fmt.Sprintf("⏸️ Waiting for approval\n📋 %s\n⏱️ Elapsed: %s", status.Message, formatDuration(elapsed))
+		statusText = fmt.Sprintf("⏸ Waiting for approval\n📋 %s\n⏱ Elapsed: %s", status.Message, formatDuration(elapsed))
 	default:
 		statusText = fmt.Sprintf("❓ Unknown state: %s", status.State)
 	}
 
 	params := &bot.SendMessageParams{
-		ChatID:    update.Message.Chat.ID,
-		Text:      fmt.Sprintf("📊 *Session Status*\n\n%s", statusText),
-		ParseMode: models.ParseModeMarkdown,
+		ChatID: update.Message.Chat.ID,
+		Text:   fmt.Sprintf("📊 Session Status\n\n%s", statusText),
+		// Don't use Markdown to avoid escaping issues
 	}
 	if update.Message.MessageThreadID > 0 {
 		params.MessageThreadID = update.Message.MessageThreadID
@@ -96,21 +96,21 @@ func (s *Server) handleHelpCommand(ctx context.Context, b *bot.Bot, update *mode
 		return
 	}
 
-	helpText := `📖 *Available Commands*
+	helpText := `📖 Available Commands
 
-/status - Show current session status
-/help - Show this help message
+/status — Show current session status
+/help — Show this help message
 
-📊 *Status States*
-🟢 Idle - Ready to receive input
-🟡 Waiting for LLM - LLM is generating response
-🔧 Running tools - Executing tool operations
-⏸️ Waiting for approval - Awaiting user confirmation`
+📊 Status States
+🟢 Idle — Ready to receive input
+🟡 Waiting for LLM — LLM is generating response
+🔧 Running tools — Executing tool operations
+⏸ Waiting for approval — Awaiting user confirmation`
 
 	params := &bot.SendMessageParams{
-		ChatID:    update.Message.Chat.ID,
-		Text:      helpText,
-		ParseMode: models.ParseModeMarkdown,
+		ChatID: update.Message.Chat.ID,
+		Text:   helpText,
+		// Don't use Markdown to avoid escaping issues
 	}
 	if update.Message.MessageThreadID > 0 {
 		params.MessageThreadID = update.Message.MessageThreadID
