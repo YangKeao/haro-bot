@@ -113,13 +113,19 @@ func (p *telegramProgress) OnLLMStreamDelta(ctx context.Context, delta string) {
 	p.draftRetryUntil = time.Time{}
 }
 
-func (p *telegramProgress) OnToolCalls(ctx context.Context, calls []llm.ToolCall) {
+
+func (p *telegramProgress) OnToolCalls(ctx context.Context, calls []llm.ToolCall, content string) {
 	if p == nil || len(calls) == 0 {
 		return
 	}
-	text := formatToolCalls(calls)
-	if text == "" {
+	toolText := formatToolCalls(calls)
+	if toolText == "" {
 		return
+	}
+	// Prepend message content if present
+	text := toolText
+	if content = strings.TrimSpace(content); content != "" {
+		text = content + "\n\n" + toolText
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
