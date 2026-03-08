@@ -1,69 +1,131 @@
-# Haro Bot (Agent Skeleton)
+# Haro Bot
 
-This service provides an OpenAI-compatible API and a Telegram webhook, with all memory stored in TiDB. Skills follow the Agent Skills filesystem spec and are synced from a Git repo. Data access uses GORM; schema migrations are applied from embedded SQL.
+An AI agent with Telegram integration, long-term memory, and tool execution capabilities.
 
-**Quick Start**
-1. Start TiDB and create a database.
-2. Set `TIDB_DSN` (all other config is stored in `app_config` and defaults will be seeded on first boot).
-3. Run the server.
+## Features
 
-**Environment Variables**
-- `TIDB_DSN` (default `root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true`) is the only required value to boot. Most configuration is stored in the database (`app_config`).
-- The following env vars are optional overrides and will update the in-memory config (and seed DB defaults on first boot):
-  - `SERVER_ADDR` (default `:8080`)
-  - `LLM_BASE_URL` (default `https://api.openai.com/v1`)
-  - `LLM_API_KEY`
-  - `LLM_MODEL` (default `gpt-4o-mini`)
-  - `LLM_PROMPT_FORMAT` (default `openai`; use `claude`/`anthropic`/`xml` for XML skill injection)
-  - `LLM_REASONING_ENABLED` (default `false`)
-  - `LLM_REASONING_EFFORT` (for example `low`/`medium`/`high` or custom values like `xhigh`; passed through to the API and only applied when enabled)
-  - `LLM_HTTP_DEBUG` (default `false`; logs raw request/response bodies, with auth headers redacted)
-  - `LLM_CONTEXT_WINDOW` (model context window in tokens; enables token-based trimming and summary hints)
-  - `LLM_AUTO_COMPACT_TOKEN_LIMIT` (optional; if set, clamp auto-compaction/summary threshold to this value, but never above 90% of `LLM_CONTEXT_WINDOW`)
-  - `LLM_EFFECTIVE_CONTEXT_WINDOW_PERCENT` (default `95`; percentage of context window usable for inputs after headroom)
-  - `TELEGRAM_BOT_TOKEN`
-  - `SKILLS_DIR` (default `./skills`)
-  - `SKILLS_REPO_ALLOWLIST` (comma-separated URL prefixes)
-  - `SKILLS_SYNC_INTERVAL` (default `10m`)
-  - `BRAVE_SEARCH_API_KEY`
-  - `FS_ALLOWED_ROOTS` (comma-separated absolute/relative paths; default `SKILLS_DIR`)
-  - `TOOL_MAX_TURNS` (default `1024`)
-  - `LOG_LEVEL` (debug/info/warn/error)
-  - `LOG_DEV` (true/false; enables console logging)
-  - `LOG_ENCODING` (json/console; overrides default)
+- **Telegram Integration**: Real-time message streaming with draft previews
+- **Long-term Memory**: Vector-based memory storage and retrieval using TiDB
+- **Skill System**: Extensible skills synced from Git repositories
+- **Tool Execution**: Filesystem operations, browser automation, command execution
+- **Session Management**: Fork sessions for parallel task execution
 
-**Skills Repo Layout**
-Each skill is a directory containing `SKILL.md` with YAML frontmatter. The skill directory name must match the `name` field in the frontmatter.
-Filesystem tools are global (available even without skill activation) and are protected by `FS_ALLOWED_ROOTS`: `grep_files`, `read_file`, `list_dir`, `exec_command`, `write_stdin`.
-Search tools: `brave_search` (requires `BRAVE_SEARCH_API_KEY`).
-Session tools: `session_summary` creates a summary (handoff) so the session view only includes messages after that checkpoint.
-Browser tools use headless Playwright: `browser_goto`, `browser_go_back`, `browser_get_page_state`, `browser_take_screenshot`, `browser_click`, `browser_fill_text`, `browser_press_key`, `browser_scroll`.
+## Quick Start
 
-**Security Notes**
-- Skills are fetched only from allowed repo URL prefixes.
-- Filesystem tools operate only within `FS_ALLOWED_ROOTS` and reject symlink traversal.
-- Command execution uses `exec_command` and validates the working directory against `FS_ALLOWED_ROOTS`. Consider running the service inside a container or sandbox for stronger isolation.
-- Skills are synced using `go-git` (no system `git` binary required).
-- Subdirectory-only repositories are supported via `source_subdir` (TODO: sparse checkout when go-git adds support).
-- Filesystem tool usage is audited in `tool_audit`.
+1. Start TiDB and create a database
+2. Create a config file (see `config.example.toml`)
+3. Run the server:
 
-**HTTP Endpoints**
-- `GET /healthz`
-- `POST /skills/register`
-- `POST /skills/refresh`
+```bash
+./agentd -config config.toml
+```
 
-Telegram integration uses long polling (`getUpdates`) and does not require a webhook.
+### Command-line Flags
 
-**Register Skill Source Example**
+- `-config <path>`: Path to config file (default: `config.toml`)
+- `-unrestricted`: Skip path restrictions and symlink checks (audit logging still enabled)
+
+## Configuration
+
+Configuration is primarily stored in `config.toml`. See `config.example.toml` for a complete example.
+
+### Required Settings
+
+- `db.tidb_dsn`: TiDB connection string
+
+### Key Optional Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `server.addr` | `:8080` | HTTP server address |
+| `llm.base_url` | `https://api.openai.com/v1` | LLM API endpoint |
+| `llm.model` | `gpt-4o-mini` | Model to use |
+| `telegram.token` | - | Telegram bot token |
+| `skills.dir` | `./skills` | Skills directory |
+| `fs.allowed_roots` | `[skills.dir]` | Allowed filesystem paths |
+
+## Tools
+
+### Filesystem Tools
+- `read_file`: Read file contents with indentation-aware mode
+- `list_dir`: List directory contents
+- `grep_files`: Search file contents
+- `exec_command`: Run shell commands
+- `write_stdin`: Write to running process stdin
+
+### Browser Tools (Playwright)
+- `browser_goto`, `browser_go_back`
+- `browser_get_page_state`, `browser_take_screenshot`
+- `browser_click`, `browser_fill_text`, `browser_press_key`, `browser_scroll`
+
+### Search Tools
+- `brave_search`: Web search (requires `BRAVE_SEARCH_API_KEY`)
+
+### Memory Tools
+- `memory_search`: Search long-term memory
+- `session_summary`: Create session checkpoint/handoff
+
+### Skill Tools
+- `install_skill`: Install skills from Git repos
+- `activate_skill`: Activate an installed skill
+
+### Session Tools
+- `session_fork`: Start a child session for parallel tasks
+- `session_interrupt`: Interrupt a child session
+- `session_status`: Check child session status
+- `session_cancel`: Cancel a child session
+
+## Security
+
+### Normal Mode
+- Filesystem access restricted to `fs.allowed_roots`
+- Symlink traversal blocked
+- Telegram approval for out-of-bounds access
+- Command execution audited
+
+### Unrestricted Mode (`--unrestricted`)
+- Path restrictions disabled
+- Symlink checks disabled
+- Approval requests disabled
+- **Audit logging still enabled**
+
+## HTTP Endpoints
+
+- `GET /healthz`: Health check
+- `POST /skills/register`: Register a skill source
+- `POST /skills/refresh`: Refresh all skill sources
+
+## Skills
+
+Skills are directories containing `SKILL.md` with YAML frontmatter. Example:
+
+```
+skills/
+  my-skill/
+    SKILL.md
+    ...
+```
+
+Register from Git:
 ```json
 {
   "source_type": "git",
-  "install_method": "git",
-  "url": "https://github.com/anthropics/skills.git",
+  "url": "https://github.com/example/skills.git",
   "ref": "main",
   "subdir": "skills"
 }
 ```
 
-**In-Process Example**
-Call `agent.Handle`/`agent.HandleWithModel` directly from your code to use the agent.
+## Development
+
+```bash
+# Build
+go build ./cmd/agentd
+
+# Run tests
+go test ./...
+```
+
+## License
+
+MIT
