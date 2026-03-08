@@ -24,6 +24,7 @@ type sessionDeps struct {
 	reasoning      llm.ReasoningConfig
 	contextConfig  llm.ContextConfig
 	tokenEstimator *llm.TokenEstimator
+	stateManager   *sessionStateManager
 }
 
 type sessionManager struct {

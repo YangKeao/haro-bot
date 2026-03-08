@@ -19,6 +19,24 @@ type Session struct {
 	mu   sync.Mutex
 }
 
+func (s *Session) setState(state SessionState) {
+	if s != nil && s.deps != nil && s.deps.stateManager != nil {
+		s.deps.stateManager.SetState(s.id, state)
+	}
+}
+
+func (s *Session) setToolRunning(toolName string) {
+	if s != nil && s.deps != nil && s.deps.stateManager != nil {
+		s.deps.stateManager.SetToolRunning(s.id, toolName)
+	}
+}
+
+func (s *Session) setWaitingForApproval(message string) {
+	if s != nil && s.deps != nil && s.deps.stateManager != nil {
+		s.deps.stateManager.SetWaitingForApproval(s.id, message)
+	}
+}
+
 func (s *Session) Handle(ctx context.Context, userID int64, channel string, input string, modelOverride string, observer ProgressObserver) (string, error) {
 	if s == nil || s.deps == nil {
 		return "", errors.New("session not configured")
@@ -31,6 +49,9 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 	if modelOverride != "" {
 		model = modelOverride
 	}
+	s.setState(StateWaitingForLLM)
+	s.deps.stateManager.SetLLMModel(s.id, model)
+	defer s.setState(StateIdle)
 	log.Info("handle start", zap.Int64("session_id", s.id), zap.Int64("user_id", userID), zap.String("channel", channel))
 	if err := s.deps.store.AddMessage(ctx, s.id, "user", input, nil); err != nil {
 		log.Error("add user message failed", zap.Int64("session_id", s.id), zap.Error(err))
@@ -158,6 +179,7 @@ func (s *Session) runLoop(ctx context.Context, userID int64, messages []llm.Mess
 		)
 		tools := s.toolsFor()
 		log.Debug("tools prepared", zap.Int("count", len(tools)))
+		s.setState(StateWaitingForLLM)
 		resp, trimmed, err := s.callLLMWithTrim(ctx, log, model, messages, tools, observer)
 		if err != nil {
 			log.Error("llm chat error", zap.Int64("session_id", s.id), zap.Error(err))
@@ -190,6 +212,10 @@ func (s *Session) runLoop(ctx context.Context, userID int64, messages []llm.Mess
 		}
 		log.Debug("assistant tool-call message stored", zap.Int64("session_id", s.id))
 
+		// Set state for each tool being run
+		for _, tc := range msg.ToolCalls {
+			s.setToolRunning(tc.Function.Name)
+		}
 		toolMsgs, updatedSkill, err := s.deps.toolRunner.Run(ctx, s.id, userID, s.deps.defaultBaseDir, activeSkill, msg.ToolCalls)
 		if err != nil {
 			return "", err
