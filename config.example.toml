@@ -28,7 +28,7 @@ sync_interval = "10m"
 search_api_key = ""
 
 [fs]
-allowed_roots = ["./skills"]
+allowed_roots = ["./workspace"]
 
 [tool]
 max_turns = 1024

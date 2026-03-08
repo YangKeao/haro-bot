@@ -28,3 +28,5 @@
 # Local artifacts
 /agentd
 config.toml
+
+workspace

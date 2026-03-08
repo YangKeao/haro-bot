@@ -7,6 +7,7 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/go-telegram/bot v1.19.0
 	github.com/openai/openai-go v1.12.0
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/playwright-community/playwright-go v0.5700.1
 	go.uber.org/zap v1.27.1
@@ -36,7 +37,6 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/pjbgf/sha1cd v0.3.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.2.2 // indirect
