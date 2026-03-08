@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"unicode/utf8"
 
 	"github.com/YangKeao/haro-bot/internal/tools"
 )
@@ -23,6 +23,8 @@ type forkArgs struct {
 type forkResult struct {
 	ChildSessionID int64  `json:"child_session_id"`
 	Status         string `json:"status"`
+	Note           string `json:"note,omitempty"`
+	NextAction     string `json:"next_action,omitempty"`
 }
 
 func NewForkTool(manager *Manager) *ForkTool {
@@ -73,7 +75,12 @@ func (t *ForkTool) Execute(ctx context.Context, tc tools.ToolContext, args json.
 	if err != nil {
 		return "", err
 	}
-	resp := forkResult{ChildSessionID: childID, Status: "running"}
+	resp := forkResult{
+		ChildSessionID: childID,
+		Status:         "running",
+		Note:           "Child session is running. Do not poll for status unless the user explicitly asks to check results.",
+		NextAction:     "wait_for_user_request_or_completion",
+	}
 	b, err := json.Marshal(resp)
 	if err != nil {
 		return "", err
@@ -206,7 +213,7 @@ func NewForkStatusTool(manager *Manager) *ForkStatusTool {
 
 func (t *ForkStatusTool) Name() string { return "session_status" }
 func (t *ForkStatusTool) Description() string {
-	return "Get the status of a child session started via fork."
+	return "Get the status of a child session started via fork. Use only when the user explicitly asks to check status or results."
 }
 func (t *ForkStatusTool) Parameters() map[string]any {
 	return map[string]any{
@@ -232,9 +239,34 @@ func (t *ForkStatusTool) Execute(ctx context.Context, tc tools.ToolContext, args
 	if payload.ChildSessionID <= 0 {
 		return "", errors.New("child_session_id required")
 	}
-	status, err := t.manager.Status(tc.SessionID, payload.ChildSessionID)
+	status, err := t.manager.StatusDetail(tc.SessionID, payload.ChildSessionID, 0)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("{\"status\":\"%s\"}", status), nil
+	out := map[string]any{"status": status.Status}
+	if status.Output != "" && (status.Status == "completed" || status.Status == "error") {
+		out["output"] = truncateRunes(status.Output, 2000)
+	}
+	if status.Error != "" {
+		out["error"] = status.Error
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func truncateRunes(text string, maxRunes int) string {
+	if maxRunes <= 0 || text == "" {
+		return text
+	}
+	if utf8.RuneCountInString(text) <= maxRunes {
+		return text
+	}
+	runes := []rune(text)
+	if len(runes) <= maxRunes {
+		return text
+	}
+	return string(runes[:maxRunes])
 }

@@ -45,6 +45,7 @@ type run struct {
 	done   chan struct{}
 	status string
 	err    error
+	output string
 
 	mu sync.Mutex
 }
@@ -104,8 +105,11 @@ func (m *Manager) Start(ctx context.Context, parentSessionID, userID int64, inpu
 	m.mu.Unlock()
 
 	go func(childID int64) {
-		_, err := m.agent.HandleWithModel(runCtx, userID, channel, input, model)
+		output, err := m.agent.HandleWithModel(runCtx, userID, channel, input, model)
 		r.mu.Lock()
+		if output != "" {
+			r.output = output
+		}
 		if r.status == "cancelled" {
 			if r.err == nil && runCtx.Err() != nil {
 				r.err = runCtx.Err()
@@ -194,13 +198,43 @@ func (m *Manager) Cancel(parentSessionID, childSessionID int64) error {
 }
 
 func (m *Manager) Status(parentSessionID, childSessionID int64) (string, error) {
-	r, err := m.getRun(parentSessionID, childSessionID)
+	status, err := m.StatusDetail(parentSessionID, childSessionID, 0)
 	if err != nil {
 		return "", err
 	}
+	return status.Status, nil
+}
+
+type StatusDetail struct {
+	Status string
+	Output string
+	Error  string
+}
+
+func (m *Manager) StatusDetail(parentSessionID, childSessionID int64, wait time.Duration) (StatusDetail, error) {
+	r, err := m.getRun(parentSessionID, childSessionID)
+	if err != nil {
+		return StatusDetail{}, err
+	}
+	r.mu.Lock()
+	status := r.status
+	done := r.done
+	r.mu.Unlock()
+	if status == "running" && wait > 0 {
+		timer := time.NewTimer(wait)
+		select {
+		case <-done:
+		case <-timer.C:
+		}
+		timer.Stop()
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.status, nil
+	detail := StatusDetail{Status: r.status, Output: r.output}
+	if r.err != nil {
+		detail.Error = r.err.Error()
+	}
+	return detail, nil
 }
 
 func (m *Manager) scheduleCleanup(childID int64) {
