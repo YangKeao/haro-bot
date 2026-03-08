@@ -35,7 +35,15 @@ func (s *Server) StartTelegramPolling(ctx context.Context) {
 
 func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *models.Update) {
 	log := logging.L().Named("telegram")
-	if update == nil || update.Message == nil || update.Message.Text == "" {
+	if update == nil {
+		log.Debug("telegram update ignored (nil)")
+		return
+	}
+	if update.CallbackQuery != nil {
+		s.handleTelegramCallback(ctx, b, update.CallbackQuery)
+		return
+	}
+	if update.Message == nil || update.Message.Text == "" {
 		log.Debug("telegram update ignored (no text)")
 		return
 	}
@@ -92,6 +100,55 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 			return
 		}
 	}
+}
+
+func (s *Server) handleTelegramCallback(ctx context.Context, b *bot.Bot, query *models.CallbackQuery) {
+	log := logging.L().Named("telegram")
+	if query == nil {
+		return
+	}
+	if query.From.ID == 0 {
+		log.Warn("telegram callback missing sender")
+		return
+	}
+	uid, err := s.store.GetOrCreateUserByTelegramID(ctx, query.From.ID)
+	if err != nil {
+		log.Warn("telegram user error", zap.Error(err))
+		return
+	}
+	sessionID, err := s.store.GetOrCreateSession(ctx, uid, "telegram")
+	if err != nil {
+		log.Warn("telegram session error", zap.Error(err))
+		return
+	}
+	if query.Message.Message != nil {
+		msg := query.Message.Message
+		threadID := msg.MessageThreadID
+		businessConnID := msg.BusinessConnectionID
+		directTopicID := 0
+		if msg.DirectMessagesTopic != nil {
+			directTopicID = msg.DirectMessagesTopic.TopicID
+		}
+		s.telegramSessions.Set(sessionID, telegramSessionDestination{
+			chatID:               msg.Chat.ID,
+			threadID:             threadID,
+			directTopicID:        directTopicID,
+			businessConnectionID: businessConnID,
+		})
+	}
+	handled := false
+	if s.toolApprovals != nil {
+		handled = s.toolApprovals.handleCallback(ctx, sessionID, uid, query.Data, func(ctx context.Context, msg string) error {
+			return s.SendSessionMessage(ctx, sessionID, msg)
+		})
+	}
+	_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: query.ID,
+	})
+	if handled {
+		return
+	}
+	log.Debug("telegram callback ignored", zap.String("data", query.Data))
 }
 
 func sendTelegramMessage(ctx context.Context, log *zap.Logger, b *bot.Bot, params *bot.SendMessageParams) error {

@@ -103,7 +103,7 @@ func (t *ListDirTool) Execute(ctx context.Context, tc ToolContext, args json.Raw
 		depth = *a.Depth
 	}
 
-	abs, allowed, err := t.fs.resolvePath("", a.DirPath, false)
+	abs, allowed, err := t.fs.resolvePathWithApproval(ctx, tc, "list_dir", "", a.DirPath, false)
 	if err != nil {
 		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", a.DirPath, allowed, err)
 		return "", err

@@ -155,7 +155,7 @@ func (t *ExecCommandTool) Execute(ctx context.Context, tc ToolContext, args json
 	if workdir == "" {
 		return "", errors.New("workdir required")
 	}
-	resolvedWorkdir, allowed, err := t.fs.resolvePath(tc.BaseDir, workdir, false)
+	resolvedWorkdir, allowed, err := t.fs.resolvePathWithApproval(ctx, tc, "exec_command", tc.BaseDir, workdir, false)
 	if err != nil {
 		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", workdir, allowed, err)
 		return "", err

@@ -17,6 +17,7 @@ var (
 type FS struct {
 	allowedRoots []string
 	audit        AuditLogger
+	approver     Approver
 }
 
 func NewFS(allowedRoots []string, audit AuditLogger) *FS {
@@ -24,6 +25,13 @@ func NewFS(allowedRoots []string, audit AuditLogger) *FS {
 		allowedRoots: canonicalizeRoots(allowedRoots),
 		audit:        audit,
 	}
+}
+
+func (f *FS) SetApprover(approver Approver) {
+	if f == nil {
+		return
+	}
+	f.approver = approver
 }
 
 func (f *FS) DefaultBase() string {
@@ -67,6 +75,36 @@ func (f *FS) resolvePath(baseDir, path string, allowMissing bool) (string, bool,
 		}
 	}
 	return resolvedTarget, false, errPathDenied
+}
+
+func (f *FS) resolvePathWithApproval(ctx context.Context, tc ToolContext, tool, baseDir, path string, allowMissing bool) (string, bool, error) {
+	abs, allowed, err := f.resolvePath(baseDir, path, allowMissing)
+	if err == nil {
+		return abs, allowed, nil
+	}
+	if !errors.Is(err, errPathDenied) || f.approver == nil {
+		return abs, allowed, err
+	}
+	decision, reqErr := f.approver.RequestApproval(ctx, ApprovalRequest{
+		SessionID: tc.SessionID,
+		UserID:    tc.UserID,
+		Tool:      tool,
+		Path:      abs,
+		Reason:    err.Error(),
+	})
+	if reqErr != nil {
+		return abs, allowed, reqErr
+	}
+	switch decision {
+	case ApprovalAllow:
+		return abs, true, nil
+	case ApprovalStop:
+		return abs, false, ErrApprovalStopped
+	case ApprovalDeny:
+		fallthrough
+	default:
+		return abs, false, ErrApprovalDenied
+	}
 }
 
 func (f *FS) auditMaybe(ctx context.Context, entry AuditEntry) {

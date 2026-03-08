@@ -143,7 +143,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, tc ToolContext, args json.Ra
 		return "", errors.New("mode must be \"slice\" or \"indentation\"")
 	}
 
-	abs, allowed, err := t.fs.resolvePath("", a.FilePath, false)
+	abs, allowed, err := t.fs.resolvePathWithApproval(ctx, tc, "read_file", "", a.FilePath, false)
 	if err != nil {
 		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "read_file", a.FilePath, allowed, err)
 		return "", err

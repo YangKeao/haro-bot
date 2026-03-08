@@ -117,6 +117,7 @@ func main() {
 	srv := server.New(cfg, agentSvc, store, skillsMgr)
 	if cfg.TelegramToken != "" {
 		agentSvc.SetSessionMessenger(srv)
+		fsTools.SetApprover(srv)
 	}
 
 	srv.StartTelegramPolling(ctx)

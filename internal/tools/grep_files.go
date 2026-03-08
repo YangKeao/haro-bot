@@ -98,7 +98,7 @@ func (t *GrepFilesTool) Execute(ctx context.Context, tc ToolContext, args json.R
 		path = tc.BaseDir
 	}
 
-	abs, allowed, err := t.fs.resolvePath(tc.BaseDir, path, false)
+	abs, allowed, err := t.fs.resolvePathWithApproval(ctx, tc, "grep_files", tc.BaseDir, path, false)
 	if err != nil {
 		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "grep_files", path, allowed, err)
 		return "", err
