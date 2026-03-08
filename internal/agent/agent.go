@@ -27,7 +27,7 @@ type Agent struct {
 	promptFormat   string
 	reasoning      llm.ReasoningConfig
 	contextConfig  llm.ContextConfig
-	tokenEstimator *llm.TokenEstimator
+	sessions       *sessionManager
 }
 
 func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
@@ -37,7 +37,7 @@ func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Regi
 	promptBuilder := DefaultPromptBuilder{}
 	toolRunner := NewToolRunner(toolRegistry, store, skills, promptBuilder)
 	estimator, _ := llm.NewTokenEstimator(model)
-	return &Agent{
+	deps := &sessionDeps{
 		store:          store,
 		skills:         skills,
 		toolRegistry:   toolRegistry,
@@ -51,6 +51,21 @@ func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Regi
 		reasoning:      reasoning,
 		contextConfig:  contextConfig,
 		tokenEstimator: estimator,
+	}
+	return &Agent{
+		store:          store,
+		skills:         skills,
+		toolRegistry:   toolRegistry,
+		promptBuilder:  promptBuilder,
+		toolRunner:     toolRunner,
+		defaultBaseDir: defaultBaseDir,
+		maxToolTurns:   maxToolTurns,
+		llm:            llmClient,
+		model:          model,
+		promptFormat:   promptFormat,
+		reasoning:      reasoning,
+		contextConfig:  contextConfig,
+		sessions:       newSessionManager(deps),
 	}
 }
 
@@ -68,180 +83,31 @@ func (a *Agent) HandleWithObserver(ctx context.Context, userID int64, channel st
 
 func (a *Agent) handleWithObserver(ctx context.Context, userID int64, channel string, input string, modelOverride string, observer ProgressObserver) (string, error) {
 	log := logging.L().Named("agent")
-	model := a.model
-	if modelOverride != "" {
-		model = modelOverride
-	}
 	sessionID, err := a.store.GetOrCreateSession(ctx, userID, channel)
 	if err != nil {
 		log.Error("get session failed", zap.Error(err))
 		return "", err
 	}
-	log.Info("handle start", zap.Int64("session_id", sessionID), zap.Int64("user_id", userID), zap.String("channel", channel))
-	if err := a.store.AddMessage(ctx, sessionID, "user", input, nil); err != nil {
-		log.Error("add user message failed", zap.Int64("session_id", sessionID), zap.Error(err))
-		return "", err
+	if a.sessions == nil {
+		log.Error("session manager not configured", zap.Int64("session_id", sessionID))
+		return "", errors.New("session manager not configured")
 	}
-
-	memories, err := a.store.LoadLongMemories(ctx, userID, 8)
-	if err != nil {
-		return "", err
-	}
-	availableSkills := a.skills.List()
-	recent, summary, err := a.store.LoadViewMessages(ctx, sessionID, 0)
-	if err != nil {
-		return "", err
-	}
-	systemPrompt := a.promptBuilder.System(memories, availableSkills, a.promptFormat)
-	baseMessages := []llm.Message{{Role: "system", Content: systemPrompt}}
-	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
-		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: summaryMsg})
-	}
-	estimator := a.estimatorForModel(model)
-	budget := computeTokenBudget(a.contextConfig)
-	llmMessages := toLLMMessages(recent)
-	previewMessages := append(append([]llm.Message{}, baseMessages...), llmMessages...)
-	budgeter := NewContextBudgeter(estimator, a.contextConfig)
-	_, previewInfo := budgeter.Trim(previewMessages, 1.0)
-	usage := summaryUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.SummaryBudget}
-	messages := baseMessages
-	if hint := summaryHint(recent, usage); hint != "" {
-		log.Debug("summary hint",
-			zap.Int64("session_id", sessionID),
-			zap.Int("tokens_used", usage.TokensUsed),
-			zap.Int("token_budget", usage.TokenBudget),
-		)
-		messages = append(messages, llm.Message{Role: "system", Content: hint})
-	}
-	messages = append(messages, llmMessages...) // includes user input
-	output, err := a.runLoop(ctx, sessionID, userID, messages, model, nil, observer)
-	if err != nil {
-		log.Error("handle failed", zap.Int64("session_id", sessionID), zap.Error(err))
-		return "", err
-	}
-	log.Info("handle completed", zap.Int64("session_id", sessionID))
-	return output, nil
+	session := a.sessions.Get(sessionID)
+	defer a.sessions.Release(sessionID)
+	return session.Handle(ctx, userID, channel, input, modelOverride, observer)
 }
 
 // InterruptSession generates a response from an existing session context without using tools.
 // If storeInSession is true, the interrupt message and response are persisted to the session.
 func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID int64, input string, modelOverride string, storeInSession bool) (string, error) {
 	log := logging.L().Named("agent_interrupt")
-	model := a.model
-	if modelOverride != "" {
-		model = modelOverride
+	if a.sessions == nil {
+		log.Error("session manager not configured", zap.Int64("session_id", sessionID))
+		return "", errors.New("session manager not configured")
 	}
-	if storeInSession {
-		if err := a.store.AddMessage(ctx, sessionID, "user", input, nil); err != nil {
-			return "", err
-		}
-	}
-	memories, err := a.store.LoadLongMemories(ctx, userID, 8)
-	if err != nil {
-		return "", err
-	}
-	systemPrompt := a.promptBuilder.Interrupt(memories, a.promptFormat)
-	recent, summary, err := a.store.LoadViewMessages(ctx, sessionID, 0)
-	if err != nil {
-		return "", err
-	}
-	baseMessages := []llm.Message{{Role: "system", Content: systemPrompt}}
-	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
-		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: summaryMsg})
-	}
-	estimator := a.estimatorForModel(model)
-	budget := computeTokenBudget(a.contextConfig)
-	llmMessages := toLLMMessages(recent)
-	if !storeInSession {
-		llmMessages = append(llmMessages, llm.Message{Role: "user", Content: input})
-	}
-	previewMessages := append(append([]llm.Message{}, baseMessages...), llmMessages...)
-	budgeter := NewContextBudgeter(estimator, a.contextConfig)
-	_, previewInfo := budgeter.Trim(previewMessages, 1.0)
-	usage := summaryUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.SummaryBudget}
-	messages := baseMessages
-	if hint := summaryHint(recent, usage); hint != "" {
-		log.Debug("summary hint",
-			zap.Int64("session_id", sessionID),
-			zap.Int("tokens_used", usage.TokensUsed),
-			zap.Int("token_budget", usage.TokenBudget),
-		)
-		messages = append(messages, llm.Message{Role: "system", Content: hint})
-	}
-	messages = append(messages, llmMessages...)
-	resp, _, err := a.callLLMWithTrim(ctx, log, sessionID, model, messages, nil, nil)
-	if err != nil {
-		log.Error("interrupt llm error", zap.Int64("session_id", sessionID), zap.Error(err))
-		return "", err
-	}
-	if len(resp.Choices) == 0 {
-		return "", errors.New("empty llm response")
-	}
-	content := resp.Choices[0].Message.Content
-	if storeInSession {
-		if err := a.store.AddMessage(ctx, sessionID, "assistant", content, nil); err != nil {
-			log.Error("interrupt store failed", zap.Int64("session_id", sessionID), zap.Error(err))
-			return "", err
-		}
-	}
-	log.Info("interrupt completed", zap.Int64("session_id", sessionID), zap.Bool("stored", storeInSession))
-	return content, nil
-}
-
-func (a *Agent) runLoop(ctx context.Context, sessionID int64, userID int64, messages []llm.Message, model string, activeSkill *skills.Skill, observer ProgressObserver) (string, error) {
-	log := logging.L().Named("agent_loop")
-	maxTurns := a.maxToolTurns
-	for i := 0; i < maxTurns; i++ {
-		log.Debug("loop turn",
-			zap.Int("turn", i+1),
-			zap.Int("max_turns", maxTurns),
-			zap.Int("message_count", len(messages)),
-			zap.String("model", model),
-		)
-		tools := a.toolsFor()
-		log.Debug("tools prepared", zap.Int("count", len(tools)))
-		resp, trimmed, err := a.callLLMWithTrim(ctx, log, sessionID, model, messages, tools, observer)
-		if err != nil {
-			log.Error("llm chat error", zap.Int64("session_id", sessionID), zap.Error(err))
-			return "", err
-		}
-		messages = trimmed
-		if len(resp.Choices) == 0 {
-			return "", errors.New("empty llm response")
-		}
-		msg := resp.Choices[0].Message
-		log.Debug("llm response received",
-			zap.Int("choices", len(resp.Choices)),
-			zap.Int("tool_calls", len(msg.ToolCalls)),
-		)
-		if len(msg.ToolCalls) == 0 {
-			if err := a.store.AddMessage(ctx, sessionID, "assistant", msg.Content, nil); err != nil {
-				log.Error("store assistant failed", zap.Int64("session_id", sessionID), zap.Error(err))
-				return "", err
-			}
-			log.Debug("assistant response stored", zap.Int64("session_id", sessionID))
-			return msg.Content, nil
-		}
-
-		log.Debug("tool calls received", zap.Int("count", len(msg.ToolCalls)), zap.Int64("session_id", sessionID))
-		if observer != nil {
-			observer.OnToolCalls(ctx, msg.ToolCalls)
-		}
-		if err := a.store.AddMessage(ctx, sessionID, "assistant", msg.Content, &memory.MessageMetadata{ToolCalls: msg.ToolCalls}); err != nil {
-			return "", err
-		}
-		log.Debug("assistant tool-call message stored", zap.Int64("session_id", sessionID))
-
-		toolMsgs, updatedSkill, err := a.toolRunner.Run(ctx, sessionID, userID, a.defaultBaseDir, activeSkill, msg.ToolCalls)
-		if err != nil {
-			return "", err
-		}
-		log.Debug("tool run completed", zap.Int("tool_messages", len(toolMsgs)))
-		activeSkill = updatedSkill
-		messages = append(messages, msg)
-		messages = append(messages, toolMsgs...)
-	}
-	return "", errors.New("tool loop exceeded")
+	session := a.sessions.Get(sessionID)
+	defer a.sessions.Release(sessionID)
+	return session.Interrupt(ctx, userID, input, modelOverride, storeInSession)
 }
 
 func toLLMMessages(msgs []memory.Message) []llm.Message {
@@ -285,43 +151,4 @@ func formatSummaryMessage(summary *memory.Summary) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
-}
-
-func (a *Agent) toolsFor() []llm.Tool {
-	if a.toolRegistry == nil {
-		return nil
-	}
-	var tools []llm.Tool
-	for _, t := range a.toolRegistry.List() {
-		tools = append(tools, llm.Tool{
-			Type: "function",
-			Function: llm.FunctionSpec{
-				Name:        t.Name(),
-				Description: t.Description(),
-				Parameters:  t.Parameters(),
-			},
-		})
-	}
-	return tools
-}
-
-func (a *Agent) estimatorForModel(model string) *llm.TokenEstimator {
-	if a == nil {
-		return nil
-	}
-	if model == "" || model == a.model {
-		if a.tokenEstimator != nil {
-			return a.tokenEstimator
-		}
-		estimator, err := llm.NewTokenEstimator(a.model)
-		if err != nil {
-			return nil
-		}
-		return estimator
-	}
-	estimator, err := llm.NewTokenEstimator(model)
-	if err != nil {
-		return a.tokenEstimator
-	}
-	return estimator
 }
