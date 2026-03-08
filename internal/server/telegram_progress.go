@@ -44,6 +44,8 @@ type telegramProgress struct {
 	lastSentRunes int
 	lastDraftSent time.Time
 	sequence      int64
+
+	draftRetryUntil time.Time
 }
 
 func newTelegramProgress(b *bot.Bot, chatID int64, threadID int, businessConnectionID string) *telegramProgress {
@@ -76,21 +78,39 @@ func (p *telegramProgress) OnLLMStreamDelta(ctx context.Context, delta string) {
 		return
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.streamText += delta
 	currentRunes := utf8.RuneCountInString(p.streamText)
 	runesDelta := currentRunes - p.lastSentRunes
 	elapsed := time.Since(p.lastDraftSent)
 	if runesDelta < draftMinDeltaRunes && elapsed < draftMinInterval {
-		p.mu.Unlock()
 		return
 	}
-	text := p.streamText
+	now := time.Now()
+	if !p.draftRetryUntil.IsZero() && now.Before(p.draftRetryUntil) {
+		return
+	}
 	baseID := p.streamBaseID
+	text := p.streamText
+	lastSent := p.lastSentRunes
+	if currentRunes <= lastSent {
+		return
+	}
+	wait, err := p.sendDraftOnce(ctx, baseID, text)
+	if wait > 0 {
+		until := time.Now().Add(wait + telegramRetryPadding)
+		if until.After(p.draftRetryUntil) {
+			p.draftRetryUntil = until
+		}
+		return
+	}
+	if err != nil {
+		return
+	}
 	p.lastSentRunes = currentRunes
 	p.lastDraftSent = time.Now()
-	p.mu.Unlock()
-
-	p.sendDraft(ctx, baseID, text)
+	p.draftRetryUntil = time.Time{}
 }
 
 func (p *telegramProgress) OnToolCalls(ctx context.Context, calls []llm.ToolCall) {
@@ -98,7 +118,27 @@ func (p *telegramProgress) OnToolCalls(ctx context.Context, calls []llm.ToolCall
 		return
 	}
 	text := formatToolCalls(calls)
-	p.sendDraft(ctx, p.currentDraftBase(), text)
+	if text == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := time.Now()
+	if !p.draftRetryUntil.IsZero() && now.Before(p.draftRetryUntil) {
+		return
+	}
+	baseID := p.currentDraftBaseLocked()
+	wait, err := p.sendDraftOnce(ctx, baseID, text)
+	if wait > 0 {
+		until := time.Now().Add(wait + telegramRetryPadding)
+		if until.After(p.draftRetryUntil) {
+			p.draftRetryUntil = until
+		}
+		return
+	}
+	if err != nil {
+		return
+	}
 }
 
 func (p *telegramProgress) ensureTyping(ctx context.Context) {
@@ -157,6 +197,7 @@ func (p *telegramProgress) resetStream() {
 	p.streamText = ""
 	p.lastSentRunes = 0
 	p.lastDraftSent = time.Time{}
+	p.draftRetryUntil = time.Time{}
 	p.mu.Unlock()
 }
 
@@ -164,26 +205,20 @@ func (p *telegramProgress) nextDraftBase() int64 {
 	return time.Now().UnixNano() + atomic.AddInt64(&p.sequence, 1)
 }
 
-func (p *telegramProgress) currentDraftBase() int64 {
-	if p == nil {
-		return 0
-	}
-	p.mu.Lock()
+func (p *telegramProgress) currentDraftBaseLocked() int64 {
 	if p.streamBaseID == 0 {
 		p.streamBaseID = p.nextDraftBase()
 	}
-	base := p.streamBaseID
-	p.mu.Unlock()
-	return base
+	return p.streamBaseID
 }
 
-func (p *telegramProgress) sendDraft(ctx context.Context, baseID int64, text string) {
+func (p *telegramProgress) sendDraftOnce(ctx context.Context, baseID int64, text string) (time.Duration, error) {
 	if p == nil || p.bot == nil {
-		return
+		return 0, nil
 	}
 	parts := splitTelegramMessage(text)
 	if len(parts) == 0 {
-		return
+		return 0, nil
 	}
 	for i, part := range parts {
 		params := &bot.SendMessageDraftParams{
@@ -198,25 +233,37 @@ func (p *telegramProgress) sendDraft(ctx context.Context, baseID int64, text str
 		if p.businessConnectionID != "" {
 			params.BusinessConnectionID = p.businessConnectionID
 		}
-		if err := sendTelegramDraft(ctx, p.log, p.bot, params); err != nil && p.log != nil {
-			p.log.Debug("telegram sendMessageDraft failed", zap.Error(err))
-			return
+		wait, err := sendTelegramDraftOnce(ctx, p.log, p.bot, params)
+		if wait > 0 {
+			return wait, err
+		}
+		if err != nil {
+			return 0, err
 		}
 	}
+	return 0, nil
 }
 
-func sendTelegramDraft(ctx context.Context, log *zap.Logger, b *bot.Bot, params *bot.SendMessageDraftParams) error {
-	if err := withTelegramRetry(ctx, log, "sendMessageDraft", func(ctx context.Context) error {
-		_, err := b.SendMessageDraft(ctx, params)
-		return err
-	}); err == nil {
-		return nil
+func sendTelegramDraftOnce(ctx context.Context, log *zap.Logger, b *bot.Bot, params *bot.SendMessageDraftParams) (time.Duration, error) {
+	_, err := b.SendMessageDraft(ctx, params)
+	if err == nil {
+		return 0, nil
+	}
+	if wait, ok := retryAfterFromError(err); ok {
+		return wait, err
 	}
 	params.ParseMode = ""
-	return withTelegramRetry(ctx, log, "sendMessageDraft_plain", func(ctx context.Context) error {
-		_, err := b.SendMessageDraft(ctx, params)
-		return err
-	})
+	_, err = b.SendMessageDraft(ctx, params)
+	if err == nil {
+		return 0, nil
+	}
+	if wait, ok := retryAfterFromError(err); ok {
+		return wait, err
+	}
+	if log != nil {
+		log.Debug("telegram sendMessageDraft failed", zap.Error(err))
+	}
+	return 0, err
 }
 
 func formatToolCalls(calls []llm.ToolCall) string {
