@@ -114,7 +114,7 @@ func main() {
 	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))
 	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
 	toolRegistry.Register(fork.NewForkStatusTool(forkMgr))
-	srv := server.New(cfg, agentSvc, store, skillsMgr)
+	srv := server.New(cfg, agentSvc, store, skillsMgr, memoryEngine)
 	if cfg.TelegramToken != "" {
 		agentSvc.SetSessionMessenger(srv)
 		fsTools.SetApprover(srv)

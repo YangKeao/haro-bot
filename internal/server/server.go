@@ -20,9 +20,10 @@ type Server struct {
 	telegramSessions *telegramSessionRegistry
 	toolApprovals    *toolApprovalManager
 	auditModel       *auditModel
+	memoryEngine     *memory.Engine
 }
 
-func New(cfg config.Config, agent *agent.Agent, store memory.StoreAPI, skillsMgr *skills.Manager) *Server {
+func New(cfg config.Config, agent *agent.Agent, store memory.StoreAPI, skillsMgr *skills.Manager, memoryEngine *memory.Engine) *Server {
 	return &Server{
 		cfg:              cfg,
 		agent:            agent,
@@ -30,6 +31,7 @@ func New(cfg config.Config, agent *agent.Agent, store memory.StoreAPI, skillsMgr
 		skills:           skillsMgr,
 		telegramSessions: newTelegramSessionRegistry(),
 		toolApprovals:    newToolApprovalManager(),
+		memoryEngine:     memoryEngine,
 	}
 }
 

@@ -49,7 +49,7 @@ func (a *auditModel) evaluate(ctx context.Context, req tools.ApprovalRequest, co
 	system := "You are a security review model. Decide whether to approve the tool access request. " +
 		"Respond with strict JSON only: {\"decision\":\"approve|deny\",\"reason\":\"\"}. " +
 		"If decision is deny, provide a short reason. If decision is approve, reason must be empty. " +
-		"The messages between this system prompt and the final tool request are prior context only."
+		"The messages between this system prompt and the final tool request are prior context and preferences only."
 	user := fmt.Sprintf("Tool: %s\nPath: %s\nOriginal reason: %s", req.Tool, req.Path, req.Reason)
 	messages := make([]llm.Message, 0, 2+len(contextMessages))
 	messages = append(messages, llm.Message{Role: "system", Content: system})
@@ -283,7 +283,9 @@ func (s *Server) RequestApproval(ctx context.Context, req tools.ApprovalRequest)
 	var reviewReason string
 	if s.auditModel != nil {
 		contextMessages := s.recentAuditContextMessages(ctx, req.SessionID, 2)
-		decision, reason, err := s.auditModel.evaluate(ctx, req, contextMessages)
+		memoryMessages := s.securityAuditMemoryMessages(ctx, req.UserID, req.SessionID, req, 4)
+		auditContext := append(memoryMessages, contextMessages...)
+		decision, reason, err := s.auditModel.evaluate(ctx, req, auditContext)
 		if err != nil {
 			log.Warn("audit model failed", zap.Int64("session_id", req.SessionID), zap.Error(err))
 		} else {
@@ -337,4 +339,36 @@ func (s *Server) recentAuditContextMessages(ctx context.Context, sessionID int64
 		out[i], out[j] = out[j], out[i]
 	}
 	return out
+}
+
+func (s *Server) securityAuditMemoryMessages(ctx context.Context, userID, sessionID int64, req tools.ApprovalRequest, limit int) []llm.Message {
+	if s == nil || s.memoryEngine == nil || userID == 0 || limit <= 0 {
+		return nil
+	}
+	query := strings.TrimSpace(req.Tool + " " + req.Reason + " security preferences tool approval policy")
+	items, err := s.memoryEngine.Retrieve(ctx, userID, sessionID, query, limit)
+	if err != nil || len(items) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString("Security memory:\n")
+	for _, item := range items {
+		content := strings.TrimSpace(item.Content)
+		if content == "" {
+			continue
+		}
+		if item.Type != "" {
+			b.WriteString("- [")
+			b.WriteString(item.Type)
+			b.WriteString("] ")
+		} else {
+			b.WriteString("- ")
+		}
+		b.WriteString(content)
+		b.WriteString("\n")
+	}
+	if b.Len() == 0 {
+		return nil
+	}
+	return []llm.Message{{Role: "system", Content: strings.TrimSpace(b.String())}}
 }
