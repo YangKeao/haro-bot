@@ -29,17 +29,13 @@ type WriteStdinTool struct {
 }
 
 type execCommandArgs struct {
-	Cmd             string          `json:"cmd"`
-	Workdir         string          `json:"workdir"`
-	Shell           string          `json:"shell"`
-	Login           *bool           `json:"login"`
-	TTY             bool            `json:"tty"`
-	YieldTimeMs     int             `json:"yield_time_ms"`
-	MaxOutputTokens *int            `json:"max_output_tokens"`
-	SandboxPerms    json.RawMessage `json:"sandbox_permissions"`
-	AdditionalPerms json.RawMessage `json:"additional_permissions"`
-	Justification   string          `json:"justification"`
-	PrefixRule      []string        `json:"prefix_rule"`
+	Cmd             string `json:"cmd"`
+	Workdir         string `json:"workdir"`
+	Shell           string `json:"shell"`
+	Login           *bool  `json:"login"`
+	TTY             bool   `json:"tty"`
+	YieldTimeMs     int    `json:"yield_time_ms"`
+	MaxOutputTokens *int   `json:"max_output_tokens"`
 }
 
 type writeStdinArgs struct {
@@ -64,72 +60,38 @@ func (t *ExecCommandTool) Description() string {
 }
 
 func (t *ExecCommandTool) Parameters() map[string]any {
-	props := map[string]any{
-		"cmd": map[string]any{
-			"type":        "string",
-			"description": "Shell command to execute.",
-		},
-		"workdir": map[string]any{
-			"type":        "string",
-			"description": "Optional working directory to run the command in; defaults to the turn cwd.",
-		},
-		"shell": map[string]any{
-			"type":        "string",
-			"description": "Shell binary to launch. Defaults to the user's default shell.",
-		},
-		"login": map[string]any{
-			"type":        "boolean",
-			"description": "Whether to run the shell with -l/-i semantics. Defaults to true.",
-		},
-		"tty": map[string]any{
-			"type":        "boolean",
-			"description": "Whether to allocate a TTY for the command. Defaults to false (plain pipes); set to true to open a PTY and access TTY process.",
-		},
-		"yield_time_ms": map[string]any{
-			"type":        "number",
-			"description": "How long to wait (in milliseconds) for output before yielding.",
-		},
-		"max_output_tokens": map[string]any{
-			"type":        "number",
-			"description": "Maximum number of tokens to return. Excess output will be truncated.",
-		},
-		"sandbox_permissions": map[string]any{
-			"type":        "string",
-			"description": "Sandbox permissions for the command. Set to \"require_escalated\" to request running without sandbox restrictions; defaults to \"use_default\".",
-		},
-		"justification": map[string]any{
-			"type":        "string",
-			"description": "Only set if sandbox_permissions is \"require_escalated\". Request approval from the user to run this command outside the sandbox.",
-		},
-		"prefix_rule": map[string]any{
-			"type":        "array",
-			"items":       map[string]any{"type": "string"},
-			"description": "Only specify when sandbox_permissions is `require_escalated`. Suggest a prefix command pattern for future approvals.",
-		},
-		"additional_permissions": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"file_system": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"read": map[string]any{
-							"type":        "array",
-							"items":       map[string]any{"type": "string"},
-							"description": "Additional filesystem paths to grant read access for this command.",
-						},
-						"write": map[string]any{
-							"type":        "array",
-							"items":       map[string]any{"type": "string"},
-							"description": "Additional filesystem paths to grant write access for this command.",
-						},
-					},
-				},
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"cmd": map[string]any{
+				"type":        "string",
+				"description": "Shell command to execute.",
+			},
+			"workdir": map[string]any{
+				"type":        "string",
+				"description": "Optional working directory to run the command in; defaults to the turn cwd.",
+			},
+			"shell": map[string]any{
+				"type":        "string",
+				"description": "Shell binary to launch. Defaults to the user's default shell.",
+			},
+			"login": map[string]any{
+				"type":        "boolean",
+				"description": "Whether to run the shell with -l/-i semantics. Defaults to true.",
+			},
+			"tty": map[string]any{
+				"type":        "boolean",
+				"description": "Whether to allocate a TTY for the command. Defaults to false (plain pipes); set to true to open a PTY and access TTY process.",
+			},
+			"yield_time_ms": map[string]any{
+				"type":        "number",
+				"description": "How long to wait (in milliseconds) for output before yielding.",
+			},
+			"max_output_tokens": map[string]any{
+				"type":        "number",
+				"description": "Maximum number of tokens to return. Excess output will be truncated.",
 			},
 		},
-	}
-	return map[string]any{
-		"type":                 "object",
-		"properties":           props,
 		"required":             []string{"cmd"},
 		"additionalProperties": false,
 	}

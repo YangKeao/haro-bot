@@ -9,140 +9,15 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// LogConfig holds logging configuration.
 type LogConfig struct {
 	Level       string `toml:"level"`
 	Development bool   `toml:"development"`
 	Encoding    string `toml:"encoding"`
 }
 
-type MemoryConfig struct {
-	Embedder MemoryEmbedderConfig
-	Vector   MemoryVectorConfig
-	Ingest   MemoryIngestConfig
-	Retrieve MemoryRetrieveConfig
-	Graph    MemoryGraphConfig
-}
-
+// MemoryEmbedderConfig configures the embedding provider.
 type MemoryEmbedderConfig struct {
-	Provider   string
-	BaseURL    string
-	APIKey     string
-	Model      string
-	Dimensions int
-}
-
-type MemoryVectorConfig struct {
-	Distance string
-}
-
-type MemoryIngestConfig struct {
-	RecentWindow    int
-	MaxCandidates   int
-	MinConfidence   float64
-	MinImportance   int
-	MatchTopK       int
-	UpdateThreshold float64
-	NoopThreshold   float64
-}
-
-type MemoryRetrieveConfig struct {
-	TopK     int
-	MinScore float64
-}
-
-type MemoryGraphConfig struct {
-	Enabled  bool
-	Provider string
-}
-
-type Config struct {
-	ServerAddr string
-
-	TiDBDSN string
-
-	LLMBaseURL      string
-	LLMAPIKey       string
-	LLMModel        string
-	LLMPromptFormat PromptFormat
-
-	LLMReasoningEnabled              bool
-	LLMReasoningEffort               string
-	LLMHTTPDebug                     bool
-	LLMContextWindow                 int
-	LLMAutoCompactTokenLimit         int
-	LLMEffectiveContextWindowPercent int
-
-	SecurityAuditBaseURL string
-	SecurityAuditAPIKey  string
-	SecurityAuditModel   string
-
-	TelegramToken string
-
-	SkillsDir           string
-	SkillsRepoAllowlist []string
-	SkillsSyncInterval  time.Duration
-
-	BraveSearchAPIKey string
-
-	FSAllowedRoots []string
-
-	ToolMaxTurns int
-
-	Log    LogConfig
-	Memory MemoryConfig
-}
-
-type serverConfig struct {
-	Addr string `toml:"addr"`
-}
-
-type dbConfig struct {
-	TiDBDSN string `toml:"tidb_dsn"`
-}
-
-type llmConfig struct {
-	BaseURL      string `toml:"base_url"`
-	APIKey       string `toml:"api_key"`
-	Model        string `toml:"model"`
-	PromptFormat string `toml:"prompt_format"`
-
-	ReasoningEnabled              bool   `toml:"reasoning_enabled"`
-	ReasoningEffort               string `toml:"reasoning_effort"`
-	HTTPDebug                     bool   `toml:"http_debug"`
-	ContextWindow                 int    `toml:"context_window"`
-	AutoCompactTokenLimit         int    `toml:"auto_compact_token_limit"`
-	EffectiveContextWindowPercent int    `toml:"effective_context_window_percent"`
-}
-
-type securityAuditConfig struct {
-	BaseURL string `toml:"base_url"`
-	APIKey  string `toml:"api_key"`
-	Model   string `toml:"model"`
-}
-
-type telegramConfig struct {
-	Token string `toml:"token"`
-}
-
-type skillsConfig struct {
-	Dir           string   `toml:"dir"`
-	RepoAllowlist []string `toml:"repo_allowlist"`
-	SyncInterval  string   `toml:"sync_interval"`
-}
-
-type braveConfig struct {
-	SearchAPIKey string `toml:"search_api_key"`
-}
-
-type fsConfig struct {
-	AllowedRoots []string `toml:"allowed_roots"`
-}
-
-type toolConfig struct {
-	MaxTurns int `toml:"max_turns"`
-}
-
-type memoryEmbedderConfig struct {
 	Provider   string `toml:"provider"`
 	BaseURL    string `toml:"base_url"`
 	APIKey     string `toml:"api_key"`
@@ -150,11 +25,13 @@ type memoryEmbedderConfig struct {
 	Dimensions int    `toml:"dimensions"`
 }
 
-type memoryVectorConfig struct {
+// MemoryVectorConfig configures vector search.
+type MemoryVectorConfig struct {
 	Distance string `toml:"distance"`
 }
 
-type memoryIngestConfig struct {
+// MemoryIngestConfig configures memory ingestion.
+type MemoryIngestConfig struct {
 	RecentWindow    int     `toml:"recent_window"`
 	MaxCandidates   int     `toml:"max_candidates"`
 	MinConfidence   float64 `toml:"min_confidence"`
@@ -164,38 +41,102 @@ type memoryIngestConfig struct {
 	NoopThreshold   float64 `toml:"noop_threshold"`
 }
 
-type memoryRetrieveConfig struct {
+// MemoryRetrieveConfig configures memory retrieval.
+type MemoryRetrieveConfig struct {
 	TopK     int     `toml:"top_k"`
 	MinScore float64 `toml:"min_score"`
 }
 
-type memoryGraphConfig struct {
+// MemoryGraphConfig configures graph-based memory.
+type MemoryGraphConfig struct {
 	Enabled  bool   `toml:"enabled"`
 	Provider string `toml:"provider"`
 }
 
-type memoryConfig struct {
-	Embedder memoryEmbedderConfig `toml:"embedder"`
-	Vector   memoryVectorConfig   `toml:"vector"`
-	Ingest   memoryIngestConfig   `toml:"ingest"`
-	Retrieve memoryRetrieveConfig `toml:"retrieve"`
-	Graph    memoryGraphConfig    `toml:"graph"`
+// MemoryConfig holds all memory subsystem configuration.
+type MemoryConfig struct {
+	Embedder MemoryEmbedderConfig `toml:"embedder"`
+	Vector   MemoryVectorConfig   `toml:"vector"`
+	Ingest   MemoryIngestConfig   `toml:"ingest"`
+	Retrieve MemoryRetrieveConfig `toml:"retrieve"`
+	Graph    MemoryGraphConfig    `toml:"graph"`
 }
 
+// Config is the runtime configuration loaded from file.
+type Config struct {
+	ServerAddr                       string
+	TiDBDSN                          string
+	LLMBaseURL                       string
+	LLMAPIKey                        string
+	LLMModel                         string
+	LLMPromptFormat                  PromptFormat
+	LLMReasoningEnabled              bool
+	LLMReasoningEffort               string
+	LLMHTTPDebug                     bool
+	LLMContextWindow                 int
+	LLMAutoCompactTokenLimit         int
+	LLMEffectiveContextWindowPercent int
+	SecurityAuditBaseURL             string
+	SecurityAuditAPIKey              string
+	SecurityAuditModel               string
+	TelegramToken                    string
+	SkillsDir                        string
+	SkillsRepoAllowlist              []string
+	SkillsSyncInterval               time.Duration
+	BraveSearchAPIKey                string
+	FSAllowedRoots                   []string
+	ToolMaxTurns                     int
+	Log                              LogConfig
+	Memory                           MemoryConfig
+}
+
+// fileConfig mirrors the TOML structure for deserialization.
 type fileConfig struct {
-	Server   serverConfig        `toml:"server"`
-	DB       dbConfig            `toml:"db"`
-	LLM      llmConfig           `toml:"llm"`
-	Security securityAuditConfig `toml:"security_audit"`
-	Telegram telegramConfig      `toml:"telegram"`
-	Skills   skillsConfig        `toml:"skills"`
-	Brave    braveConfig         `toml:"brave"`
-	FS       fsConfig            `toml:"fs"`
-	Tool     toolConfig          `toml:"tool"`
-	Log      LogConfig           `toml:"log"`
-	Memory   memoryConfig        `toml:"memory"`
+	Server struct {
+		Addr string `toml:"addr"`
+	} `toml:"server"`
+	DB struct {
+		TiDBDSN string `toml:"tidb_dsn"`
+	} `toml:"db"`
+	LLM struct {
+		BaseURL                       string `toml:"base_url"`
+		APIKey                        string `toml:"api_key"`
+		Model                         string `toml:"model"`
+		PromptFormat                  string `toml:"prompt_format"`
+		ReasoningEnabled              bool   `toml:"reasoning_enabled"`
+		ReasoningEffort               string `toml:"reasoning_effort"`
+		HTTPDebug                     bool   `toml:"http_debug"`
+		ContextWindow                 int    `toml:"context_window"`
+		AutoCompactTokenLimit         int    `toml:"auto_compact_token_limit"`
+		EffectiveContextWindowPercent int    `toml:"effective_context_window_percent"`
+	} `toml:"llm"`
+	Security struct {
+		BaseURL string `toml:"base_url"`
+		APIKey  string `toml:"api_key"`
+		Model   string `toml:"model"`
+	} `toml:"security_audit"`
+	Telegram struct {
+		Token string `toml:"token"`
+	} `toml:"telegram"`
+	Skills struct {
+		Dir           string   `toml:"dir"`
+		RepoAllowlist []string `toml:"repo_allowlist"`
+		SyncInterval  string   `toml:"sync_interval"`
+	} `toml:"skills"`
+	Brave struct {
+		SearchAPIKey string `toml:"search_api_key"`
+	} `toml:"brave"`
+	FS struct {
+		AllowedRoots []string `toml:"allowed_roots"`
+	} `toml:"fs"`
+	Tool struct {
+		MaxTurns int `toml:"max_turns"`
+	} `toml:"tool"`
+	Log    LogConfig    `toml:"log"`
+	Memory MemoryConfig `toml:"memory"`
 }
 
+// LoadFromFile reads configuration from a TOML file.
 func LoadFromFile(path string) (Config, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -217,44 +158,62 @@ func LoadFromFile(path string) (Config, error) {
 func defaultFileConfig() fileConfig {
 	skillsDir := "./skills"
 	return fileConfig{
-		Server: serverConfig{
-			Addr: ":8080",
-		},
-		DB: dbConfig{
-			TiDBDSN: "root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true",
-		},
-		LLM: llmConfig{
+		Server: struct {
+			Addr string `toml:"addr"`
+		}{Addr: ":8080"},
+		DB: struct {
+			TiDBDSN string `toml:"tidb_dsn"`
+		}{TiDBDSN: "root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true"},
+		LLM: struct {
+			BaseURL                       string `toml:"base_url"`
+			APIKey                        string `toml:"api_key"`
+			Model                         string `toml:"model"`
+			PromptFormat                  string `toml:"prompt_format"`
+			ReasoningEnabled              bool   `toml:"reasoning_enabled"`
+			ReasoningEffort               string `toml:"reasoning_effort"`
+			HTTPDebug                     bool   `toml:"http_debug"`
+			ContextWindow                 int    `toml:"context_window"`
+			AutoCompactTokenLimit         int    `toml:"auto_compact_token_limit"`
+			EffectiveContextWindowPercent int    `toml:"effective_context_window_percent"`
+		}{
 			BaseURL:                       "https://api.openai.com/v1",
 			Model:                         "gpt-4o-mini",
 			PromptFormat:                  string(PromptFormatOpenAI),
 			EffectiveContextWindowPercent: 95,
 		},
-		Skills: skillsConfig{
+		Skills: struct {
+			Dir           string   `toml:"dir"`
+			RepoAllowlist []string `toml:"repo_allowlist"`
+			SyncInterval  string   `toml:"sync_interval"`
+		}{
 			Dir:          skillsDir,
 			SyncInterval: "10m",
 		},
-		FS: fsConfig{
+		FS: struct {
+			AllowedRoots []string `toml:"allowed_roots"`
+		}{
 			AllowedRoots: []string{skillsDir},
 		},
-		Tool: toolConfig{
+		Tool: struct {
+			MaxTurns int `toml:"max_turns"`
+		}{
 			MaxTurns: 1024,
 		},
 		Log: LogConfig{
-			Level:       "info",
-			Development: false,
-			Encoding:    "json",
+			Level:    "info",
+			Encoding: "json",
 		},
-		Memory: memoryConfig{
-			Embedder: memoryEmbedderConfig{
+		Memory: MemoryConfig{
+			Embedder: MemoryEmbedderConfig{
 				Provider:   "openai",
 				BaseURL:    "https://api.openai.com/v1",
 				Model:      "text-embedding-3-small",
 				Dimensions: 1536,
 			},
-			Vector: memoryVectorConfig{
+			Vector: MemoryVectorConfig{
 				Distance: "cosine",
 			},
-			Ingest: memoryIngestConfig{
+			Ingest: MemoryIngestConfig{
 				RecentWindow:    20,
 				MaxCandidates:   8,
 				MinConfidence:   0.6,
@@ -263,103 +222,74 @@ func defaultFileConfig() fileConfig {
 				UpdateThreshold: 0.85,
 				NoopThreshold:   0.92,
 			},
-			Retrieve: memoryRetrieveConfig{
+			Retrieve: MemoryRetrieveConfig{
 				TopK:     8,
 				MinScore: 0.2,
 			},
-			Graph: memoryGraphConfig{
-				Enabled:  false,
-				Provider: "",
+			Graph: MemoryGraphConfig{
+				Enabled: false,
 			},
 		},
 	}
 }
 
+// strDefault returns def if v is blank.
+func strDefault(v, def string) string {
+	if strings.TrimSpace(v) == "" {
+		return def
+	}
+	return v
+}
+
+// intDefault returns def if v <= 0.
+func intDefault(v, def int) int {
+	if v <= 0 {
+		return def
+	}
+	return v
+}
+
+// floatDefault returns def if v <= 0.
+func floatDefault(v, def float64) float64 {
+	if v <= 0 {
+		return def
+	}
+	return v
+}
+
 func (r fileConfig) withDefaults() fileConfig {
 	def := defaultFileConfig()
-	if strings.TrimSpace(r.Server.Addr) == "" {
-		r.Server.Addr = def.Server.Addr
-	}
-	if strings.TrimSpace(r.DB.TiDBDSN) == "" {
-		r.DB.TiDBDSN = def.DB.TiDBDSN
-	}
-	if strings.TrimSpace(r.LLM.BaseURL) == "" {
-		r.LLM.BaseURL = def.LLM.BaseURL
-	}
-	if strings.TrimSpace(r.LLM.Model) == "" {
-		r.LLM.Model = def.LLM.Model
-	}
-	if strings.TrimSpace(r.LLM.PromptFormat) == "" {
-		r.LLM.PromptFormat = def.LLM.PromptFormat
-	}
-	if r.LLM.EffectiveContextWindowPercent <= 0 {
-		r.LLM.EffectiveContextWindowPercent = def.LLM.EffectiveContextWindowPercent
-	}
+	r.Server.Addr = strDefault(r.Server.Addr, def.Server.Addr)
+	r.DB.TiDBDSN = strDefault(r.DB.TiDBDSN, def.DB.TiDBDSN)
+	r.LLM.BaseURL = strDefault(r.LLM.BaseURL, def.LLM.BaseURL)
+	r.LLM.Model = strDefault(r.LLM.Model, def.LLM.Model)
+	r.LLM.PromptFormat = strDefault(r.LLM.PromptFormat, def.LLM.PromptFormat)
+	r.LLM.EffectiveContextWindowPercent = intDefault(r.LLM.EffectiveContextWindowPercent, def.LLM.EffectiveContextWindowPercent)
 	if strings.TrimSpace(r.Security.Model) != "" {
-		if strings.TrimSpace(r.Security.BaseURL) == "" {
-			r.Security.BaseURL = r.LLM.BaseURL
-		}
-		if strings.TrimSpace(r.Security.APIKey) == "" {
-			r.Security.APIKey = r.LLM.APIKey
-		}
+		r.Security.BaseURL = strDefault(r.Security.BaseURL, r.LLM.BaseURL)
+		r.Security.APIKey = strDefault(r.Security.APIKey, r.LLM.APIKey)
 	}
-	if strings.TrimSpace(r.Skills.Dir) == "" {
-		r.Skills.Dir = def.Skills.Dir
-	}
-	if strings.TrimSpace(r.Skills.SyncInterval) == "" {
-		r.Skills.SyncInterval = def.Skills.SyncInterval
-	}
+	r.Skills.Dir = strDefault(r.Skills.Dir, def.Skills.Dir)
+	r.Skills.SyncInterval = strDefault(r.Skills.SyncInterval, def.Skills.SyncInterval)
 	if len(r.FS.AllowedRoots) == 0 {
 		r.FS.AllowedRoots = []string{r.Skills.Dir}
 	}
-	if r.Tool.MaxTurns <= 0 {
-		r.Tool.MaxTurns = def.Tool.MaxTurns
-	}
-	if strings.TrimSpace(r.Log.Level) == "" {
-		r.Log.Level = def.Log.Level
-	}
-	if strings.TrimSpace(r.Log.Encoding) == "" {
-		r.Log.Encoding = def.Log.Encoding
-	}
-	if strings.TrimSpace(r.Memory.Embedder.Provider) == "" {
-		r.Memory.Embedder.Provider = def.Memory.Embedder.Provider
-	}
-	if strings.TrimSpace(r.Memory.Embedder.BaseURL) == "" {
-		r.Memory.Embedder.BaseURL = def.Memory.Embedder.BaseURL
-	}
-	if strings.TrimSpace(r.Memory.Embedder.Model) == "" {
-		r.Memory.Embedder.Model = def.Memory.Embedder.Model
-	}
-	if r.Memory.Embedder.Dimensions <= 0 {
-		r.Memory.Embedder.Dimensions = def.Memory.Embedder.Dimensions
-	}
-	if strings.TrimSpace(r.Memory.Vector.Distance) == "" {
-		r.Memory.Vector.Distance = def.Memory.Vector.Distance
-	}
-	if r.Memory.Ingest.RecentWindow <= 0 {
-		r.Memory.Ingest.RecentWindow = def.Memory.Ingest.RecentWindow
-	}
-	if r.Memory.Ingest.MaxCandidates <= 0 {
-		r.Memory.Ingest.MaxCandidates = def.Memory.Ingest.MaxCandidates
-	}
-	if r.Memory.Ingest.MinConfidence <= 0 {
-		r.Memory.Ingest.MinConfidence = def.Memory.Ingest.MinConfidence
-	}
-	if r.Memory.Ingest.MinImportance <= 0 {
-		r.Memory.Ingest.MinImportance = def.Memory.Ingest.MinImportance
-	}
-	if r.Memory.Ingest.MatchTopK <= 0 {
-		r.Memory.Ingest.MatchTopK = def.Memory.Ingest.MatchTopK
-	}
-	if r.Memory.Ingest.UpdateThreshold <= 0 {
-		r.Memory.Ingest.UpdateThreshold = def.Memory.Ingest.UpdateThreshold
-	}
-	if r.Memory.Ingest.NoopThreshold <= 0 {
-		r.Memory.Ingest.NoopThreshold = def.Memory.Ingest.NoopThreshold
-	}
-	if r.Memory.Retrieve.TopK <= 0 {
-		r.Memory.Retrieve.TopK = def.Memory.Retrieve.TopK
-	}
+	r.Tool.MaxTurns = intDefault(r.Tool.MaxTurns, def.Tool.MaxTurns)
+	r.Log.Level = strDefault(r.Log.Level, def.Log.Level)
+	r.Log.Encoding = strDefault(r.Log.Encoding, def.Log.Encoding)
+	r.Memory.Embedder.Provider = strDefault(r.Memory.Embedder.Provider, def.Memory.Embedder.Provider)
+	r.Memory.Embedder.BaseURL = strDefault(r.Memory.Embedder.BaseURL, def.Memory.Embedder.BaseURL)
+	r.Memory.Embedder.Model = strDefault(r.Memory.Embedder.Model, def.Memory.Embedder.Model)
+	r.Memory.Embedder.Dimensions = intDefault(r.Memory.Embedder.Dimensions, def.Memory.Embedder.Dimensions)
+	r.Memory.Vector.Distance = strDefault(r.Memory.Vector.Distance, def.Memory.Vector.Distance)
+	r.Memory.Ingest.RecentWindow = intDefault(r.Memory.Ingest.RecentWindow, def.Memory.Ingest.RecentWindow)
+	r.Memory.Ingest.MaxCandidates = intDefault(r.Memory.Ingest.MaxCandidates, def.Memory.Ingest.MaxCandidates)
+	r.Memory.Ingest.MinConfidence = floatDefault(r.Memory.Ingest.MinConfidence, def.Memory.Ingest.MinConfidence)
+	r.Memory.Ingest.MinImportance = intDefault(r.Memory.Ingest.MinImportance, def.Memory.Ingest.MinImportance)
+	r.Memory.Ingest.MatchTopK = intDefault(r.Memory.Ingest.MatchTopK, def.Memory.Ingest.MatchTopK)
+	r.Memory.Ingest.UpdateThreshold = floatDefault(r.Memory.Ingest.UpdateThreshold, def.Memory.Ingest.UpdateThreshold)
+	r.Memory.Ingest.NoopThreshold = floatDefault(r.Memory.Ingest.NoopThreshold, def.Memory.Ingest.NoopThreshold)
+	r.Memory.Retrieve.TopK = intDefault(r.Memory.Retrieve.TopK, def.Memory.Retrieve.TopK)
 	if r.Memory.Retrieve.MinScore < 0 {
 		r.Memory.Retrieve.MinScore = def.Memory.Retrieve.MinScore
 	}
@@ -395,14 +325,13 @@ func (r fileConfig) toConfig() Config {
 	if len(fsRoots) == 0 {
 		fsRoots = []string{r.Skills.Dir}
 	}
-	format := NormalizePromptFormat(r.LLM.PromptFormat)
 	return Config{
 		ServerAddr:                       r.Server.Addr,
 		TiDBDSN:                          r.DB.TiDBDSN,
 		LLMBaseURL:                       r.LLM.BaseURL,
 		LLMAPIKey:                        r.LLM.APIKey,
 		LLMModel:                         r.LLM.Model,
-		LLMPromptFormat:                  format,
+		LLMPromptFormat:                  NormalizePromptFormat(r.LLM.PromptFormat),
 		LLMReasoningEnabled:              r.LLM.ReasoningEnabled,
 		LLMReasoningEffort:               r.LLM.ReasoningEffort,
 		LLMHTTPDebug:                     r.LLM.HTTPDebug,
@@ -420,35 +349,7 @@ func (r fileConfig) toConfig() Config {
 		FSAllowedRoots:                   fsRoots,
 		ToolMaxTurns:                     r.Tool.MaxTurns,
 		Log:                              r.Log,
-		Memory: MemoryConfig{
-			Embedder: MemoryEmbedderConfig{
-				Provider:   r.Memory.Embedder.Provider,
-				BaseURL:    r.Memory.Embedder.BaseURL,
-				APIKey:     r.Memory.Embedder.APIKey,
-				Model:      r.Memory.Embedder.Model,
-				Dimensions: r.Memory.Embedder.Dimensions,
-			},
-			Vector: MemoryVectorConfig{
-				Distance: r.Memory.Vector.Distance,
-			},
-			Ingest: MemoryIngestConfig{
-				RecentWindow:    r.Memory.Ingest.RecentWindow,
-				MaxCandidates:   r.Memory.Ingest.MaxCandidates,
-				MinConfidence:   r.Memory.Ingest.MinConfidence,
-				MinImportance:   r.Memory.Ingest.MinImportance,
-				MatchTopK:       r.Memory.Ingest.MatchTopK,
-				UpdateThreshold: r.Memory.Ingest.UpdateThreshold,
-				NoopThreshold:   r.Memory.Ingest.NoopThreshold,
-			},
-			Retrieve: MemoryRetrieveConfig{
-				TopK:     r.Memory.Retrieve.TopK,
-				MinScore: r.Memory.Retrieve.MinScore,
-			},
-			Graph: MemoryGraphConfig{
-				Enabled:  r.Memory.Graph.Enabled,
-				Provider: r.Memory.Graph.Provider,
-			},
-		},
+		Memory:                           r.Memory,
 	}
 }
 

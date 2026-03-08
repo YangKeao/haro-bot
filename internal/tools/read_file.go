@@ -27,19 +27,13 @@ type ReadFileTool struct {
 }
 
 type readFileArgs struct {
-	FilePath    string           `json:"file_path"`
-	Offset      *int             `json:"offset"`
-	Limit       *int             `json:"limit"`
-	Mode        string           `json:"mode"`
-	Indentation *indentationArgs `json:"indentation"`
-}
-
-type indentationArgs struct {
-	AnchorLine      *int  `json:"anchor_line"`
-	MaxLevels       int   `json:"max_levels"`
-	IncludeSiblings *bool `json:"include_siblings"`
-	IncludeHeader   *bool `json:"include_header"`
-	MaxLines        *int  `json:"max_lines"`
+	FilePath   string `json:"file_path"`
+	Offset     *int   `json:"offset"`
+	Limit      *int   `json:"limit"`
+	Mode       string `json:"mode"`
+	AnchorLine *int   `json:"anchor_line"`
+	MaxLevels  int    `json:"max_levels"`
+	MaxLines   *int   `json:"max_lines"`
 }
 
 func NewReadFileTool(fs *FS) *ReadFileTool {
@@ -72,31 +66,17 @@ func (t *ReadFileTool) Parameters() map[string]any {
 				"type":        "string",
 				"description": "Optional mode selector: \"slice\" for simple ranges (default) or \"indentation\" to expand around an anchor line.",
 			},
-			"indentation": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"anchor_line": map[string]any{
-						"type":        "number",
-						"description": "Anchor line to center the indentation lookup on (defaults to offset).",
-					},
-					"max_levels": map[string]any{
-						"type":        "number",
-						"description": "How many parent indentation levels (smaller indents) to include.",
-					},
-					"include_siblings": map[string]any{
-						"type":        "boolean",
-						"description": "When true, include additional blocks that share the anchor indentation.",
-					},
-					"include_header": map[string]any{
-						"type":        "boolean",
-						"description": "Include doc comments or attributes directly above the selected block.",
-					},
-					"max_lines": map[string]any{
-						"type":        "number",
-						"description": "Hard cap on the number of lines returned when using indentation mode.",
-					},
-				},
-				"additionalProperties": false,
+			"anchor_line": map[string]any{
+				"type":        "number",
+				"description": "Anchor line to center the indentation lookup on (defaults to offset).",
+			},
+			"max_levels": map[string]any{
+				"type":        "number",
+				"description": "How many parent indentation levels (smaller indents) to include.",
+			},
+			"max_lines": map[string]any{
+				"type":        "number",
+				"description": "Hard cap on the number of lines returned when using indentation mode.",
 			},
 		},
 		"required":             []string{"file_path"},
@@ -154,7 +134,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, tc ToolContext, args json.Ra
 	case "slice":
 		lines, err = readFileSlice(abs, offset, limit)
 	case "indentation":
-		lines, err = readFileIndentation(abs, offset, limit, a.Indentation)
+		lines, err = readFileIndentation(abs, offset, limit, a.AnchorLine, a.MaxLevels, a.MaxLines)
 	}
 	if err != nil {
 		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "read_file", abs, true, err)
@@ -206,7 +186,7 @@ func readFileSlice(path string, offset, limit int) ([]string, error) {
 	return collected, nil
 }
 
-func readFileIndentation(path string, offset, limit int, args *indentationArgs) ([]string, error) {
+func readFileIndentation(path string, offset, limit int, anchorLineArg *int, maxLevels int, maxLinesArg *int) ([]string, error) {
 	lines, err := collectFileLines(path)
 	if err != nil {
 		return nil, err
@@ -216,11 +196,11 @@ func readFileIndentation(path string, offset, limit int, args *indentationArgs) 
 	}
 
 	anchorLine := offset
-	if args != nil && args.AnchorLine != nil {
-		if *args.AnchorLine <= 0 {
+	if anchorLineArg != nil {
+		if *anchorLineArg <= 0 {
 			return nil, errors.New("anchor_line must be a 1-indexed line number")
 		}
-		anchorLine = *args.AnchorLine
+		anchorLine = *anchorLineArg
 	}
 	if anchorLine <= 0 {
 		return nil, errors.New("anchor_line must be a 1-indexed line number")
@@ -230,27 +210,14 @@ func readFileIndentation(path string, offset, limit int, args *indentationArgs) 
 	}
 
 	guardLimit := limit
-	if args != nil && args.MaxLines != nil {
-		if *args.MaxLines <= 0 {
+	if maxLinesArg != nil {
+		if *maxLinesArg <= 0 {
 			return nil, errors.New("max_lines must be greater than zero")
 		}
-		guardLimit = *args.MaxLines
+		guardLimit = *maxLinesArg
 	}
 	if guardLimit <= 0 {
 		return nil, errors.New("max_lines must be greater than zero")
-	}
-
-	maxLevels := 0
-	includeSiblings := false
-	includeHeader := true
-	if args != nil {
-		maxLevels = args.MaxLevels
-		if args.IncludeSiblings != nil {
-			includeSiblings = *args.IncludeSiblings
-		}
-		if args.IncludeHeader != nil {
-			includeHeader = *args.IncludeHeader
-		}
 	}
 
 	anchorIndex := anchorLine - 1
@@ -282,8 +249,6 @@ func readFileIndentation(path string, offset, limit int, args *indentationArgs) 
 
 	i := anchorIndex - 1
 	j := anchorIndex + 1
-	iCounterMinIndent := 0
-	jCounterMinIndent := 0
 
 	for len(out) < finalLimit {
 		progressed := 0
@@ -292,16 +257,10 @@ func readFileIndentation(path string, offset, limit int, args *indentationArgs) 
 			if effectiveIndents[i] >= minIndent {
 				out = append([]*lineRecord{lines[i]}, out...)
 				progressed++
-				if effectiveIndents[i] == minIndent && !includeSiblings {
-					allowHeaderComment := includeHeader && lines[i].isComment()
-					canTake := allowHeaderComment || iCounterMinIndent == 0
-					if canTake {
-						iCounterMinIndent++
-					} else {
-						out = out[1:]
-						progressed--
-						i = -1
-					}
+				if effectiveIndents[i] == minIndent {
+					// Stop at parent block boundary
+					i = -1
+					continue
 				}
 				i--
 				if len(out) >= finalLimit {
@@ -313,17 +272,9 @@ func readFileIndentation(path string, offset, limit int, args *indentationArgs) 
 		}
 
 		if j < len(lines) {
-			if effectiveIndents[j] >= minIndent {
+			if effectiveIndents[j] >= anchorIndent {
 				out = append(out, lines[j])
 				progressed++
-				if effectiveIndents[j] == minIndent && !includeSiblings {
-					if jCounterMinIndent > 0 {
-						out = out[:len(out)-1]
-						progressed--
-						j = len(lines)
-					}
-					jCounterMinIndent++
-				}
 				j++
 			} else {
 				j = len(lines)
@@ -348,10 +299,6 @@ type lineRecord struct {
 	raw     string
 	display string
 	indent  int
-}
-
-func (l *lineRecord) trimmed() string {
-	return strings.TrimLeft(l.raw, " \t")
 }
 
 func (l *lineRecord) isBlank() bool {
