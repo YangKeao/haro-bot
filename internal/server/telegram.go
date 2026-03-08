@@ -61,6 +61,10 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 		log.Warn("telegram session error", zap.Error(err))
 		return
 	}
+	// Handle commands
+	if s.handleTelegramCommand(ctx, b, update, uid, sessionID) {
+		return
+	}
 	threadID := update.Message.MessageThreadID
 	businessConnID := update.Message.BusinessConnectionID
 	directTopicID := 0

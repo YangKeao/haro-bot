@@ -29,6 +29,7 @@ type Agent struct {
 	reasoning      llm.ReasoningConfig
 	contextConfig  llm.ContextConfig
 	sessions       *sessionManager
+	stateManager   *sessionStateManager
 	messenger      SessionMessenger
 }
 
@@ -39,6 +40,7 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 	promptBuilder := DefaultPromptBuilder{}
 	toolRunner := NewToolRunner(toolRegistry, store, skills, promptBuilder)
 	estimator, _ := llm.NewTokenEstimator(model)
+	stateMgr := newSessionStateManager()
 	deps := &sessionDeps{
 		store:          store,
 		memoryEngine:   memoryEngine,
@@ -54,6 +56,7 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 		reasoning:      reasoning,
 		contextConfig:  contextConfig,
 		tokenEstimator: estimator,
+		stateManager:   stateMgr,
 	}
 	return &Agent{
 		store:          store,
@@ -70,6 +73,7 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 		reasoning:      reasoning,
 		contextConfig:  contextConfig,
 		sessions:       newSessionManager(deps),
+		stateManager:   stateMgr,
 	}
 }
 
@@ -120,6 +124,35 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 	session := a.sessions.Get(sessionID)
 	defer a.sessions.Release(sessionID)
 	return session.Interrupt(ctx, userID, input, modelOverride, storeInSession, metadata, a.messenger)
+}
+
+// GetSessionStatus returns the current status of a session.
+func (a *Agent) GetSessionStatus(sessionID int64) *SessionStatus {
+	if a == nil || a.stateManager == nil {
+		return &SessionStatus{State: StateIdle}
+	}
+	return a.stateManager.GetStatus(sessionID)
+}
+
+// SetSessionState updates the state of a session.
+func (a *Agent) SetSessionState(sessionID int64, state SessionState) {
+	if a != nil && a.stateManager != nil {
+		a.stateManager.SetState(sessionID, state)
+	}
+}
+
+// SetSessionToolRunning marks a session as running a specific tool.
+func (a *Agent) SetSessionToolRunning(sessionID int64, toolName string) {
+	if a != nil && a.stateManager != nil {
+		a.stateManager.SetToolRunning(sessionID, toolName)
+	}
+}
+
+// SetSessionWaitingForApproval marks a session as waiting for user approval.
+func (a *Agent) SetSessionWaitingForApproval(sessionID int64, message string) {
+	if a != nil && a.stateManager != nil {
+		a.stateManager.SetWaitingForApproval(sessionID, message)
+	}
 }
 
 func toLLMMessages(msgs []memory.Message) []llm.Message {
