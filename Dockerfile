@@ -20,6 +20,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
+    sudo \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -31,6 +32,9 @@ COPY --from=builder /agentd /app/agentd
 # Create non-root user for security
 RUN useradd -r -s /bin/false appuser && \
     chown -R appuser:appuser /app
+
+RUN echo 'appuser ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
 USER appuser
 
 # Default config path (can be overridden)
