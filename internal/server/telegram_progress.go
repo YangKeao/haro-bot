@@ -222,32 +222,28 @@ func (p *telegramProgress) sendDraftOnce(ctx context.Context, baseID int64, text
 	if p == nil || p.bot == nil {
 		return 0, nil
 	}
-	parts := splitTelegramMessage(text)
-	if len(parts) == 0 {
+	if text == "" {
 		return 0, nil
 	}
-	for i, part := range parts {
-		params := &bot.SendMessageDraftParams{
-			ChatID:    p.chatID,
-			DraftID:   strconv.FormatInt(baseID+int64(i+1), 10),
-			Text:      part,
-			ParseMode: models.ParseModeMarkdown,
-		}
-		if p.threadID > 0 {
-			params.MessageThreadID = p.threadID
-		}
-		if p.businessConnectionID != "" {
-			params.BusinessConnectionID = p.businessConnectionID
-		}
-		wait, err := sendTelegramDraftOnce(ctx, p.log, p.bot, params)
-		if wait > 0 {
-			return wait, err
-		}
-		if err != nil {
-			return 0, err
-		}
+	// For draft messages, truncate to safe limit instead of splitting.
+	// We keep the last part because the most recent content is at the end.
+	if utf8.RuneCountInString(text) > telegramSafeMessageRunes {
+		runes := []rune(text)
+		text = string(runes[len(runes)-telegramSafeMessageRunes:])
 	}
-	return 0, nil
+	params := &bot.SendMessageDraftParams{
+		ChatID:    p.chatID,
+		DraftID:   strconv.FormatInt(baseID+1, 10),
+		Text:      text,
+		ParseMode: models.ParseModeMarkdown,
+	}
+	if p.threadID > 0 {
+		params.MessageThreadID = p.threadID
+	}
+	if p.businessConnectionID != "" {
+		params.BusinessConnectionID = p.businessConnectionID
+	}
+	return sendTelegramDraftOnce(ctx, p.log, p.bot, params)
 }
 
 func sendTelegramDraftOnce(ctx context.Context, log *zap.Logger, b *bot.Bot, params *bot.SendMessageDraftParams) (time.Duration, error) {
