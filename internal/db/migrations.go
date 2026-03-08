@@ -25,7 +25,7 @@ type migration struct {
 	stmts   []string
 }
 
-const currentSchemaVersion int64 = 7
+const currentSchemaVersion int64 = 8
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -35,6 +35,7 @@ var migrations = []migration{
 	{version: 5, stmts: addSessionSummariesSQL},
 	{version: 6, stmts: renameSessionSummariesSQL},
 	{version: 7, stmts: renameSessionSummaryIndexesSQL},
+	{version: 8, stmts: replaceMemoriesTableSQL},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -197,6 +198,24 @@ var appConfigSQL = []string{
 
 var dropSkillCallsSQL = []string{
 	`DROP TABLE IF EXISTS skill_calls`,
+}
+
+var replaceMemoriesTableSQL = []string{
+	`DROP TABLE IF EXISTS memory_items`,
+	`DROP TABLE IF EXISTS memories`,
+	`CREATE TABLE IF NOT EXISTS memories (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  session_id BIGINT NULL,
+  type VARCHAR(32) NOT NULL,
+  content TEXT NOT NULL,
+  metadata_json JSON,
+  embedding VECTOR,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_user_created (user_id, created_at),
+  INDEX idx_session_created (session_id, created_at)
+)`,
 }
 
 var addMessageSoftDeleteSQL = []string{

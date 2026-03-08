@@ -29,10 +29,6 @@ type StoreAPI interface {
 	// after the summary are returned. Invalid tool call/output pairs may be soft-deleted.
 	LoadViewMessages(ctx context.Context, sessionID int64, limit int) ([]Message, *Summary, error)
 
-	// LoadLongMemories returns the user's long-term memories ordered by importance.
-	// If limit <= 0, a default limit is used.
-	LoadLongMemories(ctx context.Context, userID int64, limit int) ([]Memory, error)
-
 	// SearchMessages searches session messages by content substring.
 	// Results are ordered by most recent first. If limit <= 0, a default limit is used.
 	SearchMessages(ctx context.Context, sessionID int64, query string, limit int, includeTool bool) ([]Message, error)

@@ -42,16 +42,6 @@ type MessageMetadata struct {
 	InheritedFromSession *int64         `json:"inherited_from_session,omitempty"`
 }
 
-// Memory is a long-term memory record for a user.
-type Memory struct {
-	ID         int64
-	UserID     int64
-	Type       string
-	Content    string
-	Importance int
-	CreatedAt  time.Time
-}
-
 // Summary is a session summary snapshot used to compact the view window.
 type Summary struct {
 	ID             int64
@@ -226,34 +216,6 @@ func (s *store) LoadViewMessages(ctx context.Context, sessionID int64, limit int
 		}
 	}
 	return filtered, summary, nil
-}
-
-// LoadLongMemories returns the user's long-term memories ordered by importance.
-// If limit <= 0, a default limit is used.
-func (s *store) LoadLongMemories(ctx context.Context, userID int64, limit int) ([]Memory, error) {
-	if limit <= 0 {
-		limit = 10
-	}
-	var records []dbmodel.Memory
-	if err := s.db.WithContext(ctx).
-		Where("user_id = ?", userID).
-		Order("importance DESC, id DESC").
-		Limit(limit).
-		Find(&records).Error; err != nil {
-		return nil, err
-	}
-	memories := make([]Memory, 0, len(records))
-	for _, r := range records {
-		memories = append(memories, Memory{
-			ID:         r.ID,
-			UserID:     r.UserID,
-			Type:       r.Type,
-			Content:    r.Content,
-			Importance: r.Importance,
-			CreatedAt:  r.CreatedAt,
-		})
-	}
-	return memories, nil
 }
 
 // SearchMessages searches session messages by content substring.

@@ -37,10 +37,7 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 		return "", err
 	}
 
-	memories, err := s.deps.store.LoadLongMemories(ctx, userID, 8)
-	if err != nil {
-		return "", err
-	}
+	memories := s.retrieveMemories(ctx, userID, input)
 	availableSkills := s.deps.skills.List()
 	recent, summary, err := s.deps.store.LoadViewMessages(ctx, s.id, 0)
 	if err != nil {
@@ -73,6 +70,7 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 		log.Error("handle failed", zap.Int64("session_id", s.id), zap.Error(err))
 		return "", err
 	}
+	s.ingestMemory(userID)
 	log.Info("handle completed", zap.Int64("session_id", s.id))
 	return output, nil
 }
@@ -94,10 +92,7 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 			return "", err
 		}
 	}
-	memories, err := s.deps.store.LoadLongMemories(ctx, userID, 8)
-	if err != nil {
-		return "", err
-	}
+	memories := s.retrieveMemories(ctx, userID, input)
 	systemPrompt := s.deps.promptBuilder.Interrupt(memories, s.deps.promptFormat)
 	recent, summary, err := s.deps.store.LoadViewMessages(ctx, s.id, 0)
 	if err != nil {
@@ -239,4 +234,24 @@ func (s *Session) estimatorForModel(model string) *llm.TokenEstimator {
 		return s.deps.tokenEstimator
 	}
 	return estimator
+}
+
+func (s *Session) retrieveMemories(ctx context.Context, userID int64, query string) []memory.MemoryItem {
+	if s == nil || s.deps == nil || s.deps.memoryEngine == nil || !s.deps.memoryEngine.Enabled() {
+		return nil
+	}
+	log := logging.L().Named("memory")
+	items, err := s.deps.memoryEngine.Retrieve(ctx, userID, s.id, query, 0)
+	if err != nil {
+		log.Warn("memory retrieve failed", zap.Error(err))
+		return nil
+	}
+	return items
+}
+
+func (s *Session) ingestMemory(userID int64) {
+	if s == nil || s.deps == nil || s.deps.memoryEngine == nil || !s.deps.memoryEngine.Enabled() {
+		return
+	}
+	s.deps.memoryEngine.IngestAsync(userID, s.id)
 }

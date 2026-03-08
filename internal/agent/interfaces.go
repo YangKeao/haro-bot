@@ -13,8 +13,8 @@ import (
 type ConversationStore = memory.StoreAPI
 
 type PromptBuilder interface {
-	System(memories []memory.Memory, skillsList []skills.Metadata, format string) string
-	Interrupt(memories []memory.Memory, format string) string
+	System(memories []memory.MemoryItem, skillsList []skills.Metadata, format string) string
+	Interrupt(memories []memory.MemoryItem, format string) string
 	Skill(skill skills.Skill) string
 }
 

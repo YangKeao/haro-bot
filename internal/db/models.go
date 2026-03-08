@@ -54,19 +54,6 @@ type SessionSummary struct {
 
 func (SessionSummary) TableName() string { return "session_summaries" }
 
-type Memory struct {
-	ID         int64     `gorm:"primaryKey;autoIncrement"`
-	UserID     int64     `gorm:"column:user_id"`
-	Type       string    `gorm:"column:type;size:32"`
-	Content    string    `gorm:"column:content;type:text"`
-	Importance int       `gorm:"column:importance"`
-	Embedding  []byte    `gorm:"column:embedding;type:blob"`
-	CreatedAt  time.Time `gorm:"column:created_at"`
-	UpdatedAt  time.Time `gorm:"column:updated_at"`
-}
-
-func (Memory) TableName() string { return "memories" }
-
 type SkillSource struct {
 	ID            int64      `gorm:"primaryKey;autoIncrement"`
 	SourceType    string     `gorm:"column:source_type;size:32"`

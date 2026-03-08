@@ -9,7 +9,7 @@ import (
 )
 
 func TestBuildSystemPromptIncludesSkillsAndMemories(t *testing.T) {
-	memories := []memory.Memory{
+	memories := []memory.MemoryItem{
 		{Type: "note", Content: "remember this"},
 	}
 	skillsList := []skills.Metadata{
@@ -50,7 +50,7 @@ func TestBuildSystemPromptClaudeXML(t *testing.T) {
 }
 
 func TestBuildInterruptPromptNoSkills(t *testing.T) {
-	memories := []memory.Memory{
+	memories := []memory.MemoryItem{
 		{Type: "note", Content: "remember this"},
 	}
 	out := buildInterruptPrompt(memories, "openai")

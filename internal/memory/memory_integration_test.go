@@ -55,6 +55,9 @@ func TestLoadViewMessagesPreservesMetadata(t *testing.T) {
 	toolCalls := []llm.ToolCall{
 		{ID: "call-1", Type: "function", Function: llm.ToolCallFn{Name: "test", Arguments: `{"x":1}`}},
 	}
+	if err := store.AddMessage(ctx, sessionID, "assistant", "", &memory.MessageMetadata{ToolCalls: toolCalls}); err != nil {
+		t.Fatalf("add assistant message: %v", err)
+	}
 	meta := &memory.MessageMetadata{
 		ToolCallID: "call-1",
 		ToolCalls:  toolCalls,
@@ -66,14 +69,14 @@ func TestLoadViewMessagesPreservesMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load messages: %v", err)
 	}
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(msgs))
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
-	if msgs[0].Metadata == nil {
+	if msgs[1].Metadata == nil {
 		t.Fatalf("expected metadata to be preserved")
 	}
-	if msgs[0].Metadata.ToolCallID != "call-1" {
-		t.Fatalf("expected tool_call_id to roundtrip, got %q", msgs[0].Metadata.ToolCallID)
+	if msgs[1].Metadata.ToolCallID != "call-1" {
+		t.Fatalf("expected tool_call_id to roundtrip, got %q", msgs[1].Metadata.ToolCallID)
 	}
 }
 

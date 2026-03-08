@@ -15,6 +15,47 @@ type LogConfig struct {
 	Encoding    string `toml:"encoding"`
 }
 
+type MemoryConfig struct {
+	Enabled  bool
+	Embedder MemoryEmbedderConfig
+	Vector   MemoryVectorConfig
+	Ingest   MemoryIngestConfig
+	Retrieve MemoryRetrieveConfig
+	Graph    MemoryGraphConfig
+}
+
+type MemoryEmbedderConfig struct {
+	Provider   string
+	BaseURL    string
+	APIKey     string
+	Model      string
+	Dimensions int
+}
+
+type MemoryVectorConfig struct {
+	Distance string
+}
+
+type MemoryIngestConfig struct {
+	RecentWindow    int
+	MaxCandidates   int
+	MinConfidence   float64
+	MinImportance   int
+	MatchTopK       int
+	UpdateThreshold float64
+	NoopThreshold   float64
+}
+
+type MemoryRetrieveConfig struct {
+	TopK     int
+	MinScore float64
+}
+
+type MemoryGraphConfig struct {
+	Enabled  bool
+	Provider string
+}
+
 type Config struct {
 	ServerAddr string
 
@@ -44,7 +85,8 @@ type Config struct {
 
 	ToolMaxTurns int
 
-	Log LogConfig
+	Log    LogConfig
+	Memory MemoryConfig
 }
 
 type serverConfig struct {
@@ -91,6 +133,47 @@ type toolConfig struct {
 	MaxTurns int `toml:"max_turns"`
 }
 
+type memoryEmbedderConfig struct {
+	Provider   string `toml:"provider"`
+	BaseURL    string `toml:"base_url"`
+	APIKey     string `toml:"api_key"`
+	Model      string `toml:"model"`
+	Dimensions int    `toml:"dimensions"`
+}
+
+type memoryVectorConfig struct {
+	Distance string `toml:"distance"`
+}
+
+type memoryIngestConfig struct {
+	RecentWindow    int     `toml:"recent_window"`
+	MaxCandidates   int     `toml:"max_candidates"`
+	MinConfidence   float64 `toml:"min_confidence"`
+	MinImportance   int     `toml:"min_importance"`
+	MatchTopK       int     `toml:"match_top_k"`
+	UpdateThreshold float64 `toml:"update_threshold"`
+	NoopThreshold   float64 `toml:"noop_threshold"`
+}
+
+type memoryRetrieveConfig struct {
+	TopK     int     `toml:"top_k"`
+	MinScore float64 `toml:"min_score"`
+}
+
+type memoryGraphConfig struct {
+	Enabled  bool   `toml:"enabled"`
+	Provider string `toml:"provider"`
+}
+
+type memoryConfig struct {
+	Enabled  bool                 `toml:"enabled"`
+	Embedder memoryEmbedderConfig `toml:"embedder"`
+	Vector   memoryVectorConfig   `toml:"vector"`
+	Ingest   memoryIngestConfig   `toml:"ingest"`
+	Retrieve memoryRetrieveConfig `toml:"retrieve"`
+	Graph    memoryGraphConfig    `toml:"graph"`
+}
+
 type fileConfig struct {
 	Server   serverConfig   `toml:"server"`
 	DB       dbConfig       `toml:"db"`
@@ -101,6 +184,7 @@ type fileConfig struct {
 	FS       fsConfig       `toml:"fs"`
 	Tool     toolConfig     `toml:"tool"`
 	Log      LogConfig      `toml:"log"`
+	Memory   memoryConfig   `toml:"memory"`
 }
 
 func LoadFromFile(path string) (Config, error) {
@@ -151,6 +235,33 @@ func defaultFileConfig() fileConfig {
 			Development: false,
 			Encoding:    "json",
 		},
+		Memory: memoryConfig{
+			Enabled: false,
+			Embedder: memoryEmbedderConfig{
+				Provider:   "openai",
+				Dimensions: 0,
+			},
+			Vector: memoryVectorConfig{
+				Distance: "cosine",
+			},
+			Ingest: memoryIngestConfig{
+				RecentWindow:    20,
+				MaxCandidates:   8,
+				MinConfidence:   0.6,
+				MinImportance:   1,
+				MatchTopK:       5,
+				UpdateThreshold: 0.85,
+				NoopThreshold:   0.92,
+			},
+			Retrieve: memoryRetrieveConfig{
+				TopK:     8,
+				MinScore: 0.2,
+			},
+			Graph: memoryGraphConfig{
+				Enabled:  false,
+				Provider: "",
+			},
+		},
 	}
 }
 
@@ -192,6 +303,39 @@ func (r fileConfig) withDefaults() fileConfig {
 	if strings.TrimSpace(r.Log.Encoding) == "" {
 		r.Log.Encoding = def.Log.Encoding
 	}
+	if strings.TrimSpace(r.Memory.Embedder.Provider) == "" {
+		r.Memory.Embedder.Provider = def.Memory.Embedder.Provider
+	}
+	if strings.TrimSpace(r.Memory.Vector.Distance) == "" {
+		r.Memory.Vector.Distance = def.Memory.Vector.Distance
+	}
+	if r.Memory.Ingest.RecentWindow <= 0 {
+		r.Memory.Ingest.RecentWindow = def.Memory.Ingest.RecentWindow
+	}
+	if r.Memory.Ingest.MaxCandidates <= 0 {
+		r.Memory.Ingest.MaxCandidates = def.Memory.Ingest.MaxCandidates
+	}
+	if r.Memory.Ingest.MinConfidence <= 0 {
+		r.Memory.Ingest.MinConfidence = def.Memory.Ingest.MinConfidence
+	}
+	if r.Memory.Ingest.MinImportance <= 0 {
+		r.Memory.Ingest.MinImportance = def.Memory.Ingest.MinImportance
+	}
+	if r.Memory.Ingest.MatchTopK <= 0 {
+		r.Memory.Ingest.MatchTopK = def.Memory.Ingest.MatchTopK
+	}
+	if r.Memory.Ingest.UpdateThreshold <= 0 {
+		r.Memory.Ingest.UpdateThreshold = def.Memory.Ingest.UpdateThreshold
+	}
+	if r.Memory.Ingest.NoopThreshold <= 0 {
+		r.Memory.Ingest.NoopThreshold = def.Memory.Ingest.NoopThreshold
+	}
+	if r.Memory.Retrieve.TopK <= 0 {
+		r.Memory.Retrieve.TopK = def.Memory.Retrieve.TopK
+	}
+	if r.Memory.Retrieve.MinScore < 0 {
+		r.Memory.Retrieve.MinScore = def.Memory.Retrieve.MinScore
+	}
 	return r
 }
 
@@ -203,6 +347,14 @@ func (r *fileConfig) normalize() {
 	}
 	if r.LLM.EffectiveContextWindowPercent > 100 {
 		r.LLM.EffectiveContextWindowPercent = 100
+	}
+	r.Memory.Embedder.Provider = strings.ToLower(strings.TrimSpace(r.Memory.Embedder.Provider))
+	if r.Memory.Embedder.Provider == "" {
+		r.Memory.Embedder.Provider = "openai"
+	}
+	r.Memory.Vector.Distance = strings.ToLower(strings.TrimSpace(r.Memory.Vector.Distance))
+	if r.Memory.Vector.Distance == "" {
+		r.Memory.Vector.Distance = "cosine"
 	}
 }
 
@@ -235,6 +387,36 @@ func (r fileConfig) toConfig() Config {
 		FSAllowedRoots:                   fsRoots,
 		ToolMaxTurns:                     r.Tool.MaxTurns,
 		Log:                              r.Log,
+		Memory: MemoryConfig{
+			Enabled: r.Memory.Enabled,
+			Embedder: MemoryEmbedderConfig{
+				Provider:   r.Memory.Embedder.Provider,
+				BaseURL:    r.Memory.Embedder.BaseURL,
+				APIKey:     r.Memory.Embedder.APIKey,
+				Model:      r.Memory.Embedder.Model,
+				Dimensions: r.Memory.Embedder.Dimensions,
+			},
+			Vector: MemoryVectorConfig{
+				Distance: r.Memory.Vector.Distance,
+			},
+			Ingest: MemoryIngestConfig{
+				RecentWindow:    r.Memory.Ingest.RecentWindow,
+				MaxCandidates:   r.Memory.Ingest.MaxCandidates,
+				MinConfidence:   r.Memory.Ingest.MinConfidence,
+				MinImportance:   r.Memory.Ingest.MinImportance,
+				MatchTopK:       r.Memory.Ingest.MatchTopK,
+				UpdateThreshold: r.Memory.Ingest.UpdateThreshold,
+				NoopThreshold:   r.Memory.Ingest.NoopThreshold,
+			},
+			Retrieve: MemoryRetrieveConfig{
+				TopK:     r.Memory.Retrieve.TopK,
+				MinScore: r.Memory.Retrieve.MinScore,
+			},
+			Graph: MemoryGraphConfig{
+				Enabled:  r.Memory.Graph.Enabled,
+				Provider: r.Memory.Graph.Provider,
+			},
+		},
 	}
 }
 

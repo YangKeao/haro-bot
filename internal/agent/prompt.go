@@ -9,21 +9,21 @@ import (
 	"github.com/YangKeao/haro-bot/internal/skills"
 )
 
-func buildSystemPrompt(memories []memory.Memory, skillsList []skills.Metadata, format string) string {
+func buildSystemPrompt(memories []memory.MemoryItem, skillsList []skills.Metadata, format string) string {
 	return buildPrompt(memories, skillsList, format, true)
 }
 
-func buildInterruptPrompt(memories []memory.Memory, format string) string {
+func buildInterruptPrompt(memories []memory.MemoryItem, format string) string {
 	return buildPrompt(memories, nil, format, false)
 }
 
 type DefaultPromptBuilder struct{}
 
-func (DefaultPromptBuilder) System(memories []memory.Memory, skillsList []skills.Metadata, format string) string {
+func (DefaultPromptBuilder) System(memories []memory.MemoryItem, skillsList []skills.Metadata, format string) string {
 	return buildSystemPrompt(memories, skillsList, format)
 }
 
-func (DefaultPromptBuilder) Interrupt(memories []memory.Memory, format string) string {
+func (DefaultPromptBuilder) Interrupt(memories []memory.MemoryItem, format string) string {
 	return buildInterruptPrompt(memories, format)
 }
 
@@ -31,7 +31,7 @@ func (DefaultPromptBuilder) Skill(skill skills.Skill) string {
 	return buildSkillPrompt(skill)
 }
 
-func buildPrompt(memories []memory.Memory, skillsList []skills.Metadata, format string, includeSkills bool) string {
+func buildPrompt(memories []memory.MemoryItem, skillsList []skills.Metadata, format string, includeSkills bool) string {
 	var b strings.Builder
 	format = strings.ToLower(strings.TrimSpace(format))
 	skillsXML := ""
@@ -47,7 +47,15 @@ func buildPrompt(memories []memory.Memory, skillsList []skills.Metadata, format 
 	if len(memories) > 0 {
 		b.WriteString("Long-term memory:\n")
 		for _, m := range memories {
-			b.WriteString(fmt.Sprintf("- [%s] %s\n", m.Type, m.Content))
+			label := strings.TrimSpace(m.Type)
+			if label == "" {
+				label = "memory"
+			}
+			if m.Score != 0 {
+				b.WriteString(fmt.Sprintf("- [%s score=%.2f] %s\n", label, m.Score, m.Content))
+				continue
+			}
+			b.WriteString(fmt.Sprintf("- [%s] %s\n", label, m.Content))
 		}
 	}
 	if !includeSkills {

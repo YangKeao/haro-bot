@@ -91,9 +91,14 @@ func main() {
 		AutoCompactTokenLimit:         cfg.LLMAutoCompactTokenLimit,
 		EffectiveContextWindowPercent: cfg.LLMEffectiveContextWindowPercent,
 	}
+	memoryEngine, err := memory.NewEngine(dbConn, store, llmClient, cfg.LLMModel, cfg.Memory)
+	if err != nil {
+		log.Fatal("memory engine init failed", zap.Error(err))
+	}
 
 	agentSvc := agent.New(
 		store,
+		memoryEngine,
 		skillsMgr,
 		toolRegistry,
 		fsTools.DefaultBase(),

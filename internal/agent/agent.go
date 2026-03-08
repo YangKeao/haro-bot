@@ -16,6 +16,7 @@ import (
 
 type Agent struct {
 	store          ConversationStore
+	memoryEngine   *memory.Engine
 	skills         *skills.Manager
 	toolRegistry   *tools.Registry
 	promptBuilder  PromptBuilder
@@ -30,7 +31,7 @@ type Agent struct {
 	sessions       *sessionManager
 }
 
-func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
+func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
 	if maxToolTurns <= 0 {
 		maxToolTurns = 1024
 	}
@@ -39,6 +40,7 @@ func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Regi
 	estimator, _ := llm.NewTokenEstimator(model)
 	deps := &sessionDeps{
 		store:          store,
+		memoryEngine:   memoryEngine,
 		skills:         skills,
 		toolRegistry:   toolRegistry,
 		promptBuilder:  promptBuilder,
@@ -54,6 +56,7 @@ func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Regi
 	}
 	return &Agent{
 		store:          store,
+		memoryEngine:   memoryEngine,
 		skills:         skills,
 		toolRegistry:   toolRegistry,
 		promptBuilder:  promptBuilder,
