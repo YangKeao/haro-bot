@@ -16,11 +16,26 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /agentd ./cmd/agentd
 # Runtime stage
 FROM debian:bookworm-slim
 
-# Install ca-certificates for HTTPS connections and timezone data
+# Install common tools that are frequently needed
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
     sudo \
+    # Version control
+    git \
+    # Network tools
+    curl \
+    wget \
+    # Text processing
+    ripgrep \
+    # File utilities
+    file \
+    # Archive utilities
+    unzip \
+    # Process utilities
+    procps \
+    # GitHub CLI
+    gh \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
