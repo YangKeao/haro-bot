@@ -59,6 +59,7 @@ func (a *auditModel) evaluate(ctx context.Context, req tools.ApprovalRequest, co
 		Model:       a.model,
 		Messages:    messages,
 		Temperature: 0,
+		Purpose:     llm.PurposeSecurity,
 	})
 	if err != nil {
 		return "", "", err

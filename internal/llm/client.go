@@ -108,6 +108,9 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 			params.ReasoningEffort = shared.ReasoningEffortMedium
 		}
 	}
+	if extra := extraBodyForPurpose(req.Purpose); len(extra) > 0 {
+		params.SetExtraFields(extra)
+	}
 
 	forceStream := true
 	if forceStream {
@@ -149,4 +152,32 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 		zap.Int64("total_tokens", out.Usage.TotalTokens),
 	)
 	return out, nil
+}
+func extraBodyForPurpose(purpose RequestPurpose) map[string]any {
+	switch purpose {
+	case PurposeSecurity:
+		return map[string]any{
+			"thinking": map[string]any{
+				"type": "disabled",
+			},
+		}
+	case PurposeMemory:
+		return map[string]any{
+			"thinking": map[string]any{
+				"clear_thinking": false,
+			},
+		}
+	case PurposeChat, "":
+		return map[string]any{
+			"thinking": map[string]any{
+				"clear_thinking": false,
+			},
+		}
+	default:
+		return map[string]any{
+			"thinking": map[string]any{
+				"clear_thinking": false,
+			},
+		}
+	}
 }

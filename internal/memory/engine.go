@@ -217,6 +217,7 @@ func (e *Engine) extractCandidates(ctx context.Context, prompt extractionPrompt)
 			{Role: "user", Content: prompt.String()},
 		},
 		Temperature: 0,
+		Purpose:     llm.PurposeMemory,
 	}
 	resp, err := e.llm.Chat(ctx, req)
 	if err != nil {
@@ -247,6 +248,7 @@ func (e *Engine) decideAction(ctx context.Context, cand MemoryCandidate, existin
 			{Role: "user", Content: buildUpdatePrompt(cand, existing)},
 		},
 		Temperature: 0,
+		Purpose:     llm.PurposeMemory,
 	}
 	resp, err := e.llm.Chat(ctx, req)
 	if err != nil {

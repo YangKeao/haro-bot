@@ -79,6 +79,7 @@ func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model st
 			ReasoningEnabled: s.deps.reasoning.Enabled,
 			ReasoningEffort:  s.deps.reasoning.Effort,
 			StreamHandler:    handler,
+			Purpose:          llm.PurposeChat,
 		})
 		if err != nil {
 			if llm.IsContextWindowExceeded(err) && attempt < maxContextRetries {
