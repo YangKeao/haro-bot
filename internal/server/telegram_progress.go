@@ -187,9 +187,10 @@ func (p *telegramProgress) sendDraft(ctx context.Context, baseID int64, text str
 	}
 	for i, part := range parts {
 		params := &bot.SendMessageDraftParams{
-			ChatID:  p.chatID,
-			DraftID: strconv.FormatInt(baseID+int64(i+1), 10),
-			Text:    part,
+			ChatID:    p.chatID,
+			DraftID:   strconv.FormatInt(baseID+int64(i+1), 10),
+			Text:      part,
+			ParseMode: models.ParseModeMarkdown,
 		}
 		if p.threadID > 0 {
 			params.MessageThreadID = p.threadID
@@ -197,14 +198,25 @@ func (p *telegramProgress) sendDraft(ctx context.Context, baseID int64, text str
 		if p.businessConnectionID != "" {
 			params.BusinessConnectionID = p.businessConnectionID
 		}
-		if err := withTelegramRetry(ctx, p.log, "sendMessageDraft", func(ctx context.Context) error {
-			_, err := p.bot.SendMessageDraft(ctx, params)
-			return err
-		}); err != nil && p.log != nil {
+		if err := sendTelegramDraft(ctx, p.log, p.bot, params); err != nil && p.log != nil {
 			p.log.Debug("telegram sendMessageDraft failed", zap.Error(err))
 			return
 		}
 	}
+}
+
+func sendTelegramDraft(ctx context.Context, log *zap.Logger, b *bot.Bot, params *bot.SendMessageDraftParams) error {
+	if err := withTelegramRetry(ctx, log, "sendMessageDraft", func(ctx context.Context) error {
+		_, err := b.SendMessageDraft(ctx, params)
+		return err
+	}); err == nil {
+		return nil
+	}
+	params.ParseMode = ""
+	return withTelegramRetry(ctx, log, "sendMessageDraft_plain", func(ctx context.Context) error {
+		_, err := b.SendMessageDraft(ctx, params)
+		return err
+	})
 }
 
 func formatToolCalls(calls []llm.ToolCall) string {

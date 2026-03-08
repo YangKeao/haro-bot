@@ -63,8 +63,9 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 	}
 	for _, chunk := range splitTelegramMessage(output) {
 		params := &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   chunk,
+			ChatID:    update.Message.Chat.ID,
+			Text:      chunk,
+			ParseMode: models.ParseModeMarkdown,
 		}
 		if threadID > 0 {
 			params.MessageThreadID = threadID
@@ -75,14 +76,26 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 		if businessConnID != "" {
 			params.BusinessConnectionID = businessConnID
 		}
-		if err := withTelegramRetry(ctx, log, "sendMessage", func(ctx context.Context) error {
-			_, err := b.SendMessage(ctx, params)
-			return err
-		}); err != nil {
+		if err := sendTelegramMessage(ctx, log, b, params); err != nil {
 			log.Error("telegram send error", zap.Error(err))
 			return
 		}
 	}
+}
+
+func sendTelegramMessage(ctx context.Context, log *zap.Logger, b *bot.Bot, params *bot.SendMessageParams) error {
+	if err := withTelegramRetry(ctx, log, "sendMessage", func(ctx context.Context) error {
+		_, err := b.SendMessage(ctx, params)
+		return err
+	}); err == nil {
+		return nil
+	}
+	// Fallback to plain text if Markdown parsing fails.
+	params.ParseMode = ""
+	return withTelegramRetry(ctx, log, "sendMessage_plain", func(ctx context.Context) error {
+		_, err := b.SendMessage(ctx, params)
+		return err
+	})
 }
 
 const (
