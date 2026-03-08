@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"unicode/utf8"
 
 	"github.com/YangKeao/haro-bot/internal/tools"
 )
@@ -105,7 +104,7 @@ func NewForkInterruptTool(manager *Manager) *ForkInterruptTool {
 
 func (t *ForkInterruptTool) Name() string { return "session_interrupt" }
 func (t *ForkInterruptTool) Description() string {
-	return "Interrupt a child session to get a response from its current context; optionally store the interrupt in the child history."
+	return "Interrupt a session to get a response from its current context; optionally store the interrupt in the session history."
 }
 func (t *ForkInterruptTool) Parameters() map[string]any {
 	return map[string]any{
@@ -113,7 +112,7 @@ func (t *ForkInterruptTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"child_session_id": map[string]any{
 				"type":        "integer",
-				"description": "Child session id",
+				"description": "Target session id",
 			},
 			"message": map[string]any{
 				"type":        "string",
@@ -167,7 +166,7 @@ func NewForkCancelTool(manager *Manager) *ForkCancelTool {
 
 func (t *ForkCancelTool) Name() string { return "session_cancel" }
 func (t *ForkCancelTool) Description() string {
-	return "Cancel a child session started via fork."
+	return "Cancel a forked session."
 }
 func (t *ForkCancelTool) Parameters() map[string]any {
 	return map[string]any{
@@ -175,7 +174,7 @@ func (t *ForkCancelTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"child_session_id": map[string]any{
 				"type":        "integer",
-				"description": "Child session id",
+				"description": "Target session id",
 			},
 		},
 		"required": []string{"child_session_id"},
@@ -213,7 +212,7 @@ func NewForkStatusTool(manager *Manager) *ForkStatusTool {
 
 func (t *ForkStatusTool) Name() string { return "session_status" }
 func (t *ForkStatusTool) Description() string {
-	return "Get the status of a child session started via fork. Use only when the user explicitly asks to check status or results."
+	return "Get the status of a forked session. Use only when the user explicitly asks to check status or results."
 }
 func (t *ForkStatusTool) Parameters() map[string]any {
 	return map[string]any{
@@ -221,7 +220,7 @@ func (t *ForkStatusTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"child_session_id": map[string]any{
 				"type":        "integer",
-				"description": "Child session id",
+				"description": "Target session id",
 			},
 		},
 		"required": []string{"child_session_id"},
@@ -255,18 +254,4 @@ func (t *ForkStatusTool) Execute(ctx context.Context, tc tools.ToolContext, args
 		return "", err
 	}
 	return string(b), nil
-}
-
-func truncateRunes(text string, maxRunes int) string {
-	if maxRunes <= 0 || text == "" {
-		return text
-	}
-	if utf8.RuneCountInString(text) <= maxRunes {
-		return text
-	}
-	runes := []rune(text)
-	if len(runes) <= maxRunes {
-		return text
-	}
-	return string(runes[:maxRunes])
 }

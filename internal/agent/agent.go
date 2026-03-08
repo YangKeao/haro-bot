@@ -29,6 +29,7 @@ type Agent struct {
 	reasoning      llm.ReasoningConfig
 	contextConfig  llm.ContextConfig
 	sessions       *sessionManager
+	messenger      SessionMessenger
 }
 
 func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
@@ -72,6 +73,14 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 	}
 }
 
+// SetSessionMessenger registers a messenger for out-of-band session notifications (e.g., Telegram).
+func (a *Agent) SetSessionMessenger(messenger SessionMessenger) {
+	if a == nil {
+		return
+	}
+	a.messenger = messenger
+}
+
 func (a *Agent) Handle(ctx context.Context, userID int64, channel string, input string) (string, error) {
 	return a.handleWithObserver(ctx, userID, channel, input, "", nil)
 }
@@ -102,7 +111,7 @@ func (a *Agent) handleWithObserver(ctx context.Context, userID int64, channel st
 
 // InterruptSession generates a response from an existing session context without using tools.
 // If storeInSession is true, the interrupt message and response are persisted to the session.
-func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID int64, input string, modelOverride string, storeInSession bool) (string, error) {
+func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID int64, input string, modelOverride string, storeInSession bool, metadata *memory.MessageMetadata) (string, error) {
 	log := logging.L().Named("agent_interrupt")
 	if a.sessions == nil {
 		log.Error("session manager not configured", zap.Int64("session_id", sessionID))
@@ -110,7 +119,7 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 	}
 	session := a.sessions.Get(sessionID)
 	defer a.sessions.Release(sessionID)
-	return session.Interrupt(ctx, userID, input, modelOverride, storeInSession)
+	return session.Interrupt(ctx, userID, input, modelOverride, storeInSession, metadata, a.messenger)
 }
 
 func toLLMMessages(msgs []memory.Message) []llm.Message {

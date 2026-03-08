@@ -16,14 +16,17 @@ type Server struct {
 	store    memory.StoreAPI
 	skills   *skills.Manager
 	telegram *bot.Bot
+
+	telegramSessions *telegramSessionRegistry
 }
 
 func New(cfg config.Config, agent *agent.Agent, store memory.StoreAPI, skillsMgr *skills.Manager) *Server {
 	return &Server{
-		cfg:    cfg,
-		agent:  agent,
-		store:  store,
-		skills: skillsMgr,
+		cfg:              cfg,
+		agent:            agent,
+		store:            store,
+		skills:           skillsMgr,
+		telegramSessions: newTelegramSessionRegistry(),
 	}
 }
 

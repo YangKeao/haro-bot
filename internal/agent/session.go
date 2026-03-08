@@ -75,7 +75,7 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 	return output, nil
 }
 
-func (s *Session) Interrupt(ctx context.Context, userID int64, input string, modelOverride string, storeInSession bool) (string, error) {
+func (s *Session) Interrupt(ctx context.Context, userID int64, input string, modelOverride string, storeInSession bool, metadata *memory.MessageMetadata, messenger SessionMessenger) (string, error) {
 	if s == nil || s.deps == nil {
 		return "", errors.New("session not configured")
 	}
@@ -132,9 +132,14 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 	}
 	content := resp.Choices[0].Message.Content
 	if storeInSession {
-		if err := s.deps.store.AddMessage(ctx, s.id, "assistant", content, nil); err != nil {
+		if err := s.deps.store.AddMessage(ctx, s.id, "assistant", content, metadata); err != nil {
 			log.Error("interrupt store failed", zap.Int64("session_id", s.id), zap.Error(err))
 			return "", err
+		}
+		if messenger != nil {
+			if err := messenger.SendSessionMessage(ctx, s.id, content); err != nil {
+				log.Warn("interrupt send failed", zap.Int64("session_id", s.id), zap.Error(err))
+			}
 		}
 	}
 	log.Info("interrupt completed", zap.Int64("session_id", s.id), zap.Bool("stored", storeInSession))

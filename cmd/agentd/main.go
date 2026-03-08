@@ -115,6 +115,9 @@ func main() {
 	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
 	toolRegistry.Register(fork.NewForkStatusTool(forkMgr))
 	srv := server.New(cfg, agentSvc, store, skillsMgr)
+	if cfg.TelegramToken != "" {
+		agentSvc.SetSessionMessenger(srv)
+	}
 
 	srv.StartTelegramPolling(ctx)
 
