@@ -183,7 +183,7 @@ func (s *Session) runLoop(ctx context.Context, userID int64, messages []llm.Mess
 
 		log.Debug("tool calls received", zap.Int("count", len(msg.ToolCalls)), zap.Int64("session_id", s.id))
 		if observer != nil {
-			observer.OnToolCalls(ctx, msg.ToolCalls)
+			observer.OnToolCalls(ctx, msg.ToolCalls, msg.Content)
 		}
 		if err := s.deps.store.AddMessage(ctx, s.id, "assistant", msg.Content, &memory.MessageMetadata{ToolCalls: msg.ToolCalls}); err != nil {
 			return "", err
