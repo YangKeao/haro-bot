@@ -65,6 +65,12 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 	if s.handleTelegramCommand(ctx, b, update, uid, sessionID) {
 		return
 	}
+
+	// Cancel any previous operation for this session
+	if s.agent.CancelSession(sessionID) {
+		log.Info("cancelled previous session operation", zap.Int64("session_id", sessionID))
+	}
+
 	threadID := update.Message.MessageThreadID
 	businessConnID := update.Message.BusinessConnectionID
 	directTopicID := 0
