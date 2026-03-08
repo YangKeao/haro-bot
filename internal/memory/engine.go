@@ -26,9 +26,6 @@ type Engine struct {
 }
 
 func NewEngine(db *gorm.DB, store StoreAPI, llmClient *llm.Client, model string, cfg config.MemoryConfig) (*Engine, error) {
-	if !cfg.Enabled {
-		return nil, nil
-	}
 	if db == nil {
 		return nil, errors.New("memory db required")
 	}
@@ -73,11 +70,11 @@ func NewEngine(db *gorm.DB, store StoreAPI, llmClient *llm.Client, model string,
 }
 
 func (e *Engine) Enabled() bool {
-	return e != nil && e.cfg.Enabled
+	return e != nil
 }
 
 func (e *Engine) Retrieve(ctx context.Context, userID, sessionID int64, query string, limit int) ([]MemoryItem, error) {
-	if e == nil || !e.cfg.Enabled {
+	if e == nil {
 		return nil, nil
 	}
 	query = strings.TrimSpace(query)
@@ -109,7 +106,7 @@ func (e *Engine) Retrieve(ctx context.Context, userID, sessionID int64, query st
 }
 
 func (e *Engine) Ingest(ctx context.Context, userID, sessionID int64) error {
-	if e == nil || !e.cfg.Enabled {
+	if e == nil {
 		return nil
 	}
 	recent, summary, err := e.store.LoadViewMessages(ctx, sessionID, e.cfg.Ingest.RecentWindow)
@@ -425,7 +422,7 @@ func candidateMetadata(cand MemoryCandidate) map[string]any {
 }
 
 func (e *Engine) IngestAsync(userID, sessionID int64) {
-	if e == nil || !e.cfg.Enabled {
+	if e == nil {
 		return
 	}
 	go func() {

@@ -20,7 +20,7 @@ import (
 func TestApplyMigrationsSetsSchemaVersion(t *testing.T) {
 	gdb, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
-	if err := ApplyMigrations(gdb, config.MemoryConfig{Enabled: false}); err != nil {
+	if err := ApplyMigrations(gdb, defaultMemoryConfig()); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
 	ver, err := getSchemaVersion(gdb)
@@ -35,10 +35,10 @@ func TestApplyMigrationsSetsSchemaVersion(t *testing.T) {
 func TestApplyMigrationsIdempotent(t *testing.T) {
 	gdb, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)
-	if err := ApplyMigrations(gdb, config.MemoryConfig{Enabled: false}); err != nil {
+	if err := ApplyMigrations(gdb, defaultMemoryConfig()); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
-	if err := ApplyMigrations(gdb, config.MemoryConfig{Enabled: false}); err != nil {
+	if err := ApplyMigrations(gdb, defaultMemoryConfig()); err != nil {
 		t.Fatalf("apply migrations second time: %v", err)
 	}
 	ver, err := getSchemaVersion(gdb)
@@ -106,4 +106,15 @@ func sanitizeDBName(name string) string {
 		}
 	}
 	return b.String()
+}
+
+func defaultMemoryConfig() config.MemoryConfig {
+	return config.MemoryConfig{
+		Embedder: config.MemoryEmbedderConfig{
+			Dimensions: 1536,
+		},
+		Vector: config.MemoryVectorConfig{
+			Distance: "cosine",
+		},
+	}
 }

@@ -19,9 +19,6 @@ func TestTiDBVectorStoreRoundTripWithConfig(t *testing.T) {
 	if cfg.TiDBDSN == "" {
 		t.Skip("tidb dsn missing in config")
 	}
-	if !cfg.Memory.Enabled {
-		t.Skip("memory disabled in config")
-	}
 	if cfg.Memory.Embedder.Dimensions <= 0 {
 		t.Skip("memory embedder dimensions not set")
 	}

@@ -262,9 +262,6 @@ var renameSessionSummaryIndexesSQL = []string{
 }
 
 func applyMemoryVectorIndex(db *gorm.DB, cfg config.MemoryConfig) error {
-	if !cfg.Enabled {
-		return nil
-	}
 	if cfg.Embedder.Dimensions <= 0 {
 		return errors.New("memory embedder dimensions required for vector index")
 	}

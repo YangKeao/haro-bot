@@ -16,7 +16,6 @@ type LogConfig struct {
 }
 
 type MemoryConfig struct {
-	Enabled  bool
 	Embedder MemoryEmbedderConfig
 	Vector   MemoryVectorConfig
 	Ingest   MemoryIngestConfig
@@ -166,7 +165,6 @@ type memoryGraphConfig struct {
 }
 
 type memoryConfig struct {
-	Enabled  bool                 `toml:"enabled"`
 	Embedder memoryEmbedderConfig `toml:"embedder"`
 	Vector   memoryVectorConfig   `toml:"vector"`
 	Ingest   memoryIngestConfig   `toml:"ingest"`
@@ -236,10 +234,11 @@ func defaultFileConfig() fileConfig {
 			Encoding:    "json",
 		},
 		Memory: memoryConfig{
-			Enabled: false,
 			Embedder: memoryEmbedderConfig{
 				Provider:   "openai",
-				Dimensions: 0,
+				BaseURL:    "https://api.openai.com/v1",
+				Model:      "text-embedding-3-small",
+				Dimensions: 1536,
 			},
 			Vector: memoryVectorConfig{
 				Distance: "cosine",
@@ -305,6 +304,15 @@ func (r fileConfig) withDefaults() fileConfig {
 	}
 	if strings.TrimSpace(r.Memory.Embedder.Provider) == "" {
 		r.Memory.Embedder.Provider = def.Memory.Embedder.Provider
+	}
+	if strings.TrimSpace(r.Memory.Embedder.BaseURL) == "" {
+		r.Memory.Embedder.BaseURL = def.Memory.Embedder.BaseURL
+	}
+	if strings.TrimSpace(r.Memory.Embedder.Model) == "" {
+		r.Memory.Embedder.Model = def.Memory.Embedder.Model
+	}
+	if r.Memory.Embedder.Dimensions <= 0 {
+		r.Memory.Embedder.Dimensions = def.Memory.Embedder.Dimensions
 	}
 	if strings.TrimSpace(r.Memory.Vector.Distance) == "" {
 		r.Memory.Vector.Distance = def.Memory.Vector.Distance
@@ -388,7 +396,6 @@ func (r fileConfig) toConfig() Config {
 		ToolMaxTurns:                     r.Tool.MaxTurns,
 		Log:                              r.Log,
 		Memory: MemoryConfig{
-			Enabled: r.Memory.Enabled,
 			Embedder: MemoryEmbedderConfig{
 				Provider:   r.Memory.Embedder.Provider,
 				BaseURL:    r.Memory.Embedder.BaseURL,

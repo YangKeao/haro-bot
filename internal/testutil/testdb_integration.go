@@ -66,7 +66,7 @@ func NewTestDB(t *testing.T) (*gorm.DB, func()) {
 
 func NewTestDBWithMigrations(t *testing.T) (*gorm.DB, func()) {
 	t.Helper()
-	return NewTestDBWithMigrationsConfig(t, config.MemoryConfig{Enabled: false})
+	return NewTestDBWithMigrationsConfig(t, defaultMemoryConfig())
 }
 
 func NewTestDBWithMigrationsConfig(t *testing.T, memCfg config.MemoryConfig) (*gorm.DB, func()) {
@@ -77,6 +77,17 @@ func NewTestDBWithMigrationsConfig(t *testing.T, memCfg config.MemoryConfig) (*g
 		t.Fatalf("apply migrations: %v", err)
 	}
 	return gdb, cleanup
+}
+
+func defaultMemoryConfig() config.MemoryConfig {
+	return config.MemoryConfig{
+		Embedder: config.MemoryEmbedderConfig{
+			Dimensions: 1536,
+		},
+		Vector: config.MemoryVectorConfig{
+			Distance: "cosine",
+		},
+	}
 }
 
 func sanitizeDBName(name string) string {

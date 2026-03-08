@@ -39,7 +39,6 @@ development = false
 encoding = "json"
 
 [memory]
-enabled = false
 
 [memory.embedder]
 provider = "openai"
