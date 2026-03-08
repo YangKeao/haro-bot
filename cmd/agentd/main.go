@@ -24,6 +24,7 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.toml", "path to config file")
+	dangerous := flag.Bool("dangerous", false, "skip all security checks (path restrictions, symlink checks, approval requests, audit logging)")
 	flag.Parse()
 
 	bootLogger, _ := zap.NewProduction()
@@ -61,8 +62,16 @@ func main() {
 	store := memory.NewStore(dbConn)
 	skillsStore := skills.NewStore(dbConn)
 	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
-	auditStore := tools.NewAuditStore(dbConn)
-	fsTools := tools.NewFS(cfg.FSAllowedRoots, auditStore)
+
+	var fsTools *tools.FS
+	if *dangerous {
+		log.Warn("running in DANGEROUS mode - all security checks are disabled!")
+		fsTools = tools.NewDangerousFS()
+	} else {
+		auditStore := tools.NewAuditStore(dbConn)
+		fsTools = tools.NewFS(cfg.FSAllowedRoots, auditStore)
+	}
+
 	browserMgr := tools.NewBrowserManager()
 	execMgr := tools.NewExecManager()
 	toolRegistry := tools.NewRegistry(
@@ -115,11 +124,11 @@ func main() {
 	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
 	toolRegistry.Register(fork.NewForkStatusTool(forkMgr))
 	srv := server.New(cfg, agentSvc, store, skillsMgr, memoryEngine)
-	if cfg.TelegramToken != "" {
+	if cfg.TelegramToken != "" && !*dangerous {
 		agentSvc.SetSessionMessenger(srv)
 		fsTools.SetApprover(srv)
 	}
-	if cfg.SecurityAuditModel != "" {
+	if cfg.SecurityAuditModel != "" && !*dangerous {
 		auditClient := llm.NewClient(cfg.SecurityAuditBaseURL, cfg.SecurityAuditAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
 		srv.SetSecurityAudit(auditClient, cfg.SecurityAuditModel)
 	}
