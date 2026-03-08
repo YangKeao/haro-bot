@@ -22,12 +22,16 @@ func (s *Server) handleTelegramCommand(ctx context.Context, b *bot.Bot, update *
 		return false
 	}
 
-	// Parse command
+	// Parse command - handle both /status and /status@botname formats
 	parts := strings.Fields(text)
 	if len(parts) == 0 {
 		return false
 	}
 	cmd := strings.ToLower(parts[0])
+	// Strip bot username if present (e.g., /status@mybot -> /status)
+	if idx := strings.Index(cmd, "@"); idx > 0 {
+		cmd = cmd[:idx]
+	}
 
 	log := logging.L().Named("telegram_cmd")
 
