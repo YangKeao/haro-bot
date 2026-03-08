@@ -19,6 +19,7 @@ type Server struct {
 
 	telegramSessions *telegramSessionRegistry
 	toolApprovals    *toolApprovalManager
+	auditModel       *auditModel
 }
 
 func New(cfg config.Config, agent *agent.Agent, store memory.StoreAPI, skillsMgr *skills.Manager) *Server {

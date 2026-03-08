@@ -72,6 +72,10 @@ type Config struct {
 	LLMAutoCompactTokenLimit         int
 	LLMEffectiveContextWindowPercent int
 
+	SecurityAuditBaseURL string
+	SecurityAuditAPIKey  string
+	SecurityAuditModel   string
+
 	TelegramToken string
 
 	SkillsDir           string
@@ -108,6 +112,12 @@ type llmConfig struct {
 	ContextWindow                 int    `toml:"context_window"`
 	AutoCompactTokenLimit         int    `toml:"auto_compact_token_limit"`
 	EffectiveContextWindowPercent int    `toml:"effective_context_window_percent"`
+}
+
+type securityAuditConfig struct {
+	BaseURL string `toml:"base_url"`
+	APIKey  string `toml:"api_key"`
+	Model   string `toml:"model"`
 }
 
 type telegramConfig struct {
@@ -173,16 +183,17 @@ type memoryConfig struct {
 }
 
 type fileConfig struct {
-	Server   serverConfig   `toml:"server"`
-	DB       dbConfig       `toml:"db"`
-	LLM      llmConfig      `toml:"llm"`
-	Telegram telegramConfig `toml:"telegram"`
-	Skills   skillsConfig   `toml:"skills"`
-	Brave    braveConfig    `toml:"brave"`
-	FS       fsConfig       `toml:"fs"`
-	Tool     toolConfig     `toml:"tool"`
-	Log      LogConfig      `toml:"log"`
-	Memory   memoryConfig   `toml:"memory"`
+	Server   serverConfig        `toml:"server"`
+	DB       dbConfig            `toml:"db"`
+	LLM      llmConfig           `toml:"llm"`
+	Security securityAuditConfig `toml:"security_audit"`
+	Telegram telegramConfig      `toml:"telegram"`
+	Skills   skillsConfig        `toml:"skills"`
+	Brave    braveConfig         `toml:"brave"`
+	FS       fsConfig            `toml:"fs"`
+	Tool     toolConfig          `toml:"tool"`
+	Log      LogConfig           `toml:"log"`
+	Memory   memoryConfig        `toml:"memory"`
 }
 
 func LoadFromFile(path string) (Config, error) {
@@ -284,6 +295,14 @@ func (r fileConfig) withDefaults() fileConfig {
 	if r.LLM.EffectiveContextWindowPercent <= 0 {
 		r.LLM.EffectiveContextWindowPercent = def.LLM.EffectiveContextWindowPercent
 	}
+	if strings.TrimSpace(r.Security.Model) != "" {
+		if strings.TrimSpace(r.Security.BaseURL) == "" {
+			r.Security.BaseURL = r.LLM.BaseURL
+		}
+		if strings.TrimSpace(r.Security.APIKey) == "" {
+			r.Security.APIKey = r.LLM.APIKey
+		}
+	}
 	if strings.TrimSpace(r.Skills.Dir) == "" {
 		r.Skills.Dir = def.Skills.Dir
 	}
@@ -356,6 +375,9 @@ func (r *fileConfig) normalize() {
 	if r.LLM.EffectiveContextWindowPercent > 100 {
 		r.LLM.EffectiveContextWindowPercent = 100
 	}
+	r.Security.BaseURL = strings.TrimSpace(r.Security.BaseURL)
+	r.Security.APIKey = strings.TrimSpace(r.Security.APIKey)
+	r.Security.Model = strings.TrimSpace(r.Security.Model)
 	r.Memory.Embedder.Provider = strings.ToLower(strings.TrimSpace(r.Memory.Embedder.Provider))
 	if r.Memory.Embedder.Provider == "" {
 		r.Memory.Embedder.Provider = "openai"
@@ -387,6 +409,9 @@ func (r fileConfig) toConfig() Config {
 		LLMContextWindow:                 r.LLM.ContextWindow,
 		LLMAutoCompactTokenLimit:         r.LLM.AutoCompactTokenLimit,
 		LLMEffectiveContextWindowPercent: r.LLM.EffectiveContextWindowPercent,
+		SecurityAuditBaseURL:             r.Security.BaseURL,
+		SecurityAuditAPIKey:              r.Security.APIKey,
+		SecurityAuditModel:               r.Security.Model,
 		TelegramToken:                    r.Telegram.Token,
 		SkillsDir:                        r.Skills.Dir,
 		SkillsRepoAllowlist:              r.Skills.RepoAllowlist,

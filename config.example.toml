@@ -16,6 +16,11 @@ context_window = 0
 auto_compact_token_limit = 0
 effective_context_window_percent = 95
 
+[security_audit]
+base_url = "https://api.openai.com/v1"
+api_key = "sk-..."
+model = "gpt-4o-mini"
+
 [telegram]
 token = ""
 

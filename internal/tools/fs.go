@@ -85,25 +85,35 @@ func (f *FS) resolvePathWithApproval(ctx context.Context, tc ToolContext, tool, 
 	if !errors.Is(err, errPathDenied) || f.approver == nil {
 		return abs, allowed, err
 	}
+	if err := f.requestApproval(ctx, tc, tool, abs, err.Error()); err != nil {
+		return abs, false, err
+	}
+	return abs, true, nil
+}
+
+func (f *FS) requestApproval(ctx context.Context, tc ToolContext, tool, path, reason string) error {
+	if f == nil || f.approver == nil {
+		return nil
+	}
 	decision, reqErr := f.approver.RequestApproval(ctx, ApprovalRequest{
 		SessionID: tc.SessionID,
 		UserID:    tc.UserID,
 		Tool:      tool,
-		Path:      abs,
-		Reason:    err.Error(),
+		Path:      path,
+		Reason:    reason,
 	})
 	if reqErr != nil {
-		return abs, allowed, reqErr
+		return reqErr
 	}
 	switch decision {
 	case ApprovalAllow:
-		return abs, true, nil
+		return nil
 	case ApprovalStop:
-		return abs, false, ErrApprovalStopped
+		return ErrApprovalStopped
 	case ApprovalDeny:
 		fallthrough
 	default:
-		return abs, false, ErrApprovalDenied
+		return ErrApprovalDenied
 	}
 }
 

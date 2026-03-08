@@ -119,6 +119,10 @@ func main() {
 		agentSvc.SetSessionMessenger(srv)
 		fsTools.SetApprover(srv)
 	}
+	if cfg.SecurityAuditModel != "" {
+		auditClient := llm.NewClient(cfg.SecurityAuditBaseURL, cfg.SecurityAuditAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
+		srv.SetSecurityAudit(auditClient, cfg.SecurityAuditModel)
+	}
 
 	srv.StartTelegramPolling(ctx)
 
