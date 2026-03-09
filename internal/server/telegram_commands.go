@@ -17,6 +17,9 @@ import (
 )
 
 const telegramMessageLimit = 4096
+// Reserve some space for message prefix (e.g., "🧵 Goroutines (1/10)\n\n")
+const telegramMessageReserve = 100
+
 
 func (s *Server) handleTelegramCommand(ctx context.Context, b *bot.Bot, update *models.Update, uid int64, sessionID int64) bool {
 	if update.Message == nil || update.Message.Text == "" {
@@ -153,7 +156,7 @@ func (s *Server) handleGoroutinesCommand(ctx context.Context, b *bot.Bot, update
 	content := buf.String()
 	
 	// Send in multiple messages if content exceeds limit
-	chunks := splitMessage(content, telegramMessageLimit)
+	chunks := splitMessage(content, telegramMessageLimit-telegramMessageReserve)
 	for i, chunk := range chunks {
 		var text string
 		if len(chunks) == 1 {
