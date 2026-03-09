@@ -32,8 +32,9 @@ type ToolCallFn struct {
 type RequestPurpose string
 
 const (
-	PurposeChat     RequestPurpose = "chat"
-	PurposeMemory   RequestPurpose = "memory"
+	PurposeChat    RequestPurpose = "chat"
+	PurposeMemory  RequestPurpose = "memory"
+	PurposeSummary RequestPurpose = "summary"
 	PurposeSecurity RequestPurpose = "security"
 )
 

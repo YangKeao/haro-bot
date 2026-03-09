@@ -105,20 +105,10 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
 		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: summaryMsg})
 	}
-	estimator := s.estimatorForModel(model)
-	budget := computeTokenBudget(s.deps.contextConfig)
 	llmMessages := toLLMMessages(recent)
-	previewMessages := append(append([]llm.Message{}, baseMessages...), llmMessages...)
-	budgeter := NewContextBudgeter(estimator, s.deps.contextConfig)
-	_, previewInfo := budgeter.Trim(previewMessages, 1.0)
-	usage := summaryUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.SummaryBudget}
 	messages := baseMessages
-	if hint := summaryHint(recent, usage); hint != "" {
-		log.Debug("summary hint",
-			zap.Int64("session_id", s.id),
-			zap.Int("tokens_used", usage.TokensUsed),
-			zap.Int("token_budget", usage.TokenBudget),
-		)
+	// Add hint for task-phase transitions and error recovery (context limits handled by auto-compact)
+	if hint := summaryHint(recent); hint != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: hint})
 	}
 	messages = append(messages, llmMessages...)
@@ -159,23 +149,13 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
 		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: summaryMsg})
 	}
-	estimator := s.estimatorForModel(model)
-	budget := computeTokenBudget(s.deps.contextConfig)
 	llmMessages := toLLMMessages(recent)
 	if !storeInSession {
 		llmMessages = append(llmMessages, llm.Message{Role: "user", Content: input})
 	}
-	previewMessages := append(append([]llm.Message{}, baseMessages...), llmMessages...)
-	budgeter := NewContextBudgeter(estimator, s.deps.contextConfig)
-	_, previewInfo := budgeter.Trim(previewMessages, 1.0)
-	usage := summaryUsage{TokensUsed: previewInfo.TokensUsed, TokenBudget: budget.SummaryBudget}
 	messages := baseMessages
-	if hint := summaryHint(recent, usage); hint != "" {
-		log.Debug("summary hint",
-			zap.Int64("session_id", s.id),
-			zap.Int("tokens_used", usage.TokensUsed),
-			zap.Int("token_budget", usage.TokenBudget),
-		)
+	// Add hint for task-phase transitions and error recovery (context limits handled by auto-compact)
+	if hint := summaryHint(recent); hint != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: hint})
 	}
 	messages = append(messages, llmMessages...)
