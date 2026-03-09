@@ -1,6 +1,5 @@
 //go:build integration
 
-
 package e2e_test
 
 import (
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
+	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
@@ -25,10 +25,11 @@ func TestE2ESimpleConversation(t *testing.T) {
 	store := memory.NewStore(gdb)
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
+	guidelinesMgr := guidelines.NewManager(gdb)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, nil, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9001)
@@ -63,13 +64,14 @@ func TestE2EToolExecution(t *testing.T) {
 	store := memory.NewStore(gdb)
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
+	guidelinesMgr := guidelines.NewManager(gdb)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
 	// Register tools that the agent might use
 	registry.Register(tools.NewMemorySearchTool(store))
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, nil, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9002)
@@ -99,11 +101,6 @@ func TestE2EToolExecution(t *testing.T) {
 	if resp == "" {
 		t.Fatal("empty response")
 	}
-	// The response should mention blue
-	if !strings.Contains(strings.ToLower(resp), "blue") {
-		t.Logf("Response: %s", resp)
-		// Note: This might not always work depending on LLM behavior
-	}
 }
 
 // TestE2ESessionInterrupt tests session interruption
@@ -114,13 +111,14 @@ func TestE2ESessionInterrupt(t *testing.T) {
 	store := memory.NewStore(gdb)
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
+	guidelinesMgr := guidelines.NewManager(gdb)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, nil, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9002)
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9003)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -148,12 +146,6 @@ func TestE2ESessionInterrupt(t *testing.T) {
 	if resp == "" {
 		t.Fatal("empty interrupt response")
 	}
-	// Should mention Go or programming
-	respLower := strings.ToLower(resp)
-	if !strings.Contains(respLower, "go") && !strings.Contains(respLower, "programming") {
-		t.Logf("Response: %s", resp)
-		// Note: This test may be flaky depending on LLM
-	}
 }
 
 // TestE2EMultipleSessions tests handling multiple sessions for the same user
@@ -164,13 +156,14 @@ func TestE2EMultipleSessions(t *testing.T) {
 	store := memory.NewStore(gdb)
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
+	guidelinesMgr := guidelines.NewManager(gdb)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, nil, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9003)
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9004)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -211,13 +204,14 @@ func TestE2ESessionStatus(t *testing.T) {
 	store := memory.NewStore(gdb)
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
+	guidelinesMgr := guidelines.NewManager(gdb)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, nil, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9004)
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9005)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
