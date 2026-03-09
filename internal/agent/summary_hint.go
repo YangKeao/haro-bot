@@ -17,23 +17,21 @@ type summarySignal struct {
 	phaseWithTools bool
 }
 
-type summaryUsage struct {
-	TokensUsed  int
-	TokenBudget int
-}
-
-func summaryHint(messages []memory.Message, usage summaryUsage) string {
+// summaryHint generates hints for the LLM to consider creating a summary.
+// Note: Auto-compaction handles context window limits automatically at 85%,
+// so this function only provides hints for task-phase transitions and error recovery.
+func summaryHint(messages []memory.Message) string {
 	if len(messages) == 0 {
 		return ""
 	}
 	signal := analyzeSummarySignal(messages)
-	hints := make([]string, 0, 3)
-	if level := nearLimitLevel(usage.TokensUsed, usage.TokenBudget); level != "" {
-		hints = append(hints, nearLimitHint(level))
-	}
+	hints := make([]string, 0, 2)
+
+	// Hint for task phase completion
 	if signal.phaseWithTools && (signal.fileEditCount > 0 || signal.execCount > 0 || signal.toolCallCount >= 6) {
 		hints = append(hints, "Optional summary: a tool-driven phase just completed. Summarize if it helps preserve state before switching tasks.")
 	}
+	// Hint for error recovery
 	if signal.phaseWithTools && signal.toolErrorCount >= 2 {
 		hints = append(hints, "Recommended summary: multiple tool errors occurred. Summarize to capture failure context before retrying or changing approach.")
 	}
@@ -103,34 +101,4 @@ func countToolCalls(calls []llm.ToolCall) (toolCalls, fileEdits, execs int) {
 		}
 	}
 	return toolCalls, fileEdits, execs
-}
-
-func nearLimitLevel(tokensUsed, tokenBudget int) string {
-	if tokenBudget <= 0 || tokensUsed <= 0 {
-		return ""
-	}
-	ratio := float64(tokensUsed) / float64(tokenBudget)
-	switch {
-	case ratio >= 0.95:
-		return "critical"
-	case ratio >= 0.85:
-		return "high"
-	case ratio >= 0.75:
-		return "medium"
-	default:
-		return ""
-	}
-}
-
-func nearLimitHint(level string) string {
-	switch level {
-	case "critical":
-		return "Context window is critical. Summarize now unless you will finish in the next reply."
-	case "high":
-		return "Context window is tight. Prefer summarizing unless you expect to finish within 1-2 replies."
-	case "medium":
-		return "Context window is getting long. Consider summarizing if more steps remain."
-	default:
-		return ""
-	}
 }
