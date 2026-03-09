@@ -107,6 +107,9 @@ func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model st
 		var handler llm.StreamHandler
 		if observer != nil {
 			handler = func(event llm.StreamEvent) {
+				if event.ReasoningDelta != "" {
+					observer.OnLLMReasoningDelta(ctx, event.ReasoningDelta)
+				}
 				if event.Delta != "" {
 					observer.OnLLMStreamDelta(ctx, event.Delta)
 				}

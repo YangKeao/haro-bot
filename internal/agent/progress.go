@@ -14,5 +14,6 @@ type LLMStartInfo struct {
 type ProgressObserver interface {
 	OnLLMStart(ctx context.Context, info LLMStartInfo)
 	OnLLMStreamDelta(ctx context.Context, delta string)
+	OnLLMReasoningDelta(ctx context.Context, delta string)
 	OnToolCalls(ctx context.Context, calls []llm.ToolCall, content string)
 }
