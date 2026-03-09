@@ -127,7 +127,7 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 		zap.Bool("stream", forceStream),
 	)
 
-	resp, err := streamChatCompletion(ctx, c.client, params, req.StreamHandler)
+	result, err := streamChatCompletion(ctx, c.client, params, req.StreamHandler)
 	if err != nil {
 		if norm := normalizeChatCompletionError(err, nil); norm != nil {
 			return out, norm
@@ -135,10 +135,10 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 		log.Error("chat completions stream error", zap.Duration("latency", time.Since(start)), zap.Error(err))
 		return out, err
 	}
-	if norm := normalizeChatCompletionError(nil, resp); norm != nil {
+	if norm := normalizeChatCompletionError(nil, result.completion); norm != nil {
 		return out, norm
 	}
-	out = chatCompletionToChat(resp)
+	out = chatCompletionToChat(result.completion, result.reasoningContent)
 	if len(out.Choices) == 0 || (out.Choices[0].Message.Content == "" && len(out.Choices[0].Message.ToolCalls) == 0) {
 		return out, errors.New("empty llm response")
 	}

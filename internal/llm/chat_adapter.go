@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"encoding/json"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/packages/param"
@@ -134,24 +133,14 @@ func buildChatTools(tools []Tool) []openai.ChatCompletionToolParam {
 	return out
 }
 
-func chatCompletionToChat(resp *openai.ChatCompletion) ChatResponse {
+// chatCompletionToChat converts openai ChatCompletion to our ChatResponse.
+// reasoningContent is the accumulated reasoning content from streaming (for GLM/DeepSeek).
+func chatCompletionToChat(resp *openai.ChatCompletion, reasoningContent string) ChatResponse {
 	content := ""
-	reasoningContent := ""
 	toolCalls := []ToolCall(nil)
 	if resp != nil && len(resp.Choices) > 0 {
 		msg := resp.Choices[0].Message
 		content = msg.Content
-		// Extract reasoning content if present (from ExtraFields for GLM/DeepSeek compatibility)
-		if field, ok := msg.JSON.ExtraFields["reasoning_content"]; ok && field.Valid() {
-			raw := field.Raw()
-			if raw != "" {
-				// Raw returns the JSON-encoded value, need to unmarshal it
-				if err := json.Unmarshal([]byte(raw), &reasoningContent); err != nil {
-					// If unmarshal fails, use raw value directly
-					reasoningContent = raw
-				}
-			}
-		}
 		for _, call := range msg.ToolCalls {
 			toolCalls = append(toolCalls, ToolCall{
 				ID:   call.ID,
