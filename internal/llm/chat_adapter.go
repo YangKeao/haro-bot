@@ -47,7 +47,11 @@ func buildChatMessages(messages []Message) []openai.ChatCompletionMessageParamUn
 			if len(msg.ToolCalls) > 0 {
 				assistant.ToolCalls = buildChatToolCalls(msg.ToolCalls)
 			}
-			if msg.Content == "" && len(assistant.ToolCalls) == 0 {
+			// Add reasoning content if present (for models like o1, deepseek-reasoner)
+			if msg.ReasoningContent != "" {
+				assistant.ReasoningContent = openai.String(msg.ReasoningContent)
+			}
+			if msg.Content == "" && len(assistant.ToolCalls) == 0 && msg.ReasoningContent == "" {
 				continue
 			}
 			out = append(out, openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant})
@@ -130,10 +134,13 @@ func buildChatTools(tools []Tool) []openai.ChatCompletionToolParam {
 
 func chatCompletionToChat(resp *openai.ChatCompletion) ChatResponse {
 	content := ""
+	reasoningContent := ""
 	toolCalls := []ToolCall(nil)
 	if resp != nil && len(resp.Choices) > 0 {
 		msg := resp.Choices[0].Message
 		content = msg.Content
+		// Extract reasoning content if present
+		reasoningContent = msg.ReasoningContent
 		for _, call := range msg.ToolCalls {
 			toolCalls = append(toolCalls, ToolCall{
 				ID:   call.ID,
@@ -146,9 +153,10 @@ func chatCompletionToChat(resp *openai.ChatCompletion) ChatResponse {
 		}
 	}
 	msg := Message{
-		Role:      "assistant",
-		Content:   content,
-		ToolCalls: toolCalls,
+		Role:             "assistant",
+		Content:          content,
+		ReasoningContent: reasoningContent,
+		ToolCalls:        toolCalls,
 	}
 	model := ""
 	created := int64(0)

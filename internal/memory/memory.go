@@ -34,8 +34,9 @@ type Message struct {
 	CreatedAt time.Time
 }
 
-// MessageMetadata captures tool calls, tool outputs, and other message state.
+// MessageMetadata captures tool calls, tool outputs, reasoning content, and other message state.
 type MessageMetadata struct {
+	ReasoningContent     string         `json:"reasoning_content,omitempty"`
 	ToolCallID           string         `json:"tool_call_id,omitempty"`
 	ToolCalls            []llm.ToolCall `json:"tool_calls,omitempty"`
 	Status               string         `json:"status,omitempty"`

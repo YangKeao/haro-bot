@@ -174,7 +174,7 @@ func toLLMMessages(msgs []memory.Message) []llm.Message {
 }
 
 func toLLMMessage(m memory.Message) llm.Message {
-	llmMsg := llm.Message{Role: m.Role, Content: m.Content}
+	llmMsg := llm.Message{Role: m.Role, Content: m.Content, ReasoningContent: m.Metadata.ReasoningContent}
 	if m.Metadata != nil {
 		if m.Metadata.ToolCallID != "" {
 			llmMsg.ToolCallID = m.Metadata.ToolCallID
