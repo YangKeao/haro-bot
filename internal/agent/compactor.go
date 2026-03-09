@@ -18,6 +18,10 @@ const (
 	compactMinMessages = 6
 	// summaryReserveTokens is the token budget reserved for the summary output
 	summaryReserveTokens = 2000
+	// compactMaxRetries is the maximum number of retries when context window is exceeded
+	compactMaxRetries = 3
+	// compactRetryScale is the scale factor for trimming before retrying compact
+	compactRetryScale = 0.7
 )
 
 // Compactor handles automatic context compaction by generating LLM summaries.
@@ -50,6 +54,8 @@ func (c *Compactor) ShouldCompact(messages []llm.Message, budget int) bool {
 
 // Compact generates a summary of messages and stores it, returning the summary.
 // It preserves system messages and recent user messages while summarizing the conversation.
+// If the summary request exceeds the context window, it will retry with progressively
+// smaller message sets.
 func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm.Message, budget int) (*memory.Summary, error) {
 	log := logging.L().Named("compactor")
 	if c.llm == nil || c.store == nil {
@@ -68,73 +74,100 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 		return nil, fmt.Errorf("not enough messages to compact")
 	}
 
-	// Build the summary prompt with conversation history
-	summaryPrompt := buildCompactPrompt(conversation)
-	summaryReq := []llm.Message{
-		{Role: "user", Content: summaryPrompt},
-	}
-
 	// Reserve tokens for the summary output
 	availableBudget := budget - summaryReserveTokens
 	if availableBudget < 1000 {
 		availableBudget = 1000
 	}
 
-	// Trim the conversation to fit in budget for the summary request
-	if c.estimator != nil {
-		tokens := c.estimator.CountMessages(summaryReq)
-		if tokens > availableBudget {
-			// Keep only recent messages for summarization
-			trimmed := selectLLMMessagesByTokens(conversation, c.estimator, availableBudget-tokens)
-			summaryReq = []llm.Message{{Role: "user", Content: buildCompactPrompt(trimmed)}}
+	scale := 1.0
+	var lastErr error
+
+	for attempt := 0; attempt <= compactMaxRetries; attempt++ {
+		// Trim the conversation to fit in budget for the summary request
+		var toSummarize []llm.Message
+		if c.estimator != nil {
+			scaledBudget := int(float64(availableBudget) * scale)
+			if scaledBudget < 500 {
+				scaledBudget = 500
+			}
+			// Estimate prompt template overhead
+			templateOverhead := 200
+			targetTokens := scaledBudget - templateOverhead
+			if targetTokens < 300 {
+				targetTokens = 300
+			}
+			toSummarize = selectLLMMessagesByTokens(conversation, c.estimator, targetTokens)
+		} else {
+			toSummarize = conversation
 		}
+
+		summaryPrompt := buildCompactPrompt(toSummarize)
+		summaryReq := []llm.Message{{Role: "user", Content: summaryPrompt}}
+
+		log.Debug("generating context summary",
+			zap.Int64("session_id", sessionID),
+			zap.Int("attempt", attempt),
+			zap.Float64("scale", scale),
+			zap.Int("messages", len(toSummarize)),
+		)
+
+		// Call LLM to generate summary
+		resp, err := c.llm.Chat(ctx, llm.ChatRequest{
+			Model:    c.model,
+			Messages: summaryReq,
+			Purpose:  llm.PurposeSummary,
+		})
+		if err != nil {
+			lastErr = err
+			if llm.IsContextWindowExceeded(err) && attempt < compactMaxRetries {
+				log.Warn("summary request exceeded context, retrying with smaller scale",
+					zap.Int64("session_id", sessionID),
+					zap.Int("attempt", attempt),
+					zap.Float64("scale", scale),
+					zap.Error(err),
+				)
+				scale *= compactRetryScale
+				continue
+			}
+			log.Error("summary generation failed", zap.Error(err))
+			return nil, err
+		}
+
+		if len(resp.Choices) == 0 {
+			return nil, fmt.Errorf("empty summary response")
+		}
+
+		summary := &memory.Summary{
+			SessionID: sessionID,
+			Summary:   resp.Choices[0].Message.Content,
+			Phase:     "auto-compact",
+		}
+
+		// Get the latest message ID to mark what was summarized
+		latest, _, err := c.store.LoadViewMessages(ctx, sessionID, 1)
+		if err == nil && len(latest) > 0 {
+			summary.EntryID = latest[len(latest)-1].ID
+		}
+
+		// Store the summary
+		_, err = c.store.AppendSummary(ctx, sessionID, *summary)
+		if err != nil {
+			log.Error("failed to store summary", zap.Error(err))
+			return nil, err
+		}
+
+		log.Info("context compacted",
+			zap.Int64("session_id", sessionID),
+			zap.Int("original_messages", len(conversation)),
+			zap.Int("summarized_messages", len(toSummarize)),
+			zap.Int("attempts", attempt+1),
+		)
+
+		return summary, nil
 	}
 
-	log.Debug("generating context summary",
-		zap.Int64("session_id", sessionID),
-		zap.Int("messages", len(conversation)),
-	)
-
-	// Call LLM to generate summary
-	resp, err := c.llm.Chat(ctx, llm.ChatRequest{
-		Model:    c.model,
-		Messages: summaryReq,
-		Purpose:  llm.PurposeSummary,
-	})
-	if err != nil {
-		log.Error("summary generation failed", zap.Error(err))
-		return nil, err
-	}
-
-	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("empty summary response")
-	}
-
-	summary := &memory.Summary{
-		SessionID: sessionID,
-		Summary:   resp.Choices[0].Message.Content,
-		Phase:     "auto-compact",
-	}
-
-	// Get the latest message ID to mark what was summarized
-	latest, _, err := c.store.LoadViewMessages(ctx, sessionID, 1)
-	if err == nil && len(latest) > 0 {
-		summary.EntryID = latest[len(latest)-1].ID
-	}
-
-	// Store the summary
-	_, err = c.store.AppendSummary(ctx, sessionID, *summary)
-	if err != nil {
-		log.Error("failed to store summary", zap.Error(err))
-		return nil, err
-	}
-
-	log.Info("context compacted",
-		zap.Int64("session_id", sessionID),
-		zap.Int("original_messages", len(conversation)),
-	)
-
-	return summary, nil
+	return nil, fmt.Errorf("compact failed after %d retries: %w", compactMaxRetries, lastErr)
 }
 
 // buildCompactPrompt creates the summarization prompt for a general-purpose agent.
