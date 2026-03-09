@@ -20,12 +20,11 @@ import (
 	"github.com/YangKeao/haro-bot/internal/tools"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 func main() {
 	configPath := flag.String("config", "config.toml", "path to config file")
-	unrestricted := flag.Bool("unrestricted", false, "skip path restrictions and symlink checks (audit logging still enabled)")
+	unrestricted := flag.Bool("unrestricted", false, "skip path restrictions and symlink checks")
 	flag.Parse()
 
 	bootLogger, _ := zap.NewProduction()
@@ -47,173 +46,33 @@ func main() {
 	defer func() { _ = logger.Sync() }()
 
 	app := fx.New(
-		// Supply config and flags
 		fx.Supply(cfg),
-		fx.Provide(func() *bool { return unrestricted }),
+		fx.Supply(unrestricted),
+		fx.Provide(func() *zap.Logger { return logger }),
 
-		// Core providers
+		// Core modules
+		db.Module,
+		llm.Module,
+		memory.Module,
+		skills.Module,
+		guidelines.Module,
+		tools.Module,
+		agent.Module,
+		fork.Module,
+		server.Module,
+
+		// Named values for agent.Params
 		fx.Provide(
-			// Database
-			NewDB,
-			// Stores
-			NewMemoryStore,
-			NewSkillsStore,
-			NewAuditStore,
-			// Managers
-			NewSkillsManager,
-			NewGuidelinesManager,
-			// LLM
-			NewLLMClient,
-			NewContextConfig,
-			NewReasoningConfig,
-			NewMemoryEngine,
-			// Tools
-			NewFS,
-			NewBrowserManager,
-			NewExecManager,
-			NewToolRegistry,
-			// Named values for agent.Params
-			fx.Annotate(
-				func(cfg *config.Config) string { return cfg.LLMModel },
-				fx.ResultTags(`name:"llm_model"`),
-			),
-			fx.Annotate(
-				func(cfg *config.Config) string { return string(cfg.LLMPromptFormat) },
-				fx.ResultTags(`name:"prompt_format"`),
-			),
-			fx.Annotate(
-				func(fs *tools.FS) string { return fs.DefaultBase() },
-				fx.ResultTags(`name:"default_base_dir"`),
-			),
-			fx.Annotate(
-				func(cfg *config.Config) int { return cfg.ToolMaxTurns },
-				fx.ResultTags(`name:"max_tool_turns"`),
-			),
+			fx.Annotate(func(cfg *config.Config) string { return cfg.LLMModel }, fx.ResultTags(`name:"llm_model"`)),
+			fx.Annotate(func(cfg *config.Config) string { return string(cfg.LLMPromptFormat) }, fx.ResultTags(`name:"prompt_format"`)),
+			fx.Annotate(func(fs *tools.FS) string { return fs.DefaultBase() }, fx.ResultTags(`name:"default_base_dir"`)),
+			fx.Annotate(func(cfg *config.Config) int { return cfg.ToolMaxTurns }, fx.ResultTags(`name:"max_tool_turns"`)),
 		),
 
-		// Agent module
-		agent.Module,
-
-		// Fork and server
-		fx.Provide(NewForkManager, NewServer),
-
-		// Lifecycle
 		fx.Invoke(RunApp),
 	)
 
 	app.Run()
-}
-
-// NewDB creates database connection with lifecycle management
-func NewDB(lc fx.Lifecycle, cfg *config.Config, log *zap.Logger) *gorm.DB {
-	conn, err := db.Open(cfg.TiDBDSN)
-	if err != nil {
-		log.Fatal("db open failed", zap.Error(err))
-	}
-	if err := db.ApplyMigrations(conn, cfg.Memory); err != nil {
-		log.Fatal("db migrations failed", zap.Error(err))
-	}
-	lc.Append(fx.StopHook(func() error {
-		sqlDB, _ := conn.DB()
-		return sqlDB.Close()
-	}))
-	return conn
-}
-
-func NewMemoryStore(dbConn *gorm.DB) memory.StoreAPI {
-	return memory.NewStore(dbConn)
-}
-
-func NewSkillsStore(dbConn *gorm.DB) *skills.Store {
-	return skills.NewStore(dbConn)
-}
-
-func NewAuditStore(dbConn *gorm.DB) *tools.AuditStore {
-	return tools.NewAuditStore(dbConn)
-}
-
-func NewSkillsManager(store *skills.Store, cfg *config.Config) *skills.Manager {
-	return skills.NewManager(store, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
-}
-
-func NewGuidelinesManager(dbConn *gorm.DB) *guidelines.Manager {
-	return guidelines.NewManager(dbConn)
-}
-
-func NewFS(cfg *config.Config, auditStore *tools.AuditStore, unrestricted *bool) *tools.FS {
-	return tools.NewFS(cfg.FSAllowedRoots, auditStore, *unrestricted)
-}
-
-func NewBrowserManager() *tools.BrowserManager {
-	return tools.NewBrowserManager()
-}
-
-func NewExecManager() *tools.ExecManager {
-	return tools.NewExecManager()
-}
-
-func NewToolRegistry(
-	browserMgr *tools.BrowserManager,
-	fsTools *tools.FS,
-	execMgr *tools.ExecManager,
-	cfg *config.Config,
-	skillsMgr *skills.Manager,
-	store memory.StoreAPI,
-	guidelinesMgr *guidelines.Manager,
-) *tools.Registry {
-	return tools.NewRegistry(
-		tools.NewBrowserGotoTool(browserMgr),
-		tools.NewBrowserGoBackTool(browserMgr),
-		tools.NewBrowserGetPageStateTool(browserMgr),
-		tools.NewBrowserTakeScreenshotTool(browserMgr),
-		tools.NewBrowserClickTool(browserMgr),
-		tools.NewBrowserFillTextTool(browserMgr),
-		tools.NewBrowserPressKeyTool(browserMgr),
-		tools.NewBrowserScrollTool(browserMgr),
-		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
-		tools.NewSessionSummaryTool(store),
-		tools.NewMemorySearchTool(store),
-		tools.NewInstallSkillTool(skillsMgr),
-		tools.NewActivateSkillTool(skillsMgr),
-		tools.NewGrepFilesTool(fsTools),
-		tools.NewReadFileTool(fsTools),
-		tools.NewListDirTool(fsTools),
-		tools.NewExecCommandTool(fsTools, execMgr),
-		tools.NewWriteStdinTool(execMgr),
-		tools.NewUpdateGuidelinesTool(guidelinesMgr),
-	)
-}
-
-func NewLLMClient(cfg *config.Config) *llm.Client {
-	return llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
-}
-
-func NewContextConfig(cfg *config.Config) llm.ContextConfig {
-	return llm.ContextConfig{
-		WindowTokens:                  cfg.LLMContextWindow,
-		AutoCompactTokenLimit:         cfg.LLMAutoCompactTokenLimit,
-		EffectiveContextWindowPercent: cfg.LLMEffectiveContextWindowPercent,
-	}
-}
-
-func NewReasoningConfig(cfg *config.Config) llm.ReasoningConfig {
-	return llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort}
-}
-
-func NewMemoryEngine(dbConn *gorm.DB, store memory.StoreAPI, llmClient *llm.Client, cfg *config.Config, log *zap.Logger) *memory.Engine {
-	engine, err := memory.NewEngine(dbConn, store, llmClient, cfg.LLMModel, cfg.Memory)
-	if err != nil {
-		log.Fatal("memory engine init failed", zap.Error(err))
-	}
-	return engine
-}
-
-func NewForkManager(agentSvc *agent.Agent, store memory.StoreAPI) *fork.Manager {
-	return fork.NewManager(agentSvc, store)
-}
-
-func NewServer(cfg *config.Config, agentSvc *agent.Agent, store memory.StoreAPI, skillsMgr *skills.Manager, memoryEngine *memory.Engine) *server.Server {
-	return server.New(*cfg, agentSvc, store, skillsMgr, memoryEngine)
 }
 
 // RunApp is the main application invoker
@@ -231,7 +90,7 @@ func RunApp(
 ) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Register fork tools (these need forkMgr which depends on agent)
+	// Register fork tools
 	toolRegistry.Register(fork.NewForkTool(forkMgr))
 	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))
 	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
