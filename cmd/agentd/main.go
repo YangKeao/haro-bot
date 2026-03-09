@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,6 +26,7 @@ import (
 func main() {
 	configPath := flag.String("config", "config.toml", "path to config file")
 	unrestricted := flag.Bool("unrestricted", false, "skip path restrictions and symlink checks (audit logging still enabled)")
+	httpListen := flag.String("http-addr", "", "HTTP listen address for pprof and future APIs (e.g. :6060)")
 	flag.Parse()
 
 	bootLogger, _ := zap.NewProduction()
@@ -149,6 +151,18 @@ func main() {
 		}
 	}()
 
+	// HTTP API server with pprof endpoint
+	var apiServer *http.Server
+	if *httpListen != "" {
+		apiServer = newAPIServer(*httpListen, log)
+		go func() {
+			log.Info("API server listening", zap.String("addr", *httpListen))
+			if err := apiServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Error("API server error", zap.Error(err))
+			}
+		}()
+	}
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
@@ -156,6 +170,26 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	_ = httpServer.Shutdown(shutdownCtx)
+	if apiServer != nil {
+		_ = apiServer.Shutdown(shutdownCtx)
+	}
+}
+
+func newAPIServer(addr string, log *zap.Logger) *http.Server {
+	mux := http.NewServeMux()
+
+	// Mount pprof handlers under /pprof/
+	mux.HandleFunc("/pprof/", pprof.Index)
+	mux.HandleFunc("/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/pprof/trace", pprof.Trace)
+	// goroutine endpoint is part of the index, accessible via /pprof/goroutine
+
+	return &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
 }
 
 func syncLoop(ctx context.Context, mgr *skills.Manager, interval time.Duration) {
