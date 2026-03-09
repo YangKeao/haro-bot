@@ -117,7 +117,7 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 	}
 
 	// Get the latest message ID to mark what was summarized
-	latest, err := c.store.LoadViewMessages(ctx, sessionID, 1)
+	latest, _, err := c.store.LoadViewMessages(ctx, sessionID, 1)
 	if err == nil && len(latest) > 0 {
 		summary.EntryID = latest[len(latest)-1].ID
 	}
