@@ -95,15 +95,9 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 		zap.Int("messages", len(conversation)),
 	)
 
-	// Use the configured model or a default
-	model := c.model
-	if model == "" {
-		model = "gpt-4o-mini"
-	}
-
 	// Call LLM to generate summary
 	resp, err := c.llm.Chat(ctx, llm.ChatRequest{
-		Model:    model,
+		Model:    c.model,
 		Messages: summaryReq,
 		Purpose:  llm.PurposeSummary,
 	})
