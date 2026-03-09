@@ -179,44 +179,69 @@ func sendTelegramMessage(ctx context.Context, log *zap.Logger, b *bot.Bot, param
 }
 
 const (
-	telegramMaxMessageRunes  = 4096
-	telegramSafeMessageRunes = 3800
+	// Telegram message limit is 4096 bytes (not characters)
+	// https://core.telegram.org/bots/api#sendmessage
+	telegramMaxMessageBytes  = 4096
+	telegramSafeMessageBytes = 3800 // Safe limit to account for overhead
 )
 
+// splitTelegramMessage splits text into chunks that fit within Telegram's byte limit.
+// It prefers to split on newlines to preserve readability.
 func splitTelegramMessage(text string) []string {
 	if text == "" {
 		return nil
 	}
-	max := telegramSafeMessageRunes
-	if max <= 0 || max > telegramMaxMessageRunes {
-		max = telegramMaxMessageRunes
+	maxBytes := telegramSafeMessageBytes
+	if maxBytes <= 0 || maxBytes > telegramMaxMessageBytes {
+		maxBytes = telegramMaxMessageBytes
 	}
-	if utf8.RuneCountInString(text) <= max {
+
+	// Fast path: if the entire message fits in bytes, return as-is
+	if len(text) <= maxBytes {
 		return []string{text}
 	}
+
+	// Need to split by bytes, preserving valid UTF-8 boundaries
 	runes := []rune(text)
-	if len(runes) <= max {
-		return []string{text}
-	}
-	parts := make([]string, 0, (len(runes)/max)+1)
-	for start := 0; start < len(runes); {
-		end := start + max
+	var parts []string
+
+	start := 0
+	for start < len(runes) {
+		end := len(runes)
+		// Calculate byte length of runes[start:end]
+		byteLen := 0
+		for i := start; i < len(runes); i++ {
+			runeBytes := utf8.RuneLen(runes[i])
+			if byteLen+runeBytes > maxBytes {
+				end = i
+				break
+			}
+			byteLen += runeBytes
+		}
+
+		// If we couldn't fit any runes, take at least one
+		if end == start {
+			end = start + 1
+		}
+
+		// If we've consumed all runes, add the last part and break
 		if end >= len(runes) {
 			parts = append(parts, string(runes[start:]))
 			break
 		}
-		split := end
+
+		// Try to find a newline to split on (look backwards from end)
+		splitPos := end
 		for i := end - 1; i > start; i-- {
 			if runes[i] == '\n' {
-				split = i + 1
+				splitPos = i + 1
 				break
 			}
 		}
-		if split == start {
-			split = end
-		}
-		parts = append(parts, string(runes[start:split]))
-		start = split
+
+		parts = append(parts, string(runes[start:splitPos]))
+		start = splitPos
 	}
+
 	return parts
 }

@@ -41,7 +41,7 @@ type telegramProgress struct {
 	typingCancel  context.CancelFunc
 	streamBaseID  int64
 	streamText    string
-	lastSentRunes int
+	lastSentBytes int
 	lastDraftSent time.Time
 	sequence      int64
 
@@ -81,10 +81,10 @@ func (p *telegramProgress) OnLLMStreamDelta(ctx context.Context, delta string) {
 	defer p.mu.Unlock()
 
 	p.streamText += delta
-	currentRunes := utf8.RuneCountInString(p.streamText)
-	runesDelta := currentRunes - p.lastSentRunes
+	currentBytes := len(p.streamText)
+	bytesDelta := currentBytes - p.lastSentBytes
 	elapsed := time.Since(p.lastDraftSent)
-	if runesDelta < draftMinDeltaRunes && elapsed < draftMinInterval {
+	if bytesDelta < draftMinDeltaRunes && elapsed < draftMinInterval {
 		return
 	}
 	now := time.Now()
@@ -93,8 +93,8 @@ func (p *telegramProgress) OnLLMStreamDelta(ctx context.Context, delta string) {
 	}
 	baseID := p.streamBaseID
 	text := p.streamText
-	lastSent := p.lastSentRunes
-	if currentRunes <= lastSent {
+	lastSent := p.lastSentBytes
+	if currentBytes <= lastSent {
 		return
 	}
 	wait, err := p.sendDraftOnce(ctx, baseID, text)
@@ -108,7 +108,7 @@ func (p *telegramProgress) OnLLMStreamDelta(ctx context.Context, delta string) {
 	if err != nil {
 		return
 	}
-	p.lastSentRunes = currentRunes
+	p.lastSentBytes = currentBytes
 	p.lastDraftSent = time.Now()
 	p.draftRetryUntil = time.Time{}
 }
@@ -228,7 +228,7 @@ func (p *telegramProgress) resetStream() {
 	p.mu.Lock()
 	p.streamBaseID = p.nextDraftBase()
 	p.streamText = ""
-	p.lastSentRunes = 0
+	p.lastSentBytes = 0
 	p.lastDraftSent = time.Time{}
 	p.draftRetryUntil = time.Time{}
 	p.mu.Unlock()
@@ -252,11 +252,11 @@ func (p *telegramProgress) sendDraftOnce(ctx context.Context, baseID int64, text
 	if text == "" {
 		return 0, nil
 	}
-	// For draft messages, truncate to safe limit instead of splitting.
+	// For draft messages, truncate to safe byte limit instead of splitting.
 	// We keep the last part because the most recent content is at the end.
-	if utf8.RuneCountInString(text) > telegramSafeMessageRunes {
-		runes := []rune(text)
-		text = string(runes[len(runes)-telegramSafeMessageRunes:])
+	if len(text) > telegramSafeMessageBytes {
+		// Truncate from the beginning, keeping valid UTF-8
+		text = truncateToByteLimit(text, telegramSafeMessageBytes)
 	}
 	params := &bot.SendMessageDraftParams{
 		ChatID:    p.chatID,
@@ -271,6 +271,33 @@ func (p *telegramProgress) sendDraftOnce(ctx context.Context, baseID int64, text
 		params.BusinessConnectionID = p.businessConnectionID
 	}
 	return sendTelegramDraftOnce(ctx, p.log, p.bot, params)
+}
+
+// truncateToByteLimit truncates text to fit within maxBytes, keeping the end portion.
+// It ensures valid UTF-8 by not cutting in the middle of a multibyte character.
+func truncateToByteLimit(text string, maxBytes int) string {
+	if len(text) <= maxBytes {
+		return text
+	}
+	
+	// Find the starting position that gives us maxBytes
+	// Start from the end and work backwards
+	runes := []rune(text)
+	startByte := len(text) - maxBytes
+	
+	// Find the rune index that corresponds to startByte
+	bytePos := 0
+	startRune := 0
+	for i, r := range runes {
+		if bytePos >= startByte {
+			startRune = i
+			break
+		}
+		bytePos += utf8.RuneLen(r)
+	}
+	
+	// Return from startRune to end
+	return string(runes[startRune:])
 }
 
 func sendTelegramDraftOnce(ctx context.Context, log *zap.Logger, b *bot.Bot, params *bot.SendMessageDraftParams) (time.Duration, error) {
