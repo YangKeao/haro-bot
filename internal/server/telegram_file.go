@@ -245,7 +245,7 @@ func formatFileContent(fileType, filename, mimeType, content string) string {
 	return fmt.Sprintf("[%s: %s (%s)]\n%s", fileType, filename, mimeType, content)
 }
 
-func formatFileInfo(fileType, filename, mimeType string, size int) string {
+func formatFileInfo(fileType, filename, mimeType string, size int64) string {
 	return fmt.Sprintf("[%s: %s (%s, %d bytes)]", fileType, filename, mimeType, size)
 }
 
