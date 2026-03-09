@@ -99,7 +99,7 @@ func main() {
 	)
 	
 	// Use factory function to create appropriate LLM client
-	llmClient := llm.NewLLMClient(cfg)
+	llmClient := llm.NewLLMClient(cfg, dbConn)
 	
 	contextCfg := llm.ContextConfig{
 		WindowTokens:                  cfg.LLMContextWindow,

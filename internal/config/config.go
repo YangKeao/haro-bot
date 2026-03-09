@@ -19,7 +19,6 @@ type LogConfig struct {
 // CodexOAuthConfig configures ChatGPT Codex OAuth authentication.
 type CodexOAuthConfig struct {
 	Enabled     bool   `toml:"enabled"`
-	TokenFile   string `toml:"token_file"`
 	AutoRefresh bool   `toml:"auto_refresh"`
 	Model       string `toml:"model"`
 }
@@ -343,7 +342,6 @@ func (r *fileConfig) normalize() {
 		r.Memory.Vector.Distance = "cosine"
 	}
 	r.CodexOAuth.Model = strings.TrimSpace(r.CodexOAuth.Model)
-	r.CodexOAuth.TokenFile = strings.TrimSpace(r.CodexOAuth.TokenFile)
 }
 
 func (r fileConfig) toConfig() Config {

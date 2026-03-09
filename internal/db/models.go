@@ -122,3 +122,19 @@ type Guidelines struct {
 }
 
 func (Guidelines) TableName() string { return "constitutions" }
+
+// OAuthToken stores OAuth tokens for external services
+type OAuthToken struct {
+	ID           int64     `gorm:"primaryKey;autoIncrement"`
+	Provider     string    `gorm:"column:provider;size:32;uniqueIndex"`
+	AccessToken  string    `gorm:"column:access_token;type:text"`
+	RefreshToken string    `gorm:"column:refresh_token;type:text"`
+	ExpiresAt    *time.Time `gorm:"column:expires_at"`
+	Email        string    `gorm:"column:email;size:255"`
+	AccountID    string    `gorm:"column:account_id;size:128"`
+	ExtraJSON    datatypes.JSON `gorm:"column:extra_json;type:json"`
+	CreatedAt    time.Time `gorm:"column:created_at"`
+	UpdatedAt    time.Time `gorm:"column:updated_at"`
+}
+
+func (OAuthToken) TableName() string { return "oauth_tokens" }

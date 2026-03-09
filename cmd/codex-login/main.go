@@ -8,20 +8,51 @@ import (
 	"os"
 	"strings"
 
+	"github.com/YangKeao/haro-bot/internal/config"
+	"github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/llm"
+	"github.com/YangKeao/haro-bot/internal/logging"
 )
 
 func main() {
-	tokenFile := flag.String("token-file", "", "path to store OAuth token (default: ~/.codex/auth.json)")
+	configPath := flag.String("config", "config.toml", "path to config file")
 	flag.Parse()
+
+	// Load config to get database DSN
+	cfg, err := config.LoadFromFile(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Initialize logging
+	if _, err := logging.Init(logging.Config{
+		Level:       cfg.Log.Level,
+		Development: cfg.Log.Development,
+		Encoding:    cfg.Log.Encoding,
+	}); err != nil {
+		// Continue without structured logging
+	}
+
+	// Connect to database
+	dbConn, err := db.Open(cfg.TiDBDSN)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to connect to database: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Apply migrations to ensure oauth_tokens table exists
+	if err := db.ApplyMigrations(dbConn, cfg.Memory); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to apply migrations: %v\n", err)
+		os.Exit(1)
+	}
 
 	oauthConfig := llm.OAuthConfig{
 		Enabled:     true,
-		TokenFile:   *tokenFile,
 		AutoRefresh: true,
 	}
 
-	manager := llm.NewCodexOAuthManager(oauthConfig)
+	manager := llm.NewCodexOAuthManager(oauthConfig, dbConn)
 
 	if manager.IsAuthenticated() {
 		fmt.Println("✅ Already authenticated!")
@@ -88,15 +119,12 @@ func main() {
 	fmt.Println()
 	fmt.Println("✅ Successfully authenticated!")
 	fmt.Println()
-	fmt.Println("You can now use ChatGPT Codex OAuth in haro-bot.")
+	fmt.Println("OAuth token has been stored in the database.")
 	fmt.Println()
 	fmt.Println("Add this to your config.toml:")
 	fmt.Println()
 	fmt.Println("[codex_oauth]")
 	fmt.Println("enabled = true")
-	if *tokenFile != "" {
-		fmt.Printf("token_file = \"%s\"\n", *tokenFile)
-	}
 	fmt.Println("auto_refresh = true")
 	fmt.Println("model = \"gpt-4o\"  # or gpt-4o-mini, gpt-4-turbo, etc.")
 }
