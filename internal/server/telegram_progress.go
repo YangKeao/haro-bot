@@ -147,6 +147,33 @@ func (p *telegramProgress) OnToolCalls(ctx context.Context, calls []llm.ToolCall
 	}
 }
 
+// ClearDraft clears the draft message by sending an empty draft with the same draftId.
+// This should be called before sending the final message to avoid the draft being displayed
+// simultaneously with the final message.
+func (p *telegramProgress) ClearDraft(ctx context.Context) {
+	if p == nil || p.bot == nil {
+		return
+	}
+	p.mu.Lock()
+	baseID := p.streamBaseID
+	p.mu.Unlock()
+	if baseID == 0 {
+		return
+	}
+	params := &bot.SendMessageDraftParams{
+		ChatID:  p.chatID,
+		DraftID: strconv.FormatInt(baseID+1, 10),
+		Text:    "",
+	}
+	if p.threadID > 0 {
+		params.MessageThreadID = p.threadID
+	}
+	if p.businessConnectionID != "" {
+		params.BusinessConnectionID = p.businessConnectionID
+	}
+	_, _ = p.bot.SendMessageDraft(ctx, params)
+}
+
 func (p *telegramProgress) ensureTyping(ctx context.Context) {
 	if p == nil || p.bot == nil {
 		return

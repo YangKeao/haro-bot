@@ -90,6 +90,8 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 		log.Error("telegram agent error", zap.Error(err))
 		return
 	}
+	// Clear draft before sending the final message to avoid simultaneous display
+	progress.ClearDraft(ctx)
 	for _, chunk := range splitTelegramMessage(output) {
 		params := &bot.SendMessageParams{
 			ChatID:    update.Message.Chat.ID,
