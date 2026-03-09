@@ -173,8 +173,9 @@ func toLLMMessages(msgs []memory.Message) []llm.Message {
 	return out
 }
 
+
 func toLLMMessage(m memory.Message) llm.Message {
-	llmMsg := llm.Message{Role: m.Role, Content: m.Content, ReasoningContent: m.Metadata.ReasoningContent}
+	llmMsg := llm.Message{Role: m.Role, Content: m.Content}
 	if m.Metadata != nil {
 		if m.Metadata.ToolCallID != "" {
 			llmMsg.ToolCallID = m.Metadata.ToolCallID
@@ -182,10 +183,12 @@ func toLLMMessage(m memory.Message) llm.Message {
 		if len(m.Metadata.ToolCalls) > 0 {
 			llmMsg.ToolCalls = m.Metadata.ToolCalls
 		}
+		if m.Metadata.ReasoningContent != "" {
+			llmMsg.ReasoningContent = m.Metadata.ReasoningContent
+		}
 	}
 	return llmMsg
 }
-
 func formatSummaryMessage(summary *memory.Summary) string {
 	if summary == nil {
 		return ""
