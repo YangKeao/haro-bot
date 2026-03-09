@@ -9,13 +9,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	// maxCompactRetries is the maximum number of compact retries when context window is exceeded
-	maxCompactRetries = 3
-	// preemptiveCompactThreshold is the ratio of context usage that triggers preemptive compaction
-	preemptiveCompactThreshold = 0.85
-)
-
 func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model string, messages []llm.Message, tools []llm.Tool, observer ProgressObserver) (llm.ChatResponse, []llm.Message, error) {
 	var out llm.ChatResponse
 	if s == nil || s.deps == nil {
@@ -26,75 +19,76 @@ func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model st
 	budget := computeTokenBudget(s.deps.contextConfig)
 	compactor := NewCompactor(s.deps.store, s.deps.llm, estimator, model)
 
-	for attempt := 0; attempt <= maxCompactRetries; attempt++ {
-		// Check if we should preemptively compact before calling LLM
-		if estimator != nil && budget.InputBudget > 0 && attempt == 0 {
-			tokens := estimator.CountMessages(messages)
-			ratio := float64(tokens) / float64(budget.InputBudget)
-			if ratio >= preemptiveCompactThreshold {
-				log.Info("context approaching limit, triggering preemptive compact",
-					zap.Int64("session_id", s.id),
-					zap.Float64("ratio", ratio),
-					zap.Int("tokens", tokens),
-					zap.Int("budget", budget.InputBudget),
-				)
-				newMessages, compErr := s.compactAndReload(ctx, log, compactor, messages, budget.InputBudget)
-				if compErr != nil {
-					// Return error through normal path - this will be sent to user
-					return out, messages, fmt.Errorf("failed to compact context: %w", compErr)
-				}
-				messages = newMessages
-			}
+	// Check if we should preemptively compact before calling LLM
+	if compactor.ShouldCompact(messages, budget.InputBudget) {
+		log.Info("context approaching limit, triggering preemptive compact",
+			zap.Int64("session_id", s.id),
+		)
+		newMessages, compErr := s.compactAndReload(ctx, log, compactor, messages, budget.InputBudget)
+		if compErr != nil {
+			// Return error through normal path - this will be sent to user
+			return out, messages, fmt.Errorf("failed to compact context: %w", compErr)
 		}
-
-		if observer != nil {
-			observer.OnLLMStart(ctx, LLMStartInfo{Model: model, Attempt: attempt})
-		}
-
-		var handler llm.StreamHandler
-		if observer != nil {
-			handler = func(event llm.StreamEvent) {
-				if event.ReasoningDelta != "" {
-					observer.OnLLMReasoningDelta(ctx, event.ReasoningDelta)
-				}
-				if event.Delta != "" {
-					observer.OnLLMStreamDelta(ctx, event.Delta)
-				}
-			}
-		}
-
-		resp, err := s.deps.llm.Chat(ctx, llm.ChatRequest{
-			Model:            model,
-			Messages:         messages,
-			Tools:            tools,
-			ReasoningEnabled: s.deps.reasoning.Enabled,
-			ReasoningEffort:  s.deps.reasoning.Effort,
-			StreamHandler:    handler,
-			Purpose:          llm.PurposeChat,
-		})
-
-		if err != nil {
-			if llm.IsContextWindowExceeded(err) && attempt < maxCompactRetries {
-				log.Warn("context window exceeded, triggering compact",
-					zap.Int64("session_id", s.id),
-					zap.Int("attempt", attempt),
-					zap.Error(err),
-				)
-				newMessages, compErr := s.compactAndReload(ctx, log, compactor, messages, budget.InputBudget)
-				if compErr != nil {
-					// Return error through normal path
-					return out, messages, fmt.Errorf("failed to compact context after overflow: %w", compErr)
-				}
-				messages = newMessages
-				continue
-			}
-			return resp, messages, err
-		}
-
-		return resp, messages, nil
+		messages = newMessages
 	}
 
-	return out, messages, llm.ErrContextWindowExceeded
+	if observer != nil {
+		observer.OnLLMStart(ctx, LLMStartInfo{Model: model, Attempt: 0})
+	}
+
+	var handler llm.StreamHandler
+	if observer != nil {
+		handler = func(event llm.StreamEvent) {
+			if event.ReasoningDelta != "" {
+				observer.OnLLMReasoningDelta(ctx, event.ReasoningDelta)
+			}
+			if event.Delta != "" {
+				observer.OnLLMStreamDelta(ctx, event.Delta)
+			}
+		}
+	}
+
+	resp, err := s.deps.llm.Chat(ctx, llm.ChatRequest{
+		Model:            model,
+		Messages:         messages,
+		Tools:            tools,
+		ReasoningEnabled: s.deps.reasoning.Enabled,
+		ReasoningEffort:  s.deps.reasoning.Effort,
+		StreamHandler:    handler,
+		Purpose:          llm.PurposeChat,
+	})
+
+	if err != nil {
+		if llm.IsContextWindowExceeded(err) {
+			log.Warn("context window exceeded, triggering compact",
+				zap.Int64("session_id", s.id),
+				zap.Error(err),
+			)
+			newMessages, compErr := s.compactAndReload(ctx, log, compactor, messages, budget.InputBudget)
+			if compErr != nil {
+				// Return error through normal path
+				return out, messages, fmt.Errorf("failed to compact context after overflow: %w", compErr)
+			}
+			messages = newMessages
+
+			// Retry once - compactor guarantees success, so one retry is sufficient
+			if observer != nil {
+				observer.OnLLMStart(ctx, LLMStartInfo{Model: model, Attempt: 1})
+			}
+			resp, err = s.deps.llm.Chat(ctx, llm.ChatRequest{
+				Model:            model,
+				Messages:         messages,
+				Tools:            tools,
+				ReasoningEnabled: s.deps.reasoning.Enabled,
+				ReasoningEffort:  s.deps.reasoning.Effort,
+				StreamHandler:    handler,
+				Purpose:          llm.PurposeChat,
+			})
+		}
+		return resp, messages, err
+	}
+
+	return resp, messages, nil
 }
 
 // compactAndReload performs compaction and reloads messages from the store.
