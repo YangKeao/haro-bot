@@ -43,14 +43,41 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 		s.handleTelegramCallback(ctx, b, update.CallbackQuery)
 		return
 	}
-	if update.Message == nil || update.Message.Text == "" {
-		log.Debug("telegram update ignored (no text)")
+	if update.Message == nil {
+		log.Debug("telegram update ignored (no message)")
 		return
 	}
 	if update.Message.From == nil {
 		log.Warn("telegram update missing sender")
 		return
 	}
+
+	// Extract text content
+	inputText := update.Message.Text
+	
+	// If no text, check for caption (files with description)
+	if inputText == "" {
+		inputText = update.Message.Caption
+	}
+
+	// Extract file content if any
+	fileContent := s.extractFileContent(ctx, b, update.Message)
+	
+	// Combine text and file content
+	if fileContent != "" {
+		if inputText != "" {
+			inputText = inputText + "\n\n" + fileContent
+		} else {
+			inputText = fileContent
+		}
+	}
+
+	// Ignore if no content at all
+	if inputText == "" {
+		log.Debug("telegram update ignored (no text or supported file)")
+		return
+	}
+
 	uid, err := s.store.GetOrCreateUserByTelegramID(ctx, update.Message.From.ID)
 	if err != nil {
 		log.Warn("telegram user error", zap.Error(err))
@@ -85,7 +112,7 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 	})
 	progress := newTelegramProgress(b, update.Message.Chat.ID, threadID, businessConnID)
 	defer progress.Stop()
-	output, err := s.agent.HandleWithObserver(ctx, uid, "telegram", update.Message.Text, "", progress)
+	output, err := s.agent.HandleWithObserver(ctx, uid, "telegram", inputText, "", progress)
 	if err != nil {
 		log.Error("telegram agent error", zap.Error(err))
 		return
@@ -112,6 +139,20 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 			return
 		}
 	}
+}
+
+// extractFileContent extracts content from files in a Telegram message
+func (s *Server) extractFileContent(ctx context.Context, b *bot.Bot, msg *models.Message) string {
+	log := logging.L().Named("telegram_file")
+	
+	handler := NewFileHandler(b, "", 50*1024*1024) // 50MB max
+	content := handler.ExtractFileContent(ctx, msg)
+	
+	if content != "" {
+		log.Info("file processed", zap.Int("content_len", len(content)))
+	}
+	
+	return content
 }
 
 func (s *Server) handleTelegramCallback(ctx context.Context, b *bot.Bot, query *models.CallbackQuery) {
