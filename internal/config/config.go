@@ -16,6 +16,14 @@ type LogConfig struct {
 	Encoding    string `toml:"encoding"`
 }
 
+// CodexOAuthConfig configures ChatGPT Codex OAuth authentication.
+type CodexOAuthConfig struct {
+	Enabled     bool   `toml:"enabled"`
+	TokenFile   string `toml:"token_file"`
+	AutoRefresh bool   `toml:"auto_refresh"`
+	Model       string `toml:"model"`
+}
+
 // MemoryEmbedderConfig configures the embedding provider.
 type MemoryEmbedderConfig struct {
 	Provider   string `toml:"provider"`
@@ -88,6 +96,7 @@ type Config struct {
 	ToolMaxTurns                     int
 	Log                              LogConfig
 	Memory                           MemoryConfig
+	CodexOAuth                       CodexOAuthConfig
 }
 
 // fileConfig mirrors the TOML structure for deserialization.
@@ -132,8 +141,9 @@ type fileConfig struct {
 	Tool struct {
 		MaxTurns int `toml:"max_turns"`
 	} `toml:"tool"`
-	Log    LogConfig    `toml:"log"`
-	Memory MemoryConfig `toml:"memory"`
+	Log       LogConfig       `toml:"log"`
+	Memory    MemoryConfig    `toml:"memory"`
+	CodexOAuth CodexOAuthConfig `toml:"codex_oauth"`
 }
 
 // LoadFromFile reads configuration from a TOML file.
@@ -230,6 +240,11 @@ func defaultFileConfig() fileConfig {
 				Enabled: false,
 			},
 		},
+		CodexOAuth: CodexOAuthConfig{
+			Enabled:     false,
+			AutoRefresh: true,
+			Model:       "gpt-4o",
+		},
 	}
 }
 
@@ -252,6 +267,14 @@ func intDefault(v, def int) int {
 // floatDefault returns def if v <= 0.
 func floatDefault(v, def float64) float64 {
 	if v <= 0 {
+		return def
+	}
+	return v
+}
+
+// boolDefault returns def if v is false.
+func boolDefault(v, def bool) bool {
+	if !v {
 		return def
 	}
 	return v
@@ -293,6 +316,9 @@ func (r fileConfig) withDefaults() fileConfig {
 	if r.Memory.Retrieve.MinScore < 0 {
 		r.Memory.Retrieve.MinScore = def.Memory.Retrieve.MinScore
 	}
+	// CodexOAuth defaults
+	r.CodexOAuth.Model = strDefault(r.CodexOAuth.Model, def.CodexOAuth.Model)
+	r.CodexOAuth.AutoRefresh = boolDefault(r.CodexOAuth.AutoRefresh, def.CodexOAuth.AutoRefresh)
 	return r
 }
 
@@ -316,6 +342,8 @@ func (r *fileConfig) normalize() {
 	if r.Memory.Vector.Distance == "" {
 		r.Memory.Vector.Distance = "cosine"
 	}
+	r.CodexOAuth.Model = strings.TrimSpace(r.CodexOAuth.Model)
+	r.CodexOAuth.TokenFile = strings.TrimSpace(r.CodexOAuth.TokenFile)
 }
 
 func (r fileConfig) toConfig() Config {
@@ -350,6 +378,7 @@ func (r fileConfig) toConfig() Config {
 		ToolMaxTurns:                     r.Tool.MaxTurns,
 		Log:                              r.Log,
 		Memory:                           r.Memory,
+		CodexOAuth:                       r.CodexOAuth,
 	}
 }
 

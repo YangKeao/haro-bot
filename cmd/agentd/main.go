@@ -56,7 +56,9 @@ func main() {
 		log.Fatal("db migrations failed", zap.Error(err))
 	}
 
-	log.Info("config loaded", zap.Any("cfg", cfg))
+	log.Info("config loaded", 
+		zap.Any("cfg", cfg),
+		zap.Bool("codex_oauth_enabled", cfg.CodexOAuth.Enabled))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -95,13 +97,21 @@ func main() {
 		tools.NewWriteStdinTool(execMgr),
 		tools.NewUpdateGuidelinesTool(guidelinesMgr),
 	)
-	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
+	
+	// Use factory function to create appropriate LLM client
+	llmClient := llm.NewLLMClient(cfg)
+	
 	contextCfg := llm.ContextConfig{
 		WindowTokens:                  cfg.LLMContextWindow,
 		AutoCompactTokenLimit:         cfg.LLMAutoCompactTokenLimit,
 		EffectiveContextWindowPercent: cfg.LLMEffectiveContextWindowPercent,
 	}
-	memoryEngine, err := memory.NewEngine(dbConn, store, llmClient, cfg.LLMModel, cfg.Memory)
+	
+	// For memory engine, we need a standard OpenAI client for embeddings
+	// Memory embeddings use standard OpenAI API, not Codex OAuth
+	memoryLLMClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
+	
+	memoryEngine, err := memory.NewEngine(dbConn, store, memoryLLMClient, cfg.LLMModel, cfg.Memory)
 	if err != nil {
 		log.Fatal("memory engine init failed", zap.Error(err))
 	}
