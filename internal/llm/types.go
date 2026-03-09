@@ -53,7 +53,8 @@ type ChatRequest struct {
 }
 
 type StreamEvent struct {
-	Delta string
+	Delta          string
+	ReasoningDelta string
 }
 
 type StreamHandler func(StreamEvent)

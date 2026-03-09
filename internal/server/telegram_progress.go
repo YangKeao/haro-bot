@@ -41,6 +41,7 @@ type telegramProgress struct {
 	typingCancel  context.CancelFunc
 	streamBaseID  int64
 	streamText    string
+	reasoningText string
 	lastSentBytes int
 	lastDraftSent time.Time
 	sequence      int64
@@ -81,7 +82,24 @@ func (p *telegramProgress) OnLLMStreamDelta(ctx context.Context, delta string) {
 	defer p.mu.Unlock()
 
 	p.streamText += delta
-	currentBytes := len(p.streamText)
+	p.maybeSendDraftLocked(ctx)
+}
+
+func (p *telegramProgress) OnLLMReasoningDelta(ctx context.Context, delta string) {
+	if p == nil || delta == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.reasoningText += delta
+	p.maybeSendDraftLocked(ctx)
+}
+
+// maybeSendDraftLocked sends a draft if enough time or content has accumulated.
+// Must be called with p.mu held.
+func (p *telegramProgress) maybeSendDraftLocked(ctx context.Context) {
+	currentBytes := len(p.streamText) + len(p.reasoningText)
 	bytesDelta := currentBytes - p.lastSentBytes
 	elapsed := time.Since(p.lastDraftSent)
 	if bytesDelta < draftMinDeltaRunes && elapsed < draftMinInterval {
@@ -92,7 +110,7 @@ func (p *telegramProgress) OnLLMStreamDelta(ctx context.Context, delta string) {
 		return
 	}
 	baseID := p.streamBaseID
-	text := p.streamText
+	text := p.buildDraftText()
 	lastSent := p.lastSentBytes
 	if currentBytes <= lastSent {
 		return
@@ -113,6 +131,35 @@ func (p *telegramProgress) OnLLMStreamDelta(ctx context.Context, delta string) {
 	p.draftRetryUntil = time.Time{}
 }
 
+// buildDraftText constructs the draft text with reasoning in italic format.
+// Must be called with p.mu held.
+func (p *telegramProgress) buildDraftText() string {
+	var parts []string
+
+	// Add reasoning text first (in italic format)
+	if p.reasoningText != "" {
+		// Use italic for reasoning content
+		parts = append(parts, "_"+escapeMarkdown(p.reasoningText)+"_")
+	}
+
+	// Add regular content
+	if p.streamText != "" {
+		parts = append(parts, p.streamText)
+	}
+
+	return strings.Join(parts, "\n\n")
+}
+
+// escapeMarkdown escapes special markdown characters
+func escapeMarkdown(text string) string {
+	// Characters that need escaping in MarkdownV1
+	specialChars := []string{"_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"}
+	result := text
+	for _, char := range specialChars {
+		result = strings.ReplaceAll(result, char, "\\"+char)
+	}
+	return result
+}
 
 func (p *telegramProgress) OnToolCalls(ctx context.Context, calls []llm.ToolCall, content string) {
 	if p == nil || len(calls) == 0 {
@@ -228,6 +275,7 @@ func (p *telegramProgress) resetStream() {
 	p.mu.Lock()
 	p.streamBaseID = p.nextDraftBase()
 	p.streamText = ""
+	p.reasoningText = ""
 	p.lastSentBytes = 0
 	p.lastDraftSent = time.Time{}
 	p.draftRetryUntil = time.Time{}
@@ -279,12 +327,12 @@ func truncateToByteLimit(text string, maxBytes int) string {
 	if len(text) <= maxBytes {
 		return text
 	}
-	
+
 	// Find the starting position that gives us maxBytes
 	// Start from the end and work backwards
 	runes := []rune(text)
 	startByte := len(text) - maxBytes
-	
+
 	// Find the rune index that corresponds to startByte
 	bytePos := 0
 	startRune := 0
@@ -295,7 +343,7 @@ func truncateToByteLimit(text string, maxBytes int) string {
 		}
 		bytePos += utf8.RuneLen(r)
 	}
-	
+
 	// Return from startRune to end
 	return string(runes[startRune:])
 }

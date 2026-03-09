@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/openai/openai-go"
@@ -21,6 +22,18 @@ func streamChatCompletion(ctx context.Context, client *openai.Client, params ope
 		chunk := stream.Current()
 		if handler != nil && len(chunk.Choices) > 0 {
 			for _, choice := range chunk.Choices {
+				// Handle reasoning content from ExtraFields (for models like GLM, DeepSeek)
+				if field, ok := choice.Delta.JSON.ExtraFields["reasoning_content"]; ok && field.Valid() {
+					raw := field.Raw()
+					if raw != "" {
+						var reasoningContent string
+						// Raw returns the JSON-encoded value, need to unmarshal it
+						if err := json.Unmarshal([]byte(raw), &reasoningContent); err == nil {
+							safeCallStreamHandler(handler, StreamEvent{ReasoningDelta: reasoningContent})
+						}
+					}
+				}
+				// Handle regular content
 				if choice.Delta.Content != "" {
 					safeCallStreamHandler(handler, StreamEvent{Delta: choice.Delta.Content})
 				}
