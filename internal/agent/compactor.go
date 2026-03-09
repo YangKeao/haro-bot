@@ -55,7 +55,7 @@ func (c *Compactor) ShouldCompact(messages []llm.Message, budget int) bool {
 // Compact generates a summary of messages and stores it, returning the summary.
 // It preserves system messages and recent user messages while summarizing the conversation.
 // If the summary request exceeds the context window, it will retry with progressively
-// smaller message sets.
+// smaller message sets until there are no more user messages to summarize.
 func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm.Message, budget int) (*memory.Summary, error) {
 	log := logging.L().Named("compactor")
 	if c.llm == nil || c.store == nil {
@@ -68,10 +68,6 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 		if msg.Role != "system" {
 			conversation = append(conversation, msg)
 		}
-	}
-
-	if len(conversation) < compactMinMessages {
-		return nil, fmt.Errorf("not enough messages to compact")
 	}
 
 	// Reserve tokens for the summary output
@@ -102,6 +98,35 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 			toSummarize = conversation
 		}
 
+		// If there are no messages to summarize, create an empty summary
+		// This means all user messages have been cleared, and only system prompt remains
+		if len(toSummarize) == 0 {
+			log.Info("no messages left to summarize, creating empty summary",
+				zap.Int64("session_id", sessionID),
+				zap.Int("attempt", attempt),
+			)
+			summary := &memory.Summary{
+				SessionID: sessionID,
+				Summary:   "Context cleared due to token limit. Starting fresh conversation.",
+				Phase:     "auto-compact",
+			}
+
+			// Get the latest message ID to mark what was summarized
+			latest, _, err := c.store.LoadViewMessages(ctx, sessionID, 1)
+			if err == nil && len(latest) > 0 {
+				summary.EntryID = latest[len(latest)-1].ID
+			}
+
+			// Store the summary
+			_, err = c.store.AppendSummary(ctx, sessionID, *summary)
+			if err != nil {
+				log.Error("failed to store summary", zap.Error(err))
+				return nil, err
+			}
+
+			return summary, nil
+		}
+
 		summaryPrompt := buildCompactPrompt(toSummarize)
 		summaryReq := []llm.Message{{Role: "user", Content: summaryPrompt}}
 
@@ -125,6 +150,7 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 					zap.Int64("session_id", sessionID),
 					zap.Int("attempt", attempt),
 					zap.Float64("scale", scale),
+					zap.Int("messages", len(toSummarize)),
 					zap.Error(err),
 				)
 				scale *= compactRetryScale
@@ -168,6 +194,32 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 	}
 
 	return nil, fmt.Errorf("compact failed after %d retries: %w", compactMaxRetries, lastErr)
+}
+
+// CompactIfNeeded checks if compaction is needed and performs it.
+// It returns the updated messages and any error.
+// If compaction is not needed, it returns the original messages.
+func (c *Compactor) CompactIfNeeded(ctx context.Context, sessionID int64, messages []llm.Message, budget int, onCompacted func(summary *memory.Summary)) ([]llm.Message, error) {
+	if !c.ShouldCompact(messages, budget) {
+		return messages, nil
+	}
+
+	log := logging.L().Named("compactor")
+	log.Info("context approaching limit, attempting auto-compact",
+		zap.Int64("session_id", sessionID),
+		zap.Int("messages", len(messages)),
+	)
+
+	summary, err := c.Compact(ctx, sessionID, messages, budget)
+	if err != nil {
+		return nil, err
+	}
+
+	if summary != nil && onCompacted != nil {
+		onCompacted(summary)
+	}
+
+	return messages, nil
 }
 
 // buildCompactPrompt creates the summarization prompt for a general-purpose agent.
