@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 
 	"github.com/openai/openai-go"
 )
@@ -17,36 +18,69 @@ func streamChatCompletion(ctx context.Context, client *openai.Client, params ope
 		return nil, errors.New("llm stream not initialized")
 	}
 	defer stream.Close()
+
 	var acc openai.ChatCompletionAccumulator
-	for stream.Next() {
-		chunk := stream.Current()
-		if handler != nil && len(chunk.Choices) > 0 {
-			for _, choice := range chunk.Choices {
-				// Handle reasoning content from ExtraFields (for models like GLM, DeepSeek)
-				if field, ok := choice.Delta.JSON.ExtraFields["reasoning_content"]; ok && field.Valid() {
-					raw := field.Raw()
-					if raw != "" {
-						var reasoningContent string
-						// Raw returns the JSON-encoded value, need to unmarshal it
-						if err := json.Unmarshal([]byte(raw), &reasoningContent); err == nil {
-							safeCallStreamHandler(handler, StreamEvent{ReasoningDelta: reasoningContent})
-						}
-					}
-				}
-				// Handle regular content
-				if choice.Delta.Content != "" {
-					safeCallStreamHandler(handler, StreamEvent{Delta: choice.Delta.Content})
-				}
+	var streamErr error
+	var mu sync.Mutex
+
+	// Read stream in a goroutine to allow context cancellation
+	streamChan := make(chan openai.ChatCompletionChunk, 100)
+	go func() {
+		defer close(streamChan)
+		for stream.Next() {
+			chunk := stream.Current()
+			select {
+			case streamChan <- chunk:
+			case <-ctx.Done():
+				return
 			}
 		}
-		if ok := acc.AddChunk(chunk); !ok {
-			return nil, errors.New("failed to accumulate stream chunk")
+		mu.Lock()
+		streamErr = stream.Err()
+		mu.Unlock()
+	}()
+
+	// Process chunks with context cancellation support
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case chunk, ok := <-streamChan:
+			if !ok {
+				// Stream finished
+				mu.Lock()
+				err := streamErr
+				mu.Unlock()
+				if err != nil {
+					return nil, err
+				}
+				return &acc.ChatCompletion, nil
+			}
+
+			if handler != nil && len(chunk.Choices) > 0 {
+				for _, choice := range chunk.Choices {
+					// Handle reasoning content from ExtraFields (for models like GLM, DeepSeek)
+					if field, ok := choice.Delta.JSON.ExtraFields["reasoning_content"]; ok && field.Valid() {
+						raw := field.Raw()
+						if raw != "" {
+							var reasoningContent string
+							// Raw returns the JSON-encoded value, need to unmarshal it
+							if err := json.Unmarshal([]byte(raw), &reasoningContent); err == nil {
+								safeCallStreamHandler(handler, StreamEvent{ReasoningDelta: reasoningContent})
+							}
+						}
+					}
+					// Handle regular content
+					if choice.Delta.Content != "" {
+						safeCallStreamHandler(handler, StreamEvent{Delta: choice.Delta.Content})
+					}
+				}
+			}
+			if ok := acc.AddChunk(chunk); !ok {
+				return nil, errors.New("failed to accumulate stream chunk")
+			}
 		}
 	}
-	if err := stream.Err(); err != nil {
-		return nil, err
-	}
-	return &acc.ChatCompletion, nil
 }
 
 func safeCallStreamHandler(handler StreamHandler, event StreamEvent) {
