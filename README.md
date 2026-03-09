@@ -92,8 +92,7 @@ Configuration is primarily stored in `config.toml`. See `config.example.toml` fo
 ## HTTP Endpoints
 
 - `GET /healthz`: Health check
-- `POST /skills/register`: Register a skill source
-- `POST /skills/refresh`: Refresh all skill sources
+- `GET /debug/pprof/*`: Performance profiling endpoints (goroutine, heap, profile, trace, etc.)
 
 ## Skills
 
@@ -106,7 +105,7 @@ skills/
     ...
 ```
 
-Register from Git:
+Register from Git using the `install_skill` tool:
 ```json
 {
   "source_type": "git",

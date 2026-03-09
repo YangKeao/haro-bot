@@ -1,8 +1,6 @@
 package server
 
 import (
-	"net/http"
-
 	"github.com/YangKeao/haro-bot/internal/agent"
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/memory"
@@ -33,17 +31,4 @@ func New(cfg config.Config, agent *agent.Agent, store memory.StoreAPI, skillsMgr
 		toolApprovals:    newToolApprovalManager(),
 		memoryEngine:     memoryEngine,
 	}
-}
-
-func (s *Server) Routes() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", s.handleHealth)
-	mux.HandleFunc("/skills/register", s.handleSkillRegister)
-	mux.HandleFunc("/skills/refresh", s.handleSkillRefresh)
-	return mux
-}
-
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok"))
 }
