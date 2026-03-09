@@ -23,6 +23,46 @@ func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model st
 	if estimator == nil && log != nil {
 		log.Warn("no token estimator available for model, trimming will use message count", zap.String("model", model))
 	}
+
+	budget := computeTokenBudget(s.deps.contextConfig)
+
+	// Check if we should auto-compact before trimming
+	compactor := NewCompactor(s.deps.store, s.deps.llm, estimator, model)
+	if compactor.ShouldCompact(messages, budget.InputBudget) {
+		log.Info("context approaching limit, attempting auto-compact",
+			zap.Int64("session_id", s.id),
+			zap.Int("messages", len(messages)),
+		)
+		summary, err := compactor.Compact(ctx, s.id, messages, budget.InputBudget)
+		if err != nil {
+			log.Warn("auto-compact failed, falling back to trim", zap.Error(err))
+		} else if summary != nil {
+			// Reload messages from the new view
+			recent, _, err := s.deps.store.LoadViewMessages(ctx, s.id, 0)
+			if err != nil {
+				log.Warn("failed to reload after compact", zap.Error(err))
+			} else {
+				// Rebuild messages with the new compacted view
+				// Preserve system messages
+				var systemMsgs []llm.Message
+				for _, msg := range messages {
+					if msg.Role == "system" {
+						systemMsgs = append(systemMsgs, msg)
+					}
+				}
+				summaryMsg := formatSummaryMessage(summary)
+				if summaryMsg != "" {
+					systemMsgs = append(systemMsgs, llm.Message{Role: "system", Content: summaryMsg})
+				}
+				messages = append(systemMsgs, toLLMMessages(recent)...)
+				log.Info("context compacted successfully",
+					zap.Int64("session_id", s.id),
+					zap.Int("new_message_count", len(messages)),
+				)
+			}
+		}
+	}
+
 	scale := 1.0
 
 	for attempt := 0; attempt <= maxContextRetries; attempt++ {
