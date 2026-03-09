@@ -276,35 +276,106 @@ func filterInvalidToolOutputs(msgs []Message) ([]Message, []int64) {
 	if len(msgs) == 0 {
 		return msgs, nil
 	}
-	seenCalls := make(map[string]struct{})
-	out := make([]Message, 0, len(msgs))
-	var invalidIDs []int64
+
+	// First pass: collect all tool call IDs and tool response IDs
+	// Map: callID -> assistant message ID that contains this call
+	callToAssistant := make(map[string]int64)
+	// Map: callID -> tool message ID that responds to this call
+	callToTool := make(map[string]int64)
+	// Map: assistant message ID -> all call IDs in that message
+	assistantToCalls := make(map[int64][]string)
+
 	for _, msg := range msgs {
 		if msg.Role == "assistant" && msg.Metadata != nil {
 			for _, call := range msg.Metadata.ToolCalls {
-				if call.ID == "" {
-					continue
+				if call.ID != "" {
+					callToAssistant[call.ID] = msg.ID
+					assistantToCalls[msg.ID] = append(assistantToCalls[msg.ID], call.ID)
 				}
-				seenCalls[call.ID] = struct{}{}
 			}
 		}
+		if msg.Role == "tool" && msg.Metadata != nil {
+			callID := msg.Metadata.ToolCallID
+			if callID != "" {
+				callToTool[callID] = msg.ID
+			}
+		}
+	}
+
+	// Find orphaned calls (calls without responses) and orphaned responses (responses without calls)
+	orphanedCalls := make(map[string]struct{})
+	orphanedResponses := make(map[string]struct{})
+
+	for callID := range callToAssistant {
+		if _, hasResponse := callToTool[callID]; !hasResponse {
+			orphanedCalls[callID] = struct{}{}
+		}
+	}
+	for callID := range callToTool {
+		if _, hasCall := callToAssistant[callID]; !hasCall {
+			orphanedResponses[callID] = struct{}{}
+		}
+	}
+
+	// Build set of message IDs to delete
+	invalidIDs := make(map[int64]struct{})
+
+	// Mark assistant messages with orphaned calls for deletion
+	assistantToDelete := make(map[int64]struct{})
+	for _, msg := range msgs {
+		if msg.Role == "assistant" && msg.Metadata != nil {
+			for _, call := range msg.Metadata.ToolCalls {
+				if _, orphaned := orphanedCalls[call.ID]; orphaned {
+					invalidIDs[msg.ID] = struct{}{}
+					assistantToDelete[msg.ID] = struct{}{}
+					break // Only need to mark once per message
+				}
+			}
+		}
+	}
+
+	// If an assistant message is deleted, also delete ALL its tool responses
+	// (not just the orphaned ones)
+	for assistantID := range assistantToDelete {
+		for _, callID := range assistantToCalls[assistantID] {
+			if toolMsgID, ok := callToTool[callID]; ok {
+				invalidIDs[toolMsgID] = struct{}{}
+			}
+		}
+	}
+
+	// Mark orphaned tool responses (those without any call) for deletion
+	for callID := range orphanedResponses {
+		if toolMsgID, ok := callToTool[callID]; ok {
+			invalidIDs[toolMsgID] = struct{}{}
+		}
+	}
+
+	// Also delete tool messages with empty/missing callID
+	for _, msg := range msgs {
 		if msg.Role == "tool" {
 			callID := ""
 			if msg.Metadata != nil {
 				callID = msg.Metadata.ToolCallID
 			}
 			if callID == "" {
-				invalidIDs = append(invalidIDs, msg.ID)
-				continue
-			}
-			if _, ok := seenCalls[callID]; !ok {
-				invalidIDs = append(invalidIDs, msg.ID)
-				continue
+				invalidIDs[msg.ID] = struct{}{}
 			}
 		}
-		out = append(out, msg)
 	}
-	return out, invalidIDs
+
+	// Build output, excluding invalid messages
+	out := make([]Message, 0, len(msgs))
+	var invalidIDList []int64
+	for _, msg := range msgs {
+		if _, invalid := invalidIDs[msg.ID]; invalid {
+			invalidIDList = append(invalidIDList, msg.ID)
+		} else {
+			out = append(out, msg)
+		}
+	}
+
+	return out, invalidIDList
 }
 
 func (s *store) softDeleteMessages(ctx context.Context, ids []int64) error {
