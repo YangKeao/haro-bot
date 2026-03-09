@@ -28,7 +28,7 @@ type migration struct {
 	apply   func(*gorm.DB, config.MemoryConfig) error
 }
 
-const currentSchemaVersion int64 = 9
+const currentSchemaVersion int64 = 10
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -40,6 +40,7 @@ var migrations = []migration{
 	{version: 7, stmts: renameSessionSummaryIndexesSQL},
 	{version: 8, stmts: replaceMemoriesTableSQL},
 	{version: 9, apply: applyMemoryVectorIndex},
+	{version: 10, stmts: addGuidelinessSQL},
 }
 
 func applyMigrations(db *gorm.DB, memCfg config.MemoryConfig) error {
@@ -351,4 +352,17 @@ func ensureMemoryVectorIndex(db *gorm.DB, distance string) error {
 		return err
 	}
 	return nil
+}
+
+var addGuidelinessSQL = []string{
+	`CREATE TABLE IF NOT EXISTS constitutions (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  content LONGTEXT NOT NULL,
+  version INT NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_constitutions_version (version),
+  INDEX idx_constitutions_active (is_active)
+)`,
 }

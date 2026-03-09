@@ -22,7 +22,7 @@ type DefaultToolRunner struct {
 
 func NewToolRunner(registry *tools.Registry, store ConversationStore, skillsMgr *skills.Manager, prompts PromptBuilder) *DefaultToolRunner {
 	if prompts == nil {
-		prompts = DefaultPromptBuilder{}
+		prompts = NewDefaultPromptBuilder(nil)
 	}
 	return &DefaultToolRunner{
 		registry: registry,

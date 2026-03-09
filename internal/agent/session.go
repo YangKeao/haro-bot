@@ -100,7 +100,7 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 	if err != nil {
 		return "", err
 	}
-	systemPrompt := s.deps.promptBuilder.System(memories, availableSkills, s.deps.promptFormat)
+	systemPrompt := s.deps.promptBuilder.System(ctx, memories, availableSkills, s.deps.promptFormat)
 	baseMessages := []llm.Message{{Role: "system", Content: systemPrompt}}
 	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
 		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: summaryMsg})
@@ -140,7 +140,7 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 		}
 	}
 	memories := s.retrieveMemories(ctx, userID, input)
-	systemPrompt := s.deps.promptBuilder.Interrupt(memories, s.deps.promptFormat)
+	systemPrompt := s.deps.promptBuilder.Interrupt(ctx, memories, s.deps.promptFormat)
 	recent, summary, err := s.deps.store.LoadViewMessages(ctx, s.id, 0)
 	if err != nil {
 		return "", err

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -9,13 +10,14 @@ import (
 )
 
 func TestBuildSystemPromptIncludesSkillsAndMemories(t *testing.T) {
+	ctx := context.Background()
 	memories := []memory.MemoryItem{
 		{Type: "note", Content: "remember this"},
 	}
 	skillsList := []skills.Metadata{
 		{Name: "demo", Description: "demo skill", Dir: "/tmp/demo"},
 	}
-	out := buildSystemPrompt(memories, skillsList, "openai")
+	out := buildSystemPrompt(ctx, nil, memories, skillsList, "openai")
 	if !strings.Contains(out, "Long-term memory:") {
 		t.Fatalf("expected memory section, got: %s", out)
 	}
@@ -34,10 +36,11 @@ func TestBuildSystemPromptIncludesSkillsAndMemories(t *testing.T) {
 }
 
 func TestBuildSystemPromptClaudeXML(t *testing.T) {
+	ctx := context.Background()
 	skillsList := []skills.Metadata{
 		{Name: "demo", Description: "demo skill", Dir: "/tmp/demo"},
 	}
-	out := buildSystemPrompt(nil, skillsList, "claude")
+	out := buildSystemPrompt(ctx, nil, nil, skillsList, "claude")
 	if !strings.HasPrefix(out, "<available_skills>") {
 		t.Fatalf("expected XML prefix, got: %s", out)
 	}
@@ -50,10 +53,11 @@ func TestBuildSystemPromptClaudeXML(t *testing.T) {
 }
 
 func TestBuildInterruptPromptNoSkills(t *testing.T) {
+	ctx := context.Background()
 	memories := []memory.MemoryItem{
 		{Type: "note", Content: "remember this"},
 	}
-	out := buildInterruptPrompt(memories, "openai")
+	out := buildInterruptPrompt(ctx, nil, memories, "openai")
 	if !strings.Contains(out, "Long-term memory:") {
 		t.Fatalf("expected memory section, got: %s", out)
 	}

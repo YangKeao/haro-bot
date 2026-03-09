@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
@@ -33,11 +34,11 @@ type Agent struct {
 	messenger      SessionMessenger
 }
 
-func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
+func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Manager, toolRegistry *tools.Registry, guidelinesMgr *guidelines.Manager, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
 	if maxToolTurns <= 0 {
 		maxToolTurns = 1024
 	}
-	promptBuilder := DefaultPromptBuilder{}
+	promptBuilder := NewDefaultPromptBuilder(guidelinesMgr)
 	toolRunner := NewToolRunner(toolRegistry, store, skills, promptBuilder)
 	estimator, _ := llm.NewTokenEstimator(model)
 	stateMgr := newSessionStateManager()
