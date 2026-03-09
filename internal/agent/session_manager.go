@@ -18,7 +18,7 @@ type sessionDeps struct {
 	toolRunner     ToolRunner
 	defaultBaseDir string
 	maxToolTurns   int
-	llm            *llm.Client
+	llm            llm.ChatClient
 	model          string
 	promptFormat   string
 	reasoning      llm.ReasoningConfig

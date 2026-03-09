@@ -28,7 +28,7 @@ type migration struct {
 	apply   func(*gorm.DB, config.MemoryConfig) error
 }
 
-const currentSchemaVersion int64 = 10
+const currentSchemaVersion int64 = 11
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -41,6 +41,7 @@ var migrations = []migration{
 	{version: 8, stmts: replaceMemoriesTableSQL},
 	{version: 9, apply: applyMemoryVectorIndex},
 	{version: 10, stmts: addGuidelinessSQL},
+	{version: 11, stmts: addOAuthTokensSQL},
 }
 
 func applyMigrations(db *gorm.DB, memCfg config.MemoryConfig) error {
@@ -364,5 +365,21 @@ var addGuidelinessSQL = []string{
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_constitutions_version (version),
   INDEX idx_constitutions_active (is_active)
+)`,
+}
+
+var addOAuthTokensSQL = []string{
+	`CREATE TABLE IF NOT EXISTS oauth_tokens (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  provider VARCHAR(32) NOT NULL,
+  access_token TEXT NOT NULL,
+  refresh_token TEXT,
+  expires_at TIMESTAMP NULL,
+  email VARCHAR(255),
+  account_id VARCHAR(128),
+  extra_json JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_provider (provider)
 )`,
 }

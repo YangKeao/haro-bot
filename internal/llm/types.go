@@ -1,5 +1,7 @@
 package llm
 
+import "context"
+
 type Message struct {
 	Role             string     `json:"role"`
 	Content          string     `json:"content,omitempty"`
@@ -81,4 +83,9 @@ type Usage struct {
 type ChatChoice struct {
 	Index   int     `json:"index"`
 	Message Message `json:"message"`
+}
+
+// ChatClient is the interface for LLM chat clients
+type ChatClient interface {
+	Chat(ctx context.Context, req ChatRequest) (ChatResponse, error)
 }

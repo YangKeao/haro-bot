@@ -23,13 +23,13 @@ const (
 // Compactor handles automatic context compaction by generating LLM summaries.
 type Compactor struct {
 	store     memory.StoreAPI
-	llm       *llm.Client
+	llm       llm.ChatClient
 	estimator *llm.TokenEstimator
 	model     string
 }
 
 // NewCompactor creates a compactor for automatic context summarization.
-func NewCompactor(store memory.StoreAPI, llmClient *llm.Client, estimator *llm.TokenEstimator, model string) *Compactor {
+func NewCompactor(store memory.StoreAPI, llmClient llm.ChatClient, estimator *llm.TokenEstimator, model string) *Compactor {
 	return &Compactor{
 		store:     store,
 		llm:       llmClient,
