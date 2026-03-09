@@ -24,7 +24,20 @@ func TestAgentStoresAssistantResponse(t *testing.T) {
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(agent.Params{
+		Store:          store,
+		MemoryEngine:   nil,
+		Skills:         skillsMgr,
+		ToolRegistry:   registry,
+		GuidelinesMgr:  nil,
+		DefaultBaseDir: t.TempDir(),
+		MaxToolTurns:   4,
+		LLMClient:      client,
+		Model:          model,
+		PromptFormat:   "openai",
+		Reasoning:      llm.ReasoningConfig{},
+		ContextConfig:  llm.ContextConfig{},
+	})
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByTelegramID(ctx, 3001)

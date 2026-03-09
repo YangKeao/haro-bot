@@ -12,69 +12,70 @@ import (
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
+	"go.uber.org/fx"
 	"go.uber.org/zap"
 )
 
+// Agent is the main conversation agent that handles user interactions.
 type Agent struct {
-	store          ConversationStore
-	memoryEngine   *memory.Engine
-	skills         *skills.Manager
-	toolRegistry   *tools.Registry
-	promptBuilder  PromptBuilder
-	toolRunner     ToolRunner
-	defaultBaseDir string
-	maxToolTurns   int
-	llm            *llm.Client
-	model          string
-	promptFormat   string
-	reasoning      llm.ReasoningConfig
-	contextConfig  llm.ContextConfig
-	sessions       *sessionManager
-	stateManager   *sessionStateManager
-	messenger      SessionMessenger
+	deps      *Deps
+	sessions  *sessionManager
+	messenger SessionMessenger
 }
 
-func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Manager, toolRegistry *tools.Registry, guidelinesMgr *guidelines.Manager, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
+// Params contains all dependencies for creating an Agent.
+// This struct is designed for fx dependency injection via fx.Annotate or struct tags.
+type Params struct {
+	fx.In
+
+	Store          ConversationStore
+	MemoryEngine   *memory.Engine
+	Skills         *skills.Manager
+	ToolRegistry   *tools.Registry
+	GuidelinesMgr  *guidelines.Manager
+	DefaultBaseDir string `name:"default_base_dir"`
+	MaxToolTurns   int    `name:"max_tool_turns"`
+	LLMClient      *llm.Client
+	Model          string `name:"llm_model"`
+	PromptFormat   string `name:"prompt_format"`
+	Reasoning      llm.ReasoningConfig
+	ContextConfig  llm.ContextConfig
+}
+
+// New creates a new Agent with the given dependencies.
+// It initializes all internal components using fx-style dependency injection.
+func New(p Params) *Agent {
+	maxToolTurns := p.MaxToolTurns
 	if maxToolTurns <= 0 {
 		maxToolTurns = 1024
 	}
-	promptBuilder := NewDefaultPromptBuilder(guidelinesMgr)
-	toolRunner := NewToolRunner(toolRegistry, store, skills, promptBuilder)
-	estimator, _ := llm.NewTokenEstimator(model)
+
+	promptBuilder := NewDefaultPromptBuilder(p.GuidelinesMgr)
+	estimator, _ := llm.NewTokenEstimator(p.Model)
 	stateMgr := newSessionStateManager()
-	deps := &sessionDeps{
-		store:          store,
-		memoryEngine:   memoryEngine,
-		skills:         skills,
-		toolRegistry:   toolRegistry,
-		promptBuilder:  promptBuilder,
-		toolRunner:     toolRunner,
-		defaultBaseDir: defaultBaseDir,
-		maxToolTurns:   maxToolTurns,
-		llm:            llmClient,
-		model:          model,
-		promptFormat:   promptFormat,
-		reasoning:      reasoning,
-		contextConfig:  contextConfig,
-		tokenEstimator: estimator,
-		stateManager:   stateMgr,
+	toolRunner := NewToolRunner(p.ToolRegistry, p.Store, p.Skills, promptBuilder)
+
+	deps := &Deps{
+		Store:          p.Store,
+		MemoryEngine:   p.MemoryEngine,
+		Skills:         p.Skills,
+		ToolRegistry:   p.ToolRegistry,
+		PromptBuilder:  promptBuilder,
+		ToolRunner:     toolRunner,
+		DefaultBaseDir: p.DefaultBaseDir,
+		MaxToolTurns:   maxToolTurns,
+		LLM:            p.LLMClient,
+		Model:          p.Model,
+		PromptFormat:   p.PromptFormat,
+		Reasoning:      p.Reasoning,
+		ContextConfig:  p.ContextConfig,
+		TokenEstimator: estimator,
+		StateManager:   stateMgr,
 	}
+
 	return &Agent{
-		store:          store,
-		memoryEngine:   memoryEngine,
-		skills:         skills,
-		toolRegistry:   toolRegistry,
-		promptBuilder:  promptBuilder,
-		toolRunner:     toolRunner,
-		defaultBaseDir: defaultBaseDir,
-		maxToolTurns:   maxToolTurns,
-		llm:            llmClient,
-		model:          model,
-		promptFormat:   promptFormat,
-		reasoning:      reasoning,
-		contextConfig:  contextConfig,
-		sessions:       newSessionManager(deps),
-		stateManager:   stateMgr,
+		deps:     deps,
+		sessions: newSessionManager(deps),
 	}
 }
 
@@ -100,7 +101,7 @@ func (a *Agent) HandleWithObserver(ctx context.Context, userID int64, channel st
 
 func (a *Agent) handleWithObserver(ctx context.Context, userID int64, channel string, input string, modelOverride string, observer ProgressObserver) (string, error) {
 	log := logging.L().Named("agent")
-	sessionID, err := a.store.GetOrCreateSession(ctx, userID, channel)
+	sessionID, err := a.deps.Store.GetOrCreateSession(ctx, userID, channel)
 	if err != nil {
 		log.Error("get session failed", zap.Error(err))
 		return "", err
@@ -129,37 +130,37 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 
 // GetSessionStatus returns the current status of a session.
 func (a *Agent) GetSessionStatus(sessionID int64) *SessionStatus {
-	if a == nil || a.stateManager == nil {
+	if a == nil || a.deps == nil || a.deps.StateManager == nil {
 		return &SessionStatus{State: StateIdle}
 	}
-	return a.stateManager.GetStatus(sessionID)
+	return a.deps.StateManager.GetStatus(sessionID)
 }
 
 // SetSessionState updates the state of a session.
 func (a *Agent) SetSessionState(sessionID int64, state SessionState) {
-	if a != nil && a.stateManager != nil {
-		a.stateManager.SetState(sessionID, state)
+	if a != nil && a.deps != nil && a.deps.StateManager != nil {
+		a.deps.StateManager.SetState(sessionID, state)
 	}
 }
 
 // SetSessionToolRunning marks a session as running a specific tool.
 func (a *Agent) SetSessionToolRunning(sessionID int64, toolName string) {
-	if a != nil && a.stateManager != nil {
-		a.stateManager.SetToolRunning(sessionID, toolName)
+	if a != nil && a.deps != nil && a.deps.StateManager != nil {
+		a.deps.StateManager.SetToolRunning(sessionID, toolName)
 	}
 }
 
 // SetSessionWaitingForApproval marks a session as waiting for user approval.
 func (a *Agent) SetSessionWaitingForApproval(sessionID int64, message string) {
-	if a != nil && a.stateManager != nil {
-		a.stateManager.SetWaitingForApproval(sessionID, message)
+	if a != nil && a.deps != nil && a.deps.StateManager != nil {
+		a.deps.StateManager.SetWaitingForApproval(sessionID, message)
 	}
 }
 
 // CancelSession cancels any ongoing operation for the session.
 // Returns true if there was an operation to cancel.
 func (a *Agent) CancelSession(sessionID int64) bool {
-	if a == nil || a.sessions == nil {
+	if a == nil || a.deps == nil || a.sessions == nil {
 		return false
 	}
 	return a.sessions.Cancel(sessionID)
@@ -172,7 +173,6 @@ func toLLMMessages(msgs []memory.Message) []llm.Message {
 	}
 	return out
 }
-
 
 func toLLMMessage(m memory.Message) llm.Message {
 	llmMsg := llm.Message{Role: m.Role, Content: m.Content}
@@ -189,6 +189,7 @@ func toLLMMessage(m memory.Message) llm.Message {
 	}
 	return llmMsg
 }
+
 func formatSummaryMessage(summary *memory.Summary) string {
 	if summary == nil {
 		return ""

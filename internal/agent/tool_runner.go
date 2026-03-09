@@ -48,16 +48,16 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 			continue
 		}
 		log.Debug("tool start", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID))
-		tc := tools.ToolContext{
+		toolCtx := tools.ToolContext{
 			SessionID: sessionID,
 			UserID:    userID,
 			BaseDir:   baseDir,
 		}
 		if currentSkill != nil {
-			tc.BaseDir = currentSkill.Metadata.Dir
-			tc.SkillName = currentSkill.Metadata.Name
+			toolCtx.BaseDir = currentSkill.Metadata.Dir
+			toolCtx.SkillName = currentSkill.Metadata.Name
 		}
-		output, err := tool.Execute(ctx, tc, json.RawMessage(call.Function.Arguments))
+		output, err := tool.Execute(ctx, toolCtx, json.RawMessage(call.Function.Arguments))
 		status := "ok"
 		if err != nil {
 			if errors.Is(err, tools.ErrApprovalStopped) {

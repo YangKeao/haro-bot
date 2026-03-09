@@ -5,9 +5,6 @@ import (
 	"flag"
 	"net/http"
 	"net/http/pprof"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
@@ -21,12 +18,13 @@ import (
 	"github.com/YangKeao/haro-bot/internal/server"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
+	"go.uber.org/fx"
 	"go.uber.org/zap"
 )
 
 func main() {
 	configPath := flag.String("config", "config.toml", "path to config file")
-	unrestricted := flag.Bool("unrestricted", false, "skip path restrictions and symlink checks (audit logging still enabled)")
+	unrestricted := flag.Bool("unrestricted", false, "skip path restrictions and symlink checks")
 	flag.Parse()
 
 	bootLogger, _ := zap.NewProduction()
@@ -46,109 +44,87 @@ func main() {
 		logger.Warn("invalid log config, using production defaults", zap.Error(err))
 	}
 	defer func() { _ = logger.Sync() }()
-	log := logger.Named("agentd")
 
-	dbConn, err := db.Open(cfg.TiDBDSN)
-	if err != nil {
-		log.Fatal("db open failed", zap.Error(err))
-	}
-	if err := db.ApplyMigrations(dbConn, cfg.Memory); err != nil {
-		log.Fatal("db migrations failed", zap.Error(err))
-	}
+	app := fx.New(
+		fx.Supply(cfg),
+		fx.Supply(unrestricted),
+		fx.Provide(func() *zap.Logger { return logger }),
 
-	log.Info("config loaded", zap.Any("cfg", cfg))
+		// Core modules
+		db.Module,
+		llm.Module,
+		memory.Module,
+		skills.Module,
+		guidelines.Module,
+		tools.Module,
+		agent.Module,
+		fork.Module,
+		server.Module,
 
+		// Named values for agent.Params
+		fx.Provide(
+			fx.Annotate(func(cfg *config.Config) string { return cfg.LLMModel }, fx.ResultTags(`name:"llm_model"`)),
+			fx.Annotate(func(cfg *config.Config) string { return string(cfg.LLMPromptFormat) }, fx.ResultTags(`name:"prompt_format"`)),
+			fx.Annotate(func(fs *tools.FS) string { return fs.DefaultBase() }, fx.ResultTags(`name:"default_base_dir"`)),
+			fx.Annotate(func(cfg *config.Config) int { return cfg.ToolMaxTurns }, fx.ResultTags(`name:"max_tool_turns"`)),
+		),
+
+		fx.Invoke(RunApp),
+	)
+
+	app.Run()
+}
+
+// RunApp is the main application invoker
+func RunApp(
+	lc fx.Lifecycle,
+	cfg *config.Config,
+	unrestricted *bool,
+	agentSvc *agent.Agent,
+	forkMgr *fork.Manager,
+	toolRegistry *tools.Registry,
+	srv *server.Server,
+	fsTools *tools.FS,
+	skillsMgr *skills.Manager,
+	log *zap.Logger,
+) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
-	store := memory.NewStore(dbConn)
-	skillsStore := skills.NewStore(dbConn)
-	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
-	guidelinesMgr := guidelines.NewManager(dbConn)
-
-	if *unrestricted {
-		log.Warn("running in UNRESTRICTED mode - path restrictions and symlink checks are disabled!")
-	}
-	auditStore := tools.NewAuditStore(dbConn)
-	fsTools := tools.NewFS(cfg.FSAllowedRoots, auditStore, *unrestricted)
-
-	browserMgr := tools.NewBrowserManager()
-	execMgr := tools.NewExecManager()
-	toolRegistry := tools.NewRegistry(
-		tools.NewBrowserGotoTool(browserMgr),
-		tools.NewBrowserGoBackTool(browserMgr),
-		tools.NewBrowserGetPageStateTool(browserMgr),
-		tools.NewBrowserTakeScreenshotTool(browserMgr),
-		tools.NewBrowserClickTool(browserMgr),
-		tools.NewBrowserFillTextTool(browserMgr),
-		tools.NewBrowserPressKeyTool(browserMgr),
-		tools.NewBrowserScrollTool(browserMgr),
-		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
-		tools.NewSessionSummaryTool(store),
-		tools.NewMemorySearchTool(store),
-		tools.NewInstallSkillTool(skillsMgr),
-		tools.NewActivateSkillTool(skillsMgr),
-		tools.NewGrepFilesTool(fsTools),
-		tools.NewReadFileTool(fsTools),
-		tools.NewListDirTool(fsTools),
-		tools.NewExecCommandTool(fsTools, execMgr),
-		tools.NewWriteStdinTool(execMgr),
-		tools.NewUpdateGuidelinesTool(guidelinesMgr),
-	)
-	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
-	contextCfg := llm.ContextConfig{
-		WindowTokens:                  cfg.LLMContextWindow,
-		AutoCompactTokenLimit:         cfg.LLMAutoCompactTokenLimit,
-		EffectiveContextWindowPercent: cfg.LLMEffectiveContextWindowPercent,
-	}
-	memoryEngine, err := memory.NewEngine(dbConn, store, llmClient, cfg.LLMModel, cfg.Memory)
-	if err != nil {
-		log.Fatal("memory engine init failed", zap.Error(err))
-	}
-
-	agentSvc := agent.New(
-		store,
-		memoryEngine,
-		skillsMgr,
-		toolRegistry,
-		guidelinesMgr,
-		fsTools.DefaultBase(),
-		cfg.ToolMaxTurns,
-		llmClient,
-		cfg.LLMModel,
-		string(cfg.LLMPromptFormat),
-		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
-		contextCfg,
-	)
-	forkMgr := fork.NewManager(agentSvc, store)
+	// Register fork tools
 	toolRegistry.Register(fork.NewForkTool(forkMgr))
 	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))
 	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
 	toolRegistry.Register(fork.NewForkStatusTool(forkMgr))
-	srv := server.New(cfg, agentSvc, store, skillsMgr, memoryEngine)
+
+	// Setup messenger and approver for Telegram
 	if cfg.TelegramToken != "" && !*unrestricted {
 		agentSvc.SetSessionMessenger(srv)
 		fsTools.SetApprover(srv)
 	}
+
+	// Security audit client
 	if cfg.SecurityAuditModel != "" && !*unrestricted {
 		auditClient := llm.NewClient(cfg.SecurityAuditBaseURL, cfg.SecurityAuditAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
 		srv.SetSecurityAudit(auditClient, cfg.SecurityAuditModel)
 	}
 
+	// Start Telegram polling
 	srv.StartTelegramPolling(ctx)
 
+	// Initial skills refresh
 	if err := skillsMgr.RefreshAll(ctx); err != nil {
 		log.Warn("skills refresh failed", zap.Error(err))
 	}
+
+	// Background skills sync
 	go syncLoop(ctx, skillsMgr, cfg.SkillsSyncInterval)
 
-	// Create HTTP handler with health check and pprof
+	// HTTP server with health check and pprof
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	// Mount pprof handlers under /debug/pprof/
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
@@ -160,20 +136,23 @@ func main() {
 		Handler: mux,
 	}
 
-	go func() {
-		log.Info("server listening", zap.String("addr", cfg.ServerAddr))
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("server error", zap.Error(err))
-		}
-	}()
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-	_ = httpServer.Shutdown(shutdownCtx)
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			go func() {
+				log.Info("server listening", zap.String("addr", cfg.ServerAddr))
+				if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					log.Fatal("server error", zap.Error(err))
+				}
+			}()
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			cancel()
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer shutdownCancel()
+			return httpServer.Shutdown(shutdownCtx)
+		},
+	})
 }
 
 func syncLoop(ctx context.Context, mgr *skills.Manager, interval time.Duration) {

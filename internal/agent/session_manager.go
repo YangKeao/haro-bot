@@ -9,31 +9,34 @@ import (
 	"github.com/YangKeao/haro-bot/internal/tools"
 )
 
-type sessionDeps struct {
-	store          ConversationStore
-	memoryEngine   *memory.Engine
-	skills         *skills.Manager
-	toolRegistry   *tools.Registry
-	promptBuilder  PromptBuilder
-	toolRunner     ToolRunner
-	defaultBaseDir string
-	maxToolTurns   int
-	llm            *llm.Client
-	model          string
-	promptFormat   string
-	reasoning      llm.ReasoningConfig
-	contextConfig  llm.ContextConfig
-	tokenEstimator *llm.TokenEstimator
-	stateManager   *sessionStateManager
+// Deps holds all dependencies needed by sessions.
+// This centralizes dependency management and avoids duplicating
+// fields between Agent and Session.
+type Deps struct {
+	Store          ConversationStore
+	MemoryEngine   *memory.Engine
+	Skills         *skills.Manager
+	ToolRegistry   *tools.Registry
+	PromptBuilder  PromptBuilder
+	ToolRunner     ToolRunner
+	DefaultBaseDir string
+	MaxToolTurns   int
+	LLM            *llm.Client
+	Model          string
+	PromptFormat   string
+	Reasoning      llm.ReasoningConfig
+	ContextConfig  llm.ContextConfig
+	TokenEstimator *llm.TokenEstimator
+	StateManager   *sessionStateManager
 }
 
 type sessionManager struct {
 	mu       sync.Mutex
 	sessions map[int64]*Session
-	deps     *sessionDeps
+	deps     *Deps
 }
 
-func newSessionManager(deps *sessionDeps) *sessionManager {
+func newSessionManager(deps *Deps) *sessionManager {
 	return &sessionManager{
 		sessions: make(map[int64]*Session),
 		deps:     deps,
