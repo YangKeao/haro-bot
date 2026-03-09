@@ -65,6 +65,11 @@ func isContextWindowError(err error) bool {
 		return true
 	case strings.Contains(msg, "model_context_window_exceeded"):
 		return true
+	// Covers: "Requested token count exceeds the model's maximum context length"
+	case strings.Contains(msg, "exceeds") && strings.Contains(msg, "context"):
+		return true
+	case strings.Contains(msg, "maximum context length"):
+		return true
 	default:
 		return false
 	}
