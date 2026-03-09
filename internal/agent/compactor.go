@@ -18,8 +18,6 @@ const (
 	compactMinMessages = 6
 	// summaryReserveTokens is the token budget reserved for the summary output
 	summaryReserveTokens = 2000
-	// compactMaxRetries is the maximum number of retries when context window is exceeded
-	compactMaxRetries = 3
 	// compactRetryScale is the scale factor for trimming before retrying compact
 	compactRetryScale = 0.7
 )
@@ -77,9 +75,9 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 	}
 
 	scale := 1.0
-	var lastErr error
+	attempt := 0
 
-	for attempt := 0; attempt <= compactMaxRetries; attempt++ {
+	for {
 		// Trim the conversation to fit in budget for the summary request
 		var toSummarize []llm.Message
 		if c.estimator != nil {
@@ -144,8 +142,7 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 			Purpose:  llm.PurposeSummary,
 		})
 		if err != nil {
-			lastErr = err
-			if llm.IsContextWindowExceeded(err) && attempt < compactMaxRetries {
+			if llm.IsContextWindowExceeded(err) {
 				log.Warn("summary request exceeded context, retrying with smaller scale",
 					zap.Int64("session_id", sessionID),
 					zap.Int("attempt", attempt),
@@ -154,8 +151,10 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 					zap.Error(err),
 				)
 				scale *= compactRetryScale
+				attempt++
 				continue
 			}
+			// Other errors (e.g., API error, rate limit) - return immediately
 			log.Error("summary generation failed", zap.Error(err))
 			return nil, err
 		}
@@ -192,8 +191,6 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 
 		return summary, nil
 	}
-
-	return nil, fmt.Errorf("compact failed after %d retries: %w", compactMaxRetries, lastErr)
 }
 
 // CompactIfNeeded checks if compaction is needed and performs it.
