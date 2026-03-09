@@ -1,3 +1,0 @@
-L248: func formatFileInfo(fileType, filename, mimeType string, size int64) string {
-L249: 	return fmt.Sprintf("[%s: %s (%s, %d bytes)]", fileType, filename, mimeType, size)
-L250: }
