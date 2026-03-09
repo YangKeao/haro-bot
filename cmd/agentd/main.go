@@ -14,6 +14,7 @@ import (
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/fork"
+	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
@@ -64,6 +65,7 @@ func main() {
 	store := memory.NewStore(dbConn)
 	skillsStore := skills.NewStore(dbConn)
 	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
+	guidelinesMgr := guidelines.NewManager(dbConn)
 
 	if *unrestricted {
 		log.Warn("running in UNRESTRICTED mode - path restrictions and symlink checks are disabled!")
@@ -92,6 +94,7 @@ func main() {
 		tools.NewListDirTool(fsTools),
 		tools.NewExecCommandTool(fsTools, execMgr),
 		tools.NewWriteStdinTool(execMgr),
+		tools.NewUpdateGuidelinesTool(guidelinesMgr),
 	)
 	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
 	contextCfg := llm.ContextConfig{
@@ -109,6 +112,7 @@ func main() {
 		memoryEngine,
 		skillsMgr,
 		toolRegistry,
+		guidelinesMgr,
 		fsTools.DefaultBase(),
 		cfg.ToolMaxTurns,
 		llmClient,

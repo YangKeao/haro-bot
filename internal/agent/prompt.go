@@ -1,37 +1,50 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
 
+	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
 )
 
-func buildSystemPrompt(memories []memory.MemoryItem, skillsList []skills.Metadata, format string) string {
-	return buildPrompt(memories, skillsList, format, true)
+// GuidelinesLoader fetches active guidelines for prompt building
+type GuidelinesLoader interface {
+	GetActive(ctx context.Context) (*guidelines.Guidelines, error)
 }
 
-func buildInterruptPrompt(memories []memory.MemoryItem, format string) string {
-	return buildPrompt(memories, nil, format, false)
+func buildSystemPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.MemoryItem, skillsList []skills.Metadata, format string) string {
+	return buildPrompt(ctx, gl, memories, skillsList, format, true)
 }
 
-type DefaultPromptBuilder struct{}
-
-func (DefaultPromptBuilder) System(memories []memory.MemoryItem, skillsList []skills.Metadata, format string) string {
-	return buildSystemPrompt(memories, skillsList, format)
+func buildInterruptPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.MemoryItem, format string) string {
+	return buildPrompt(ctx, gl, memories, nil, format, false)
 }
 
-func (DefaultPromptBuilder) Interrupt(memories []memory.MemoryItem, format string) string {
-	return buildInterruptPrompt(memories, format)
+type DefaultPromptBuilder struct {
+	gl GuidelinesLoader
 }
 
-func (DefaultPromptBuilder) Skill(skill skills.Skill) string {
+func NewDefaultPromptBuilder(gl GuidelinesLoader) *DefaultPromptBuilder {
+	return &DefaultPromptBuilder{gl: gl}
+}
+
+func (b *DefaultPromptBuilder) System(ctx context.Context, memories []memory.MemoryItem, skillsList []skills.Metadata, format string) string {
+	return buildSystemPrompt(ctx, b.gl, memories, skillsList, format)
+}
+
+func (b *DefaultPromptBuilder) Interrupt(ctx context.Context, memories []memory.MemoryItem, format string) string {
+	return buildInterruptPrompt(ctx, b.gl, memories, format)
+}
+
+func (b *DefaultPromptBuilder) Skill(skill skills.Skill) string {
 	return buildSkillPrompt(skill)
 }
 
-func buildPrompt(memories []memory.MemoryItem, skillsList []skills.Metadata, format string, includeSkills bool) string {
+func buildPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.MemoryItem, skillsList []skills.Metadata, format string, includeSkills bool) string {
 	var b strings.Builder
 	format = strings.ToLower(strings.TrimSpace(format))
 	skillsXML := ""
@@ -44,6 +57,16 @@ func buildPrompt(memories []memory.MemoryItem, skillsList []skills.Metadata, for
 	}
 	b.WriteString("You are an assistant. Use the provided long-term memory when relevant.\n")
 	b.WriteString("When the conversation gets long or you need a clean handoff, create a session summary using the session_summary tool with a concise summary and optional state.\n")
+	
+	// Load and include guidelines if available
+	if gl != nil {
+		if g, err := gl.GetActive(ctx); err == nil && g != nil && g.Content != "" {
+			b.WriteString("\n## Guidelines\n")
+			b.WriteString(g.Content)
+			b.WriteString("\n\n")
+		}
+	}
+	
 	if len(memories) > 0 {
 		b.WriteString("Long-term memory:\n")
 		for _, m := range memories {

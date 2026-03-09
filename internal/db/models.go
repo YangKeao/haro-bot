@@ -109,3 +109,16 @@ type AppConfig struct {
 }
 
 func (AppConfig) TableName() string { return "app_config" }
+
+// Guidelines stores the bot's behavioral guidelines and principles.
+// The database table is named "constitutions" for backward compatibility.
+type Guidelines struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement"`
+	Content   string    `gorm:"column:content;type:longtext"`
+	Version   int       `gorm:"column:version"`
+	IsActive  bool      `gorm:"column:is_active"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at"`
+}
+
+func (Guidelines) TableName() string { return "constitutions" }
