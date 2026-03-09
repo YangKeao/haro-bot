@@ -16,8 +16,8 @@ func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model st
 	}
 
 	estimator := s.estimatorForModel(model)
-	budget := computeTokenBudget(s.deps.contextConfig)
-	compactor := NewCompactor(s.deps.store, s.deps.llm, estimator, model)
+	budget := computeTokenBudget(s.deps.ContextConfig)
+	compactor := NewCompactor(s.deps.Store, s.deps.LLM, estimator, model)
 
 	// Check if we should preemptively compact before calling LLM
 	if compactor.ShouldCompact(messages, budget.InputBudget) {
@@ -48,12 +48,12 @@ func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model st
 		}
 	}
 
-	resp, err := s.deps.llm.Chat(ctx, llm.ChatRequest{
+	resp, err := s.deps.LLM.Chat(ctx, llm.ChatRequest{
 		Model:            model,
 		Messages:         messages,
 		Tools:            tools,
-		ReasoningEnabled: s.deps.reasoning.Enabled,
-		ReasoningEffort:  s.deps.reasoning.Effort,
+		ReasoningEnabled: s.deps.Reasoning.Enabled,
+		ReasoningEffort:  s.deps.Reasoning.Effort,
 		StreamHandler:    handler,
 		Purpose:          llm.PurposeChat,
 	})
@@ -75,12 +75,12 @@ func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model st
 			if observer != nil {
 				observer.OnLLMStart(ctx, LLMStartInfo{Model: model, Attempt: 1})
 			}
-			resp, err = s.deps.llm.Chat(ctx, llm.ChatRequest{
+			resp, err = s.deps.LLM.Chat(ctx, llm.ChatRequest{
 				Model:            model,
 				Messages:         messages,
 				Tools:            tools,
-				ReasoningEnabled: s.deps.reasoning.Enabled,
-				ReasoningEffort:  s.deps.reasoning.Effort,
+				ReasoningEnabled: s.deps.Reasoning.Enabled,
+				ReasoningEffort:  s.deps.Reasoning.Effort,
 				StreamHandler:    handler,
 				Purpose:          llm.PurposeChat,
 			})
@@ -100,7 +100,7 @@ func (s *Session) compactAndReload(ctx context.Context, log *zap.Logger, compact
 	}
 
 	// Reload messages from the new view
-	recent, _, loadErr := s.deps.store.LoadViewMessages(ctx, s.id, 0)
+	recent, _, loadErr := s.deps.Store.LoadViewMessages(ctx, s.id, 0)
 	if loadErr != nil {
 		log.Warn("failed to reload after compact", zap.Error(loadErr))
 		return nil, loadErr

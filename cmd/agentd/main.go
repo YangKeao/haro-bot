@@ -5,9 +5,6 @@ import (
 	"flag"
 	"net/http"
 	"net/http/pprof"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
@@ -21,7 +18,9 @@ import (
 	"github.com/YangKeao/haro-bot/internal/server"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
+	"go.uber.org/fx"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -46,35 +45,123 @@ func main() {
 		logger.Warn("invalid log config, using production defaults", zap.Error(err))
 	}
 	defer func() { _ = logger.Sync() }()
-	log := logger.Named("agentd")
 
-	dbConn, err := db.Open(cfg.TiDBDSN)
+	app := fx.New(
+		// Supply config and flags
+		fx.Supply(cfg),
+		fx.Provide(func() *bool { return unrestricted }),
+
+		// Core providers
+		fx.Provide(
+			// Database
+			NewDB,
+			// Stores
+			NewMemoryStore,
+			NewSkillsStore,
+			NewAuditStore,
+			// Managers
+			NewSkillsManager,
+			NewGuidelinesManager,
+			// LLM
+			NewLLMClient,
+			NewContextConfig,
+			NewReasoningConfig,
+			NewMemoryEngine,
+			// Tools
+			NewFS,
+			NewBrowserManager,
+			NewExecManager,
+			NewToolRegistry,
+			// Named values for agent.Params
+			fx.Annotate(
+				func(cfg *config.Config) string { return cfg.LLMModel },
+				fx.ResultTags(`name:"llm_model"`),
+			),
+			fx.Annotate(
+				func(cfg *config.Config) string { return string(cfg.LLMPromptFormat) },
+				fx.ResultTags(`name:"prompt_format"`),
+			),
+			fx.Annotate(
+				func(fs *tools.FS) string { return fs.DefaultBase() },
+				fx.ResultTags(`name:"default_base_dir"`),
+			),
+			fx.Annotate(
+				func(cfg *config.Config) int { return cfg.ToolMaxTurns },
+				fx.ResultTags(`name:"max_tool_turns"`),
+			),
+		),
+
+		// Agent module
+		agent.Module,
+
+		// Fork and server
+		fx.Provide(NewForkManager, NewServer),
+
+		// Lifecycle
+		fx.Invoke(RunApp),
+	)
+
+	app.Run()
+}
+
+// NewDB creates database connection with lifecycle management
+func NewDB(lc fx.Lifecycle, cfg *config.Config, log *zap.Logger) *gorm.DB {
+	conn, err := db.Open(cfg.TiDBDSN)
 	if err != nil {
 		log.Fatal("db open failed", zap.Error(err))
 	}
-	if err := db.ApplyMigrations(dbConn, cfg.Memory); err != nil {
+	if err := db.ApplyMigrations(conn, cfg.Memory); err != nil {
 		log.Fatal("db migrations failed", zap.Error(err))
 	}
+	lc.Append(fx.StopHook(func() error {
+		sqlDB, _ := conn.DB()
+		return sqlDB.Close()
+	}))
+	return conn
+}
 
-	log.Info("config loaded", zap.Any("cfg", cfg))
+func NewMemoryStore(dbConn *gorm.DB) memory.StoreAPI {
+	return memory.NewStore(dbConn)
+}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func NewSkillsStore(dbConn *gorm.DB) *skills.Store {
+	return skills.NewStore(dbConn)
+}
 
-	store := memory.NewStore(dbConn)
-	skillsStore := skills.NewStore(dbConn)
-	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
-	guidelinesMgr := guidelines.NewManager(dbConn)
+func NewAuditStore(dbConn *gorm.DB) *tools.AuditStore {
+	return tools.NewAuditStore(dbConn)
+}
 
-	if *unrestricted {
-		log.Warn("running in UNRESTRICTED mode - path restrictions and symlink checks are disabled!")
-	}
-	auditStore := tools.NewAuditStore(dbConn)
-	fsTools := tools.NewFS(cfg.FSAllowedRoots, auditStore, *unrestricted)
+func NewSkillsManager(store *skills.Store, cfg *config.Config) *skills.Manager {
+	return skills.NewManager(store, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
+}
 
-	browserMgr := tools.NewBrowserManager()
-	execMgr := tools.NewExecManager()
-	toolRegistry := tools.NewRegistry(
+func NewGuidelinesManager(dbConn *gorm.DB) *guidelines.Manager {
+	return guidelines.NewManager(dbConn)
+}
+
+func NewFS(cfg *config.Config, auditStore *tools.AuditStore, unrestricted *bool) *tools.FS {
+	return tools.NewFS(cfg.FSAllowedRoots, auditStore, *unrestricted)
+}
+
+func NewBrowserManager() *tools.BrowserManager {
+	return tools.NewBrowserManager()
+}
+
+func NewExecManager() *tools.ExecManager {
+	return tools.NewExecManager()
+}
+
+func NewToolRegistry(
+	browserMgr *tools.BrowserManager,
+	fsTools *tools.FS,
+	execMgr *tools.ExecManager,
+	cfg *config.Config,
+	skillsMgr *skills.Manager,
+	store memory.StoreAPI,
+	guidelinesMgr *guidelines.Manager,
+) *tools.Registry {
+	return tools.NewRegistry(
 		tools.NewBrowserGotoTool(browserMgr),
 		tools.NewBrowserGoBackTool(browserMgr),
 		tools.NewBrowserGetPageStateTool(browserMgr),
@@ -95,60 +182,90 @@ func main() {
 		tools.NewWriteStdinTool(execMgr),
 		tools.NewUpdateGuidelinesTool(guidelinesMgr),
 	)
-	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
-	contextCfg := llm.ContextConfig{
+}
+
+func NewLLMClient(cfg *config.Config) *llm.Client {
+	return llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
+}
+
+func NewContextConfig(cfg *config.Config) llm.ContextConfig {
+	return llm.ContextConfig{
 		WindowTokens:                  cfg.LLMContextWindow,
 		AutoCompactTokenLimit:         cfg.LLMAutoCompactTokenLimit,
 		EffectiveContextWindowPercent: cfg.LLMEffectiveContextWindowPercent,
 	}
-	memoryEngine, err := memory.NewEngine(dbConn, store, llmClient, cfg.LLMModel, cfg.Memory)
+}
+
+func NewReasoningConfig(cfg *config.Config) llm.ReasoningConfig {
+	return llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort}
+}
+
+func NewMemoryEngine(dbConn *gorm.DB, store memory.StoreAPI, llmClient *llm.Client, cfg *config.Config, log *zap.Logger) *memory.Engine {
+	engine, err := memory.NewEngine(dbConn, store, llmClient, cfg.LLMModel, cfg.Memory)
 	if err != nil {
 		log.Fatal("memory engine init failed", zap.Error(err))
 	}
+	return engine
+}
 
-	agentSvc := agent.New(
-		store,
-		memoryEngine,
-		skillsMgr,
-		toolRegistry,
-		guidelinesMgr,
-		fsTools.DefaultBase(),
-		cfg.ToolMaxTurns,
-		llmClient,
-		cfg.LLMModel,
-		string(cfg.LLMPromptFormat),
-		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
-		contextCfg,
-	)
-	forkMgr := fork.NewManager(agentSvc, store)
+func NewForkManager(agentSvc *agent.Agent, store memory.StoreAPI) *fork.Manager {
+	return fork.NewManager(agentSvc, store)
+}
+
+func NewServer(cfg *config.Config, agentSvc *agent.Agent, store memory.StoreAPI, skillsMgr *skills.Manager, memoryEngine *memory.Engine) *server.Server {
+	return server.New(*cfg, agentSvc, store, skillsMgr, memoryEngine)
+}
+
+// RunApp is the main application invoker
+func RunApp(
+	lc fx.Lifecycle,
+	cfg *config.Config,
+	unrestricted *bool,
+	agentSvc *agent.Agent,
+	forkMgr *fork.Manager,
+	toolRegistry *tools.Registry,
+	srv *server.Server,
+	fsTools *tools.FS,
+	skillsMgr *skills.Manager,
+	log *zap.Logger,
+) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Register fork tools (these need forkMgr which depends on agent)
 	toolRegistry.Register(fork.NewForkTool(forkMgr))
 	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))
 	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
 	toolRegistry.Register(fork.NewForkStatusTool(forkMgr))
-	srv := server.New(cfg, agentSvc, store, skillsMgr, memoryEngine)
+
+	// Setup messenger and approver for Telegram
 	if cfg.TelegramToken != "" && !*unrestricted {
 		agentSvc.SetSessionMessenger(srv)
 		fsTools.SetApprover(srv)
 	}
+
+	// Security audit client
 	if cfg.SecurityAuditModel != "" && !*unrestricted {
 		auditClient := llm.NewClient(cfg.SecurityAuditBaseURL, cfg.SecurityAuditAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
 		srv.SetSecurityAudit(auditClient, cfg.SecurityAuditModel)
 	}
 
+	// Start Telegram polling
 	srv.StartTelegramPolling(ctx)
 
+	// Initial skills refresh
 	if err := skillsMgr.RefreshAll(ctx); err != nil {
 		log.Warn("skills refresh failed", zap.Error(err))
 	}
+
+	// Background skills sync
 	go syncLoop(ctx, skillsMgr, cfg.SkillsSyncInterval)
 
-	// Create HTTP handler with health check and pprof
+	// HTTP server with health check and pprof
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	// Mount pprof handlers under /debug/pprof/
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
@@ -160,20 +277,23 @@ func main() {
 		Handler: mux,
 	}
 
-	go func() {
-		log.Info("server listening", zap.String("addr", cfg.ServerAddr))
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("server error", zap.Error(err))
-		}
-	}()
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-	_ = httpServer.Shutdown(shutdownCtx)
+	lc.Append(fx.Hook{
+		OnStart: func(ctx context.Context) error {
+			go func() {
+				log.Info("server listening", zap.String("addr", cfg.ServerAddr))
+				if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					log.Fatal("server error", zap.Error(err))
+				}
+			}()
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			cancel()
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer shutdownCancel()
+			return httpServer.Shutdown(shutdownCtx)
+		},
+	})
 }
 
 func syncLoop(ctx context.Context, mgr *skills.Manager, interval time.Duration) {

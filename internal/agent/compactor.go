@@ -75,6 +75,12 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 	}
 
 	scale := 1.0
+	// The loop will eventually terminate because scale is reduced by compactRetryScale (0.7)
+	// on each context window exceeded error. This means the budget decreases each round,
+	// and selectLLMMessagesByTokens will eventually return an empty slice when the budget
+	// becomes too small to fit any messages. When toSummarize is empty, we create an empty
+	// summary and return, ensuring the loop always terminates.
+
 	attempt := 0
 
 	for {
