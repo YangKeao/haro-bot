@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"encoding/json"
+
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
@@ -47,9 +49,9 @@ func buildChatMessages(messages []Message) []openai.ChatCompletionMessageParamUn
 			if len(msg.ToolCalls) > 0 {
 				assistant.ToolCalls = buildChatToolCalls(msg.ToolCalls)
 			}
-			// Add reasoning content if present (for models like o1, deepseek-reasoner)
+			// Add reasoning content if present (for models like GLM, DeepSeek)
 			if msg.ReasoningContent != "" {
-				assistant.ReasoningContent = openai.String(msg.ReasoningContent)
+				assistant.SetExtraFields(map[string]any{"reasoning_content": msg.ReasoningContent})
 			}
 			if msg.Content == "" && len(assistant.ToolCalls) == 0 && msg.ReasoningContent == "" {
 				continue
@@ -139,8 +141,17 @@ func chatCompletionToChat(resp *openai.ChatCompletion) ChatResponse {
 	if resp != nil && len(resp.Choices) > 0 {
 		msg := resp.Choices[0].Message
 		content = msg.Content
-		// Extract reasoning content if present
-		reasoningContent = msg.ReasoningContent
+		// Extract reasoning content if present (from ExtraFields for GLM/DeepSeek compatibility)
+		if field, ok := msg.JSON.ExtraFields["reasoning_content"]; ok && field.Valid() {
+			raw := field.Raw()
+			if raw != "" {
+				// Raw returns the JSON-encoded value, need to unmarshal it
+				if err := json.Unmarshal([]byte(raw), &reasoningContent); err != nil {
+					// If unmarshal fails, use raw value directly
+					reasoningContent = raw
+				}
+			}
+		}
 		for _, call := range msg.ToolCalls {
 			toolCalls = append(toolCalls, ToolCall{
 				ID:   call.ID,
