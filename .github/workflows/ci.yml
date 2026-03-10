@@ -1,0 +1,119 @@
+name: Go CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unit tests
+        run: go test ./...
+
+  integration-e2e:
+    name: Integration and E2E
+    runs-on: ubuntu-latest
+    needs: unit
+    timeout-minutes: 90
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    services:
+      tidb:
+        image: pingcap/tidb:v8.5.5
+        ports:
+          - 4000:4000
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate integration secrets
+        shell: bash
+        env:
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          MEMORY_EMBEDDER_MODEL: ${{ secrets.MEMORY_EMBEDDER_MODEL }}
+          MEMORY_EMBEDDER_DIMENSIONS: ${{ secrets.MEMORY_EMBEDDER_DIMENSIONS }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for key in LLM_BASE_URL LLM_API_KEY LLM_MODEL MEMORY_EMBEDDER_MODEL MEMORY_EMBEDDER_DIMENSIONS; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing required secret: ${key}"
+              missing=1
+            fi
+          done
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+          if ! [[ "${MEMORY_EMBEDDER_DIMENSIONS}" =~ ^[0-9]+$ ]]; then
+            echo "::error::MEMORY_EMBEDDER_DIMENSIONS must be an integer"
+            exit 1
+          fi
+
+      - name: Wait for TiDB
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in {1..120}; do
+            if (echo > /dev/tcp/127.0.0.1/4000) >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::TiDB did not become ready on 127.0.0.1:4000"
+          exit 1
+
+      - name: Generate integration config
+        shell: bash
+        env:
+          MEMORY_EMBEDDER_MODEL: ${{ secrets.MEMORY_EMBEDDER_MODEL }}
+          MEMORY_EMBEDDER_DIMENSIONS: ${{ secrets.MEMORY_EMBEDDER_DIMENSIONS }}
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/integration.toml" <<EOF
+[db]
+tidb_dsn = "root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true"
+
+[memory.embedder]
+model = "${MEMORY_EMBEDDER_MODEL}"
+dimensions = ${MEMORY_EMBEDDER_DIMENSIONS}
+EOF
+          echo "HARO_CONFIG_PATH=${RUNNER_TEMP}/integration.toml" >> "${GITHUB_ENV}"
+
+      - name: Run integration and e2e tests
+        env:
+          TIDB_DSN: root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+        run: go test -tags=integration ./internal/... -count=1
