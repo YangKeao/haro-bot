@@ -140,3 +140,104 @@ func TestBuildCompactPromptWithToolCalls(t *testing.T) {
 		t.Error("prompt should contain tool response")
 	}
 }
+
+func TestExtractLastTurn(t *testing.T) {
+	tests := []struct {
+		name              string
+		messages          []llm.Message
+		wantLastTurnCount int
+		wantRemaining     int
+		wantUserContent   string // Content of the first message in lastTurn (should be user if exists)
+	}{
+		{
+			name: "empty messages",
+			messages: []llm.Message{},
+			wantLastTurnCount: 0,
+			wantRemaining: 0,
+		},
+		{
+			name: "only user message",
+			messages: []llm.Message{
+				{Role: "user", Content: "hello"},
+			},
+			wantLastTurnCount: 1,
+			wantRemaining: 0,
+			wantUserContent: "hello",
+		},
+		{
+			name: "user then assistant - preserve user",
+			messages: []llm.Message{
+				{Role: "user", Content: "search for Go"},
+				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{
+					{ID: "1", Function: llm.ToolCallFn{Name: "brave_search"}},
+				}},
+				{Role: "tool", ToolCallID: "1", Content: "results"},
+			},
+			wantLastTurnCount: 3,
+			wantRemaining: 0,
+			wantUserContent: "search for Go",
+		},
+		{
+			name: "multiple turns - preserve last user",
+			messages: []llm.Message{
+				{Role: "user", Content: "first request"},
+				{Role: "assistant", Content: "first response"},
+				{Role: "user", Content: "second request"},
+				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{
+					{ID: "1", Function: llm.ToolCallFn{Name: "brave_search"}},
+				}},
+				{Role: "tool", ToolCallID: "1", Content: "results"},
+			},
+			wantLastTurnCount: 3,
+			wantRemaining: 2,
+			wantUserContent: "second request",
+		},
+		{
+			name: "assistant without tool calls",
+			messages: []llm.Message{
+				{Role: "user", Content: "hello"},
+				{Role: "assistant", Content: "hi there"},
+			},
+			wantLastTurnCount: 2,
+			wantRemaining: 0,
+			wantUserContent: "hello",
+		},
+		{
+			name: "filter unrelated tool responses",
+			messages: []llm.Message{
+				{Role: "user", Content: "search"},
+				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{
+					{ID: "1", Function: llm.ToolCallFn{Name: "search"}},
+				}},
+				{Role: "tool", ToolCallID: "2", Content: "old results"}, // Unrelated
+				{Role: "tool", ToolCallID: "1", Content: "new results"}, // Related
+			},
+			wantLastTurnCount: 3, // user + assistant + related tool
+			wantRemaining: 0,
+			wantUserContent: "search",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lastTurn, remaining := extractLastTurn(tt.messages)
+			
+			if len(lastTurn) != tt.wantLastTurnCount {
+				t.Errorf("lastTurn count = %d, want %d", len(lastTurn), tt.wantLastTurnCount)
+			}
+			
+			if len(remaining) != tt.wantRemaining {
+				t.Errorf("remaining count = %d, want %d", len(remaining), tt.wantRemaining)
+			}
+			
+			if tt.wantUserContent != "" && len(lastTurn) > 0 {
+				if lastTurn[0].Role != "user" {
+					t.Errorf("first message in lastTurn should be user, got %s", lastTurn[0].Role)
+				}
+				if lastTurn[0].Content != tt.wantUserContent {
+					t.Errorf("user content = %q, want %q", lastTurn[0].Content, tt.wantUserContent)
+				}
+			}
+		})
+	}
+}
