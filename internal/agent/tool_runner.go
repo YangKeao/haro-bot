@@ -32,19 +32,30 @@ func NewToolRunner(registry *tools.Registry, store ConversationStore, skillsMgr 
 	}
 }
 
-func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, baseDir string, activeSkill *skills.Skill, calls []llm.ToolCall) ([]llm.Message, *skills.Skill, error) {
+func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, baseDir string, activeSkill *skills.Skill, calls []llm.ToolCall) ([]ContextMessage, *skills.Skill, error) {
 	log := logging.L().Named("tool_runner")
 	if r == nil || r.registry == nil {
 		return nil, activeSkill, errors.New("tool registry not configured")
 	}
 	currentSkill := activeSkill
-	out := make([]llm.Message, 0, len(calls))
+	out := make([]ContextMessage, 0, len(calls))
 	for _, call := range calls {
 		tool, ok := r.registry.Get(call.Function.Name)
 		if !ok {
 			log.Warn("tool not found", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID))
 			toolMsg := llm.Message{Role: "tool", ToolCallID: call.ID, Content: "unsupported tool"}
-			out = append(out, toolMsg)
+			entryID, err := r.store.AddMessageAndGetID(ctx, sessionID, "tool", toolMsg.Content, &memory.MessageMetadata{
+				ToolCallID: call.ID,
+				Status:     "error",
+			})
+			if err != nil {
+				return nil, currentSkill, err
+			}
+			ctxMsg, err := newPersistedContextMessage(entryID, toolMsg)
+			if err != nil {
+				return nil, currentSkill, err
+			}
+			out = append(out, ctxMsg)
 			continue
 		}
 		log.Debug("tool start", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID))
@@ -64,7 +75,12 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 				if output == "" {
 					output = "operation stopped by user"
 				}
-				_ = r.store.AddMessage(ctx, sessionID, "tool", output, &memory.MessageMetadata{ToolCallID: call.ID, Status: "error"})
+				if _, storeErr := r.store.AddMessageAndGetID(ctx, sessionID, "tool", output, &memory.MessageMetadata{
+					ToolCallID: call.ID,
+					Status:     "error",
+				}); storeErr != nil {
+					return nil, currentSkill, storeErr
+				}
 				log.Warn("tool stopped", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID), zap.Error(err))
 				return nil, currentSkill, err
 			}
@@ -79,8 +95,18 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 			log.Debug("tool ok", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID))
 		}
 		toolMsg := llm.Message{Role: "tool", ToolCallID: call.ID, Content: output}
-		out = append(out, toolMsg)
-		_ = r.store.AddMessage(ctx, sessionID, "tool", output, &memory.MessageMetadata{ToolCallID: call.ID, Status: status})
+		entryID, err := r.store.AddMessageAndGetID(ctx, sessionID, "tool", output, &memory.MessageMetadata{
+			ToolCallID: call.ID,
+			Status:     status,
+		})
+		if err != nil {
+			return nil, currentSkill, err
+		}
+		ctxMsg, err := newPersistedContextMessage(entryID, toolMsg)
+		if err != nil {
+			return nil, currentSkill, err
+		}
+		out = append(out, ctxMsg)
 	}
 	return out, currentSkill, nil
 }

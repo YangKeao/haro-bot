@@ -89,7 +89,7 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 	s.deps.stateManager.SetLLMModel(s.id, model)
 	defer s.setState(StateIdle)
 	log.Info("handle start", zap.Int64("session_id", s.id), zap.Int64("user_id", userID), zap.String("channel", channel))
-	if err := s.deps.store.AddMessage(ctx, s.id, "user", input, nil); err != nil {
+	if _, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "user", input, nil); err != nil {
 		log.Error("add user message failed", zap.Int64("session_id", s.id), zap.Error(err))
 		return "", err
 	}
@@ -101,17 +101,20 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 		return "", err
 	}
 	systemPrompt := s.deps.promptBuilder.System(ctx, memories, availableSkills, s.deps.promptFormat)
-	baseMessages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	baseMessages := []ContextMessage{newTransientContextMessage(llm.Message{Role: "system", Content: systemPrompt})}
 	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
-		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: summaryMsg})
+		baseMessages = append(baseMessages, newTransientContextMessage(llm.Message{Role: "system", Content: summaryMsg}))
 	}
-	llmMessages := toLLMMessages(recent)
+	contextMessages, err := toContextMessages(recent)
+	if err != nil {
+		return "", err
+	}
 	messages := baseMessages
 	// Add hint for task-phase transitions and error recovery (context limits handled by auto-compact)
 	if hint := summaryHint(recent); hint != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: hint})
+		messages = append(messages, newTransientContextMessage(llm.Message{Role: "system", Content: hint}))
 	}
-	messages = append(messages, llmMessages...)
+	messages = append(messages, contextMessages...)
 	output, err := s.runLoop(ctx, userID, messages, model, nil, observer)
 	if err != nil {
 		log.Error("handle failed", zap.Int64("session_id", s.id), zap.Error(err))
@@ -135,7 +138,7 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 		model = modelOverride
 	}
 	if storeInSession {
-		if err := s.deps.store.AddMessage(ctx, s.id, "user", input, nil); err != nil {
+		if _, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "user", input, nil); err != nil {
 			return "", err
 		}
 	}
@@ -145,20 +148,23 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 	if err != nil {
 		return "", err
 	}
-	baseMessages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	baseMessages := []ContextMessage{newTransientContextMessage(llm.Message{Role: "system", Content: systemPrompt})}
 	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
-		baseMessages = append(baseMessages, llm.Message{Role: "system", Content: summaryMsg})
+		baseMessages = append(baseMessages, newTransientContextMessage(llm.Message{Role: "system", Content: summaryMsg}))
 	}
-	llmMessages := toLLMMessages(recent)
+	contextMessages, err := toContextMessages(recent)
+	if err != nil {
+		return "", err
+	}
 	if !storeInSession {
-		llmMessages = append(llmMessages, llm.Message{Role: "user", Content: input})
+		contextMessages = append(contextMessages, newTransientContextMessage(llm.Message{Role: "user", Content: input}))
 	}
 	messages := baseMessages
 	// Add hint for task-phase transitions and error recovery (context limits handled by auto-compact)
 	if hint := summaryHint(recent); hint != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: hint})
+		messages = append(messages, newTransientContextMessage(llm.Message{Role: "system", Content: hint}))
 	}
-	messages = append(messages, llmMessages...)
+	messages = append(messages, contextMessages...)
 	resp, _, err := s.callLLMWithTrim(ctx, log, model, messages, nil, nil)
 	if err != nil {
 		log.Error("interrupt llm error", zap.Int64("session_id", s.id), zap.Error(err))
@@ -169,7 +175,7 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 	}
 	content := resp.Choices[0].Message.Content
 	if storeInSession {
-		if err := s.deps.store.AddMessage(ctx, s.id, "assistant", content, metadata); err != nil {
+		if _, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "assistant", content, metadata); err != nil {
 			log.Error("interrupt store failed", zap.Int64("session_id", s.id), zap.Error(err))
 			return "", err
 		}
@@ -183,7 +189,7 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 	return content, nil
 }
 
-func (s *Session) runLoop(ctx context.Context, userID int64, messages []llm.Message, model string, activeSkill *skills.Skill, observer ProgressObserver) (string, error) {
+func (s *Session) runLoop(ctx context.Context, userID int64, messages []ContextMessage, model string, activeSkill *skills.Skill, observer ProgressObserver) (string, error) {
 	log := logging.L().Named("agent_loop")
 	maxTurns := s.deps.maxToolTurns
 	for i := 0; i < maxTurns; i++ {
@@ -211,7 +217,7 @@ func (s *Session) runLoop(ctx context.Context, userID int64, messages []llm.Mess
 			zap.Int("tool_calls", len(msg.ToolCalls)),
 		)
 		if len(msg.ToolCalls) == 0 {
-			if err := s.deps.store.AddMessage(ctx, s.id, "assistant", msg.Content, nil); err != nil {
+			if _, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "assistant", msg.Content, nil); err != nil {
 				log.Error("store assistant failed", zap.Int64("session_id", s.id), zap.Error(err))
 				return "", err
 			}
@@ -223,7 +229,12 @@ func (s *Session) runLoop(ctx context.Context, userID int64, messages []llm.Mess
 		if observer != nil {
 			observer.OnToolCalls(ctx, msg.ToolCalls, msg.Content)
 		}
-		if err := s.deps.store.AddMessage(ctx, s.id, "assistant", msg.Content, &memory.MessageMetadata{ToolCalls: msg.ToolCalls}); err != nil {
+		assistantEntryID, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "assistant", msg.Content, &memory.MessageMetadata{ToolCalls: msg.ToolCalls})
+		if err != nil {
+			return "", err
+		}
+		assistantCtxMsg, err := newPersistedContextMessage(assistantEntryID, msg)
+		if err != nil {
 			return "", err
 		}
 		log.Debug("assistant tool-call message stored", zap.Int64("session_id", s.id))
@@ -238,7 +249,7 @@ func (s *Session) runLoop(ctx context.Context, userID int64, messages []llm.Mess
 		}
 		log.Debug("tool run completed", zap.Int("tool_messages", len(toolMsgs)))
 		activeSkill = updatedSkill
-		messages = append(messages, msg)
+		messages = append(messages, assistantCtxMsg)
 		messages = append(messages, toolMsgs...)
 	}
 	return "", errors.New("tool loop exceeded")

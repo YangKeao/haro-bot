@@ -97,11 +97,17 @@ func (s *store) GetOrCreateSession(ctx context.Context, userID int64, channel st
 
 // AddMessage appends a message to a session. Metadata captures tool calls/outputs and status.
 func (s *store) AddMessage(ctx context.Context, sessionID int64, role, content string, metadata *MessageMetadata) error {
+	_, err := s.AddMessageAndGetID(ctx, sessionID, role, content, metadata)
+	return err
+}
+
+// AddMessageAndGetID appends a message to a session and returns the inserted message ID.
+func (s *store) AddMessageAndGetID(ctx context.Context, sessionID int64, role, content string, metadata *MessageMetadata) (int64, error) {
 	var metaJSON []byte
 	if metadata != nil {
 		b, err := json.Marshal(metadata)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		metaJSON = b
 	}
@@ -115,7 +121,10 @@ func (s *store) AddMessage(ctx context.Context, sessionID int64, role, content s
 		Content:   content,
 		Metadata:  meta,
 	}
-	return s.db.WithContext(ctx).Create(&msg).Error
+	if err := s.db.WithContext(ctx).Create(&msg).Error; err != nil {
+		return 0, err
+	}
+	return msg.ID, nil
 }
 
 // AppendSummary stores a summary snapshot for a session. If EntryID is 0,
