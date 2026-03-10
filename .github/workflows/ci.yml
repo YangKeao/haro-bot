@@ -40,11 +40,6 @@ jobs:
     needs: unit
     timeout-minutes: 90
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    services:
-      tidb:
-        image: pingcap/tidb:v8.5.5
-        ports:
-          - 4000:4000
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,6 +49,27 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Install TiUP
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://tiup-mirrors.pingcap.com/install.sh | sh
+          echo "${HOME}/.tiup/bin" >> "${GITHUB_PATH}"
+
+      - name: Start TiDB playground
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup "${HOME}/.tiup/bin/tiup" playground v8.5.5 \
+            --db 1 \
+            --pd 1 \
+            --kv 1 \
+            --tiflash 1 \
+            --tiproxy 1 \
+            --without-monitor \
+            --tag gha-ci > "${RUNNER_TEMP}/tiup-playground.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/tiup-playground.pid"
 
       - name: Validate integration secrets
         shell: bash
@@ -84,13 +100,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for _ in {1..120}; do
+          for _ in {1..900}; do
             if (echo > /dev/tcp/127.0.0.1/4000) >/dev/null 2>&1; then
               exit 0
             fi
             sleep 1
           done
           echo "::error::TiDB did not become ready on 127.0.0.1:4000"
+          tail -n 200 "${RUNNER_TEMP}/tiup-playground.log" || true
           exit 1
 
       - name: Generate integration config
@@ -116,3 +133,13 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
         run: go test -tags=integration ./internal/... -count=1
+
+      - name: Stop TiDB playground
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "${RUNNER_TEMP}/tiup-playground.pid" ]; then
+            kill -INT "$(cat "${RUNNER_TEMP}/tiup-playground.pid)" >/dev/null 2>&1 || true
+          fi
+          sleep 3
