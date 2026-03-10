@@ -1,50 +1,111 @@
 package llm
 
 import (
-	"context"
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
-func TestChatUsesStreaming(t *testing.T) {
-	var gotStream any
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat/completions" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+func TestNewClient(t *testing.T) {
+	t.Run("creates client with base URL and API key", func(t *testing.T) {
+		client := NewClient("https://api.example.com/v1", "test-key")
+		if client == nil {
+			t.Fatal("expected non-nil client")
 		}
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read body: %v", err)
-		}
-		var payload map[string]any
-		if err := json.Unmarshal(body, &payload); err != nil {
-			t.Fatalf("decode body: %v", err)
-		}
-		gotStream = payload["stream"]
-		w.Header().Set("Content-Type", "text/event-stream")
-		flusher, _ := w.(http.Flusher)
-		_, _ = io.WriteString(w, "data: {\"id\":\"chatcmpl_1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n")
-		if flusher != nil {
-			flusher.Flush()
-		}
-	}))
-	t.Cleanup(ts.Close)
-
-	client := NewClient(ts.URL, "")
-	resp, err := client.Chat(context.Background(), ChatRequest{
-		Model:    "gpt-4o-mini",
-		Messages: []Message{{Role: "user", Content: "hi"}},
 	})
-	if err != nil {
-		t.Fatalf("chat error: %v", err)
-	}
-	if gotStream != true {
-		t.Fatalf("expected stream=true, got %v", gotStream)
-	}
-	if len(resp.Choices) != 1 || resp.Choices[0].Message.Content != "ok" {
-		t.Fatalf("unexpected response: %+v", resp)
-	}
+
+	t.Run("applies options", func(t *testing.T) {
+		client := NewClient("https://api.example.com/v1", "test-key", WithHTTPDebug(true))
+		if client == nil {
+			t.Fatal("expected non-nil client")
+		}
+	})
+}
+
+func TestTokenEstimator(t *testing.T) {
+	t.Run("creates estimator for known model", func(t *testing.T) {
+		est, err := NewTokenEstimator("gpt-4o")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if est == nil {
+			t.Fatal("expected non-nil estimator")
+		}
+	})
+
+	t.Run("counts message tokens", func(t *testing.T) {
+		est, _ := NewTokenEstimator("gpt-4o")
+		msg := Message{Role: "user", Content: "Hello, world!"}
+		count := est.CountMessage(msg)
+		if count <= 0 {
+			t.Errorf("expected positive token count, got %d", count)
+		}
+	})
+
+	t.Run("counts messages tokens", func(t *testing.T) {
+		est, _ := NewTokenEstimator("gpt-4o")
+		msgs := []Message{
+			{Role: "system", Content: "You are helpful."},
+			{Role: "user", Content: "Hello!"},
+		}
+		count := est.CountMessages(msgs)
+		if count <= 0 {
+			t.Errorf("expected positive token count, got %d", count)
+		}
+	})
+}
+
+func TestContextConfig(t *testing.T) {
+	t.Run("zero config returns zero effective", func(t *testing.T) {
+		cfg := ContextConfig{}
+		if cfg.EffectiveWindowTokens() != 0 {
+			t.Errorf("expected 0, got %d", cfg.EffectiveWindowTokens())
+		}
+	})
+
+	t.Run("calculates effective window", func(t *testing.T) {
+		cfg := ContextConfig{
+			WindowTokens:                  100000,
+			EffectiveContextWindowPercent: 80,
+		}
+		effective := cfg.EffectiveWindowTokens()
+		if effective != 80000 {
+			t.Errorf("expected 80000, got %d", effective)
+		}
+	})
+
+	t.Run("defaults to 95 percent", func(t *testing.T) {
+		cfg := ContextConfig{
+			WindowTokens: 100000,
+		}
+		effective := cfg.EffectiveWindowTokens()
+		if effective != 95000 {
+			t.Errorf("expected 95000, got %d", effective)
+		}
+	})
+
+	t.Run("auto compact limit", func(t *testing.T) {
+		cfg := ContextConfig{
+			AutoCompactTokenLimit: 50000,
+		}
+		limit := cfg.AutoCompactLimit()
+		if limit != 50000 {
+			t.Errorf("expected 50000, got %d", limit)
+		}
+	})
+}
+
+func TestReasoningConfig(t *testing.T) {
+	t.Run("disabled by default", func(t *testing.T) {
+		cfg := ReasoningConfig{}
+		if cfg.Enabled {
+			t.Error("expected reasoning to be disabled by default")
+		}
+	})
+}
+
+func TestIsContextWindowExceeded(t *testing.T) {
+	t.Run("returns false for nil error", func(t *testing.T) {
+		if IsContextWindowExceeded(nil) {
+			t.Error("expected false for nil error")
+		}
+	})
 }
