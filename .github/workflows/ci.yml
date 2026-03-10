@@ -115,6 +115,8 @@ jobs:
       - name: Generate integration config
         shell: bash
         env:
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           MEMORY_EMBEDDER_MODEL: ${{ secrets.MEMORY_EMBEDDER_MODEL }}
           MEMORY_EMBEDDER_DIMENSIONS: ${{ secrets.MEMORY_EMBEDDER_DIMENSIONS }}
         run: |
@@ -123,6 +125,9 @@ jobs:
             printf "[db]\n"
             printf "tidb_dsn = \"root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true\"\n\n"
             printf "[memory.embedder]\n"
+            printf "provider = \"openai\"\n"
+            printf "base_url = \"%s\"\n" "${LLM_BASE_URL}"
+            printf "api_key = \"%s\"\n" "${LLM_API_KEY}"
             printf "model = \"%s\"\n" "${MEMORY_EMBEDDER_MODEL}"
             printf "dimensions = %s\n" "${MEMORY_EMBEDDER_DIMENSIONS}"
           } > "${RUNNER_TEMP}/integration.toml"
