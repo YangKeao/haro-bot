@@ -18,6 +18,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -28,6 +29,14 @@ const (
 	maxToolArgsKeys       = 4
 	maxToolArgRunes       = 120
 	maxToolRawRunes       = 160
+	// Rate limit for Telegram draft messages: 2 messages per second
+	telegramDraftRateLimit = 2
+	telegramDraftBurst      = 2
+)
+
+var (
+	// Global rate limiters per bot instance
+	globalRateLimiters sync.Map // map[*bot.Bot]*rate.Limiter
 )
 
 type telegramProgress struct {
@@ -57,6 +66,25 @@ func newTelegramProgress(b *bot.Bot, chatID int64, threadID int, businessConnect
 		businessConnectionID: strings.TrimSpace(businessConnectionID),
 		log:                  logging.L().Named("telegram"),
 	}
+}
+
+// getRateLimiter returns the rate limiter for a bot instance.
+// Each bot instance shares the same rate limiter across all sessions.
+func getRateLimiter(b *bot.Bot) *rate.Limiter {
+	if limiter, ok := globalRateLimiters.Load(b); ok {
+		return limiter.(*rate.Limiter)
+	}
+	
+	// Create a new rate limiter: 2 messages per second, burst of 2
+	limiter := rate.NewLimiter(rate.Limit(telegramDraftRateLimit), telegramDraftBurst)
+	actual, _ := globalRateLimiters.LoadOrStore(b, limiter)
+	return actual.(*rate.Limiter)
+}
+
+// waitForRateLimit waits for the rate limiter to allow the next message.
+func (p *telegramProgress) waitForRateLimit(ctx context.Context) error {
+	limiter := getRateLimiter(p.bot)
+	return limiter.Wait(ctx)
 }
 
 func (p *telegramProgress) Stop() {
@@ -115,6 +143,13 @@ func (p *telegramProgress) maybeSendDraftLocked(ctx context.Context) {
 	if currentBytes <= lastSent {
 		return
 	}
+	
+	// Wait for rate limiter before sending
+	if err := p.waitForRateLimit(ctx); err != nil {
+		p.log.Debug("rate limit wait cancelled", zap.Error(err))
+		return
+	}
+	
 	wait, err := p.sendDraftOnce(ctx, baseID, text)
 	if wait > 0 {
 		until := time.Now().Add(wait + telegramRetryPadding)
@@ -181,6 +216,13 @@ func (p *telegramProgress) OnToolCalls(ctx context.Context, calls []llm.ToolCall
 		return
 	}
 	baseID := p.currentDraftBaseLocked()
+	
+	// Wait for rate limiter before sending
+	if err := p.waitForRateLimit(ctx); err != nil {
+		p.log.Debug("rate limit wait cancelled", zap.Error(err))
+		return
+	}
+	
 	wait, err := p.sendDraftOnce(ctx, baseID, text)
 	if wait > 0 {
 		until := time.Now().Add(wait + telegramRetryPadding)
