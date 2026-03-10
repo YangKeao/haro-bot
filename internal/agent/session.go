@@ -35,11 +35,6 @@ func (s *Session) setToolRunning(toolName string) {
 	}
 }
 
-func (s *Session) setWaitingForApproval(message string) {
-	if s != nil && s.deps != nil && s.deps.stateManager != nil {
-		s.deps.stateManager.SetWaitingForApproval(s.id, message)
-	}
-}
 
 func (s *Session) setCancelFunc(cancel context.CancelFunc) {
 	s.cancelMu.Lock()

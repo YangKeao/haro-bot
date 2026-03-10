@@ -96,60 +96,7 @@ func (s *TiDBVectorStore) ensureVectorDimensions(ctx context.Context, dims int) 
 	return fmt.Errorf("unexpected embedding column type: %s", columnType)
 }
 
-func (s *TiDBVectorStore) ensureVectorIndex(ctx context.Context, distance string) error {
-	log := logging.L().Named("memory_vector")
-	distance = strings.ToLower(strings.TrimSpace(distance))
-	funcName := "VEC_COSINE_DISTANCE"
-	if distance == "l2" || distance == "euclidean" {
-		funcName = "VEC_L2_DISTANCE"
-	}
-	indexName := fmt.Sprintf("idx_%s_embedding", s.table)
-	var count int
-	if err := s.db.WithContext(ctx).
-		Raw(`SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?`, s.table, indexName).
-		Scan(&count).Error; err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
-	indexSQL := fmt.Sprintf("ALTER TABLE %s ADD VECTOR INDEX %s ((%s(embedding)))", s.table, indexName, funcName)
-	if err := s.db.WithContext(ctx).Exec(indexSQL).Error; err != nil {
-		if strings.Contains(err.Error(), "Duplicate key name") {
-			log.Debug("vector index already exists", zap.String("index", indexName))
-			return nil
-		}
-		log.Warn("vector index create failed", zap.Error(err))
-		return err
-	}
-	return nil
-}
 
-func (s *TiDBVectorStore) ensureTiFlashReplica(ctx context.Context) error {
-	log := logging.L().Named("memory_vector")
-	setSQL := fmt.Sprintf("ALTER TABLE %s SET TIFLASH REPLICA 1", s.table)
-	if err := s.db.WithContext(ctx).Exec(setSQL).Error; err != nil {
-		return err
-	}
-	for i := 0; i < 60; i++ {
-		if ctx != nil && ctx.Err() != nil {
-			return ctx.Err()
-		}
-		var row tiflashReplicaRow
-		err := s.db.WithContext(ctx).
-			Raw("SELECT AVAILABLE, PROGRESS FROM information_schema.tiflash_replica WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?", s.table).
-			Scan(&row).Error
-		if err != nil {
-			return err
-		}
-		if row.Available == 1 {
-			return nil
-		}
-		time.Sleep(1 * time.Second)
-	}
-	log.Warn("tiflash replica not ready", zap.String("table", s.table))
-	return errors.New("tiflash replica not ready")
-}
 
 func (s *TiDBVectorStore) Insert(ctx context.Context, item MemoryItem, vector []float32) (int64, error) {
 	if s == nil || s.db == nil {
@@ -257,10 +204,6 @@ type vectorRow struct {
 	Distance  float64 `gorm:"column:distance"`
 }
 
-type tiflashReplicaRow struct {
-	Available int     `gorm:"column:AVAILABLE"`
-	Progress  float64 `gorm:"column:PROGRESS"`
-}
 
 func (r vectorRow) toItem() MemoryItem {
 	item := MemoryItem{

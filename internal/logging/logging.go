@@ -2,9 +2,6 @@ package logging
 
 import (
 	"errors"
-	"os"
-	"strings"
-	"sync"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -14,7 +11,6 @@ type Config struct {
 	Level       string
 	Development bool
 	Encoding    string
-}
 
 var (
 	mu     sync.Mutex
