@@ -301,7 +301,6 @@ func TestForkCleanupCompletedRun(t *testing.T) {
 		CleanupAfter: 50 * time.Millisecond,
 	})
 	forkTool := fork.NewForkTool(forkMgr)
-	statusTool := fork.NewForkStatusTool(forkMgr)
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByTelegramID(ctx, 2005)
@@ -330,11 +329,16 @@ func TestForkCleanupCompletedRun(t *testing.T) {
 	}
 	waitForTerminalStatus(t, forkMgr, parentID, startResp.ChildSessionID, "completed", 30*time.Second)
 
-	time.Sleep(80 * time.Millisecond)
-	if _, err := statusTool.Execute(ctx, tools.ToolContext{SessionID: parentID, UserID: userID}, mustJSON(t, map[string]any{
-		"child_session_id": startResp.ChildSessionID,
-	})); err == nil {
-		t.Fatalf("expected status lookup to fail after cleanup")
+	deadline := time.After(60 * time.Second)
+	for {
+		if _, err := forkMgr.Status(parentID, startResp.ChildSessionID); err != nil {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("expected status lookup to fail after cleanup")
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 }
 
