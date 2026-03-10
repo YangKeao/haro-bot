@@ -20,8 +20,6 @@ const (
 	readTabWidth      = 4
 )
 
-var readCommentPrefixes = []string{"#", "//", "--"}
-
 type ReadFileTool struct {
 	fs *FS
 }
@@ -306,25 +304,7 @@ func (l *lineRecord) isBlank() bool {
 }
 
 func (l *lineRecord) isComment() bool {
-	trimmed := strings.TrimSpace(l.raw)
-	for _, prefix := range readCommentPrefixes {
-		if strings.HasPrefix(trimmed, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func collectFileLines(path string) ([]*lineRecord, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-	defer func() { _ = file.Close() }()
-
-	reader := bufio.NewReader(file)
-	var lines []*lineRecord
-	number := 0
 	for {
 		lineBytes, err := reader.ReadBytes('\n')
 		if err != nil && !errors.Is(err, io.EOF) {

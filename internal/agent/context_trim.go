@@ -34,32 +34,6 @@ func trimMessagesForBudget(messages []llm.Message, estimator *llm.TokenEstimator
 	return append(system, trimmed...)
 }
 
-func trimMessagesForCount(messages []llm.Message, maxMessages int) []llm.Message {
-	if len(messages) == 0 {
-		return nil
-	}
-	if maxMessages <= 0 {
-		return messages
-	}
-	system := make([]llm.Message, 0, len(messages))
-	rest := make([]llm.Message, 0, len(messages))
-	for _, msg := range messages {
-		if msg.Role == "system" {
-			system = append(system, msg)
-		} else {
-			rest = append(rest, msg)
-		}
-	}
-	available := maxMessages - len(system)
-	if available <= 0 {
-		return system
-	}
-	trimmed := selectLLMMessagesByCount(rest, available)
-	if len(system) == 0 {
-		return trimmed
-	}
-	return append(system, trimmed...)
-}
 
 func selectLLMMessagesByTokens(messages []llm.Message, estimator *llm.TokenEstimator, budget int) []llm.Message {
 	if len(messages) == 0 {

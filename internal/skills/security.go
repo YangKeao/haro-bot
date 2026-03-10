@@ -94,13 +94,3 @@ func safeJoinAllowMissing(baseDir, rel string) (string, error) {
 	}
 	return target, nil
 }
-
-func containsPathSegment(path, segment string) bool {
-	parts := strings.Split(filepath.Clean(path), string(filepath.Separator))
-	for _, p := range parts {
-		if p == segment {
-			return true
-		}
-	}
-	return false
-}
