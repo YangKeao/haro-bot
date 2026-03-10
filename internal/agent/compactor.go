@@ -96,10 +96,26 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 			toSummarize = conversation
 		}
 
-		// If there are no messages to summarize, create an empty summary
+		// If there are no messages to summarize, try to preserve previous summary
 		// This means all user messages have been cleared, and only system prompt remains
 		if len(toSummarize) == 0 {
-			log.Info("no messages left to summarize, creating empty summary",
+			// Try to preserve the previous summary instead of creating an empty one
+			previousSummary, err := c.store.LoadLatestSummary(ctx, sessionID)
+			if err != nil {
+				log.Warn("failed to load previous summary, will create empty summary", zap.Error(err))
+			}
+
+			if previousSummary != nil {
+				log.Info("no messages left to summarize, reusing previous summary to preserve history",
+					zap.Int64("session_id", sessionID),
+					zap.Int("attempt", attempt),
+					zap.Int64("previous_summary_id", previousSummary.ID),
+				)
+				return previousSummary, nil
+			}
+
+			// No previous summary exists, create an empty one
+			log.Info("no messages left to summarize and no previous summary, creating empty summary",
 				zap.Int64("session_id", sessionID),
 				zap.Int("attempt", attempt),
 			)

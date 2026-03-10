@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
+	"github.com/YangKeao/haro-bot/internal/memory"
 )
 
 func TestCompactorShouldCompact(t *testing.T) {
@@ -240,4 +242,123 @@ func TestExtractLastTurn(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mockStoreForPreserve implements memory.StoreAPI for testing summary preservation
+type mockStoreForPreserve struct {
+	summaries []*memory.Summary
+}
+
+func (m *mockStoreForPreserve) GetOrCreateUserByTelegramID(ctx context.Context, telegramID int64) (int64, error) {
+	return 1, nil
+}
+
+func (m *mockStoreForPreserve) GetOrCreateSession(ctx context.Context, userID int64, channel string) (int64, error) {
+	return 1, nil
+}
+
+func (m *mockStoreForPreserve) AddMessage(ctx context.Context, sessionID int64, role, content string, metadata *memory.MessageMetadata) error {
+	return nil
+}
+
+func (m *mockStoreForPreserve) AppendSummary(ctx context.Context, sessionID int64, summary memory.Summary) (int64, error) {
+	m.summaries = append(m.summaries, &summary)
+	return int64(len(m.summaries)), nil
+}
+
+func (m *mockStoreForPreserve) LoadLatestSummary(ctx context.Context, sessionID int64) (*memory.Summary, error) {
+	if len(m.summaries) == 0 {
+		return nil, nil
+	}
+	return m.summaries[len(m.summaries)-1], nil
+}
+
+func (m *mockStoreForPreserve) LoadViewMessages(ctx context.Context, sessionID int64, limit int) ([]memory.Message, *memory.Summary, error) {
+	return nil, nil, nil
+}
+
+func (m *mockStoreForPreserve) SearchMessages(ctx context.Context, sessionID int64, query string, limit int, includeTool bool) ([]memory.Message, error) {
+	return nil, nil
+}
+
+// TestPreservePreviousSummary tests that empty toSummarize preserves previous summary
+func TestPreservePreviousSummary(t *testing.T) {
+	store := &mockStoreForPreserve{
+		summaries: []*memory.Summary{
+			{
+				ID:        1,
+				SessionID: 1,
+				Summary:   "Previous context: User was working on fixing a bug in compactor.go",
+				Phase:     "auto-compact",
+			},
+		},
+	}
+
+	estimator, _ := llm.NewTokenEstimator("gpt-4o")
+	c := &Compactor{
+		store:     store,
+		llm:       nil, // LLM not needed when toSummarize is empty
+		estimator: estimator,
+	}
+
+	// Provide messages with a very small budget to force toSummarize to be empty
+	messages := []llm.Message{
+		{Role: "system", Content: "You are a helpful assistant"},
+		{Role: "user", Content: "current message"},
+	}
+
+	// Call Compact with budget so small that toSummarize will be empty
+	summary, err := c.Compact(context.Background(), 1, messages, 10)
+	if err != nil {
+		t.Fatalf("Compact failed: %v", err)
+	}
+
+	// Verify that we got the previous summary, not a new empty one
+	if summary == nil {
+		t.Fatal("Expected summary, got nil")
+	}
+
+	if summary.Summary == "Context cleared due to token limit. Starting fresh conversation." {
+		t.Error("Should have preserved previous summary, but got empty summary")
+	}
+
+	if !strings.Contains(summary.Summary, "Previous context") {
+		t.Errorf("Expected previous summary content, got: %s", summary.Summary)
+	}
+
+	t.Logf("Successfully preserved previous summary: %s", summary.Summary)
+}
+
+// TestNoPreviousSummaryCreatesEmpty tests that empty summary is created when no previous exists
+func TestNoPreviousSummaryCreatesEmpty(t *testing.T) {
+	store := &mockStoreForPreserve{
+		summaries: nil, // No previous summaries
+	}
+
+	estimator, _ := llm.NewTokenEstimator("gpt-4o")
+	c := &Compactor{
+		store:     store,
+		llm:       nil,
+		estimator: estimator,
+	}
+
+	messages := []llm.Message{
+		{Role: "system", Content: "You are a helpful assistant"},
+		{Role: "user", Content: "current message"},
+	}
+
+	summary, err := c.Compact(context.Background(), 1, messages, 10)
+	if err != nil {
+		t.Fatalf("Compact failed: %v", err)
+	}
+
+	if summary == nil {
+		t.Fatal("Expected summary, got nil")
+	}
+
+	if summary.Summary != "Context cleared due to token limit. Starting fresh conversation." {
+		t.Errorf("Expected empty summary message, got: %s", summary.Summary)
+	}
+
+	t.Logf("Created empty summary as expected: %s", summary.Summary)
 }
