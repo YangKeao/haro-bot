@@ -94,6 +94,7 @@ func main() {
 		tools.NewExecCommandTool(fsTools, execMgr),
 		tools.NewWriteStdinTool(execMgr),
 		tools.NewUpdateGuidelinesTool(guidelinesMgr),
+		tools.NewApplyPatchTool(fsTools),
 	)
 	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
 	contextCfg := llm.ContextConfig{
