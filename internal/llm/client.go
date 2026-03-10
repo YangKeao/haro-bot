@@ -83,9 +83,6 @@ func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error
 	if c == nil || c.client == nil {
 		return out, errors.New("llm client not configured")
 	}
-	if ctx != nil {
-		ctx = context.WithoutCancel(ctx)
-	}
 	input := buildChatMessages(req.Messages)
 	tools := buildChatTools(req.Tools)
 	params := openai.ChatCompletionNewParams{
