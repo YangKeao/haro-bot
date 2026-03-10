@@ -1,6 +1,11 @@
 package llm
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
@@ -108,4 +113,32 @@ func TestIsContextWindowExceeded(t *testing.T) {
 			t.Error("expected false for nil error")
 		}
 	})
+}
+
+func TestChatRespectsCanceledContext(t *testing.T) {
+	var requestCount atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"unexpected request"}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL+"/v1", "test-key")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := client.Chat(ctx, ChatRequest{
+		Model: "gpt-4o",
+		Messages: []Message{
+			{Role: "user", Content: "hello"},
+		},
+		Purpose: PurposeChat,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", err)
+	}
+	if requestCount.Load() != 0 {
+		t.Fatalf("expected no outbound request with canceled context, got %d", requestCount.Load())
+	}
 }
