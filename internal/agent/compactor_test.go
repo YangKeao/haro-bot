@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
+	"github.com/YangKeao/haro-bot/internal/memory"
 )
 
 func TestCompactorShouldCompact(t *testing.T) {
@@ -17,10 +18,10 @@ func TestCompactorShouldCompact(t *testing.T) {
 		wantCompact bool
 	}{
 		{
-			name:         "empty messages should not compact",
-			messages:     nil,
-			budget:       1000,
-			wantCompact:  false,
+			name:        "empty messages should not compact",
+			messages:    nil,
+			budget:      1000,
+			wantCompact: false,
 		},
 		{
 			name: "few messages should not compact",
@@ -48,7 +49,6 @@ func TestCompactorShouldCompact(t *testing.T) {
 			name: "messages over threshold should compact",
 			messages: func() []llm.Message {
 				var msgs []llm.Message
-				// Need at least compactMinMessages (6) messages
 				for i := 0; i < 8; i++ {
 					msgs = append(msgs, llm.Message{Role: "user", Content: "This is a longer message to increase token count"})
 					msgs = append(msgs, llm.Message{Role: "assistant", Content: "This is a longer response to increase token count"})
@@ -57,21 +57,6 @@ func TestCompactorShouldCompact(t *testing.T) {
 			}(),
 			budget:      200,
 			wantCompact: true,
-		},
-		{
-			name: "zero budget should not compact",
-			messages: func() []llm.Message {
-				return []llm.Message{
-					{Role: "user", Content: "test"},
-					{Role: "assistant", Content: "response"},
-					{Role: "user", Content: "test"},
-					{Role: "assistant", Content: "response"},
-					{Role: "user", Content: "test"},
-					{Role: "assistant", Content: "response"},
-				}
-			}(),
-			budget:      0,
-			wantCompact: false,
 		},
 	}
 
@@ -86,39 +71,108 @@ func TestCompactorShouldCompact(t *testing.T) {
 	}
 }
 
-func TestCompactorNilEstimator(t *testing.T) {
-	c := &Compactor{estimator: nil}
-	messages := []llm.Message{
-		{Role: "user", Content: "test"},
-		{Role: "assistant", Content: "response"},
-		{Role: "user", Content: "test"},
-		{Role: "assistant", Content: "response"},
-		{Role: "user", Content: "test"},
-		{Role: "assistant", Content: "response"},
+func TestCompactionTailStart(t *testing.T) {
+	tests := []struct {
+		name string
+		msgs []memory.Message
+		want int
+	}{
+		{
+			name: "empty",
+			msgs: nil,
+			want: 0,
+		},
+		{
+			name: "pending user after assistant",
+			msgs: []memory.Message{
+				{Role: "user", Content: "a"},
+				{Role: "assistant", Content: "b"},
+				{Role: "user", Content: "c"},
+			},
+			want: 2,
+		},
+		{
+			name: "keep latest full turn",
+			msgs: []memory.Message{
+				{Role: "user", Content: "u1"},
+				{Role: "assistant", Content: "a1"},
+				{Role: "user", Content: "u2"},
+				{Role: "assistant", Content: "a2"},
+				{Role: "tool", Content: "t2"},
+			},
+			want: 2,
+		},
+		{
+			name: "no user fallback to assistant",
+			msgs: []memory.Message{
+				{Role: "assistant", Content: "a1"},
+				{Role: "tool", Content: "t1"},
+			},
+			want: 0,
+		},
 	}
-	if c.ShouldCompact(messages, 100) {
-		t.Error("ShouldCompact should return false with nil estimator")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := compactionTailStart(tt.msgs)
+			if got != tt.want {
+				t.Fatalf("tail start = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestBuildCompactPrompt(t *testing.T) {
-	messages := []llm.Message{
-		{Role: "user", Content: "Hello"},
-		{Role: "assistant", Content: "Hi there!"},
-		{Role: "user", Content: "How are you?"},
-		{Role: "assistant", Content: "I'm doing well, thanks!"},
+func TestAppendTransientTail(t *testing.T) {
+	stored := []llm.Message{{Role: "user", Content: "stored"}}
+	current := []llm.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "stored"},
+		{Role: "assistant", Content: "runtime"},
+	}
+	out := appendTransientTail(stored, current, 1)
+	if len(out) != 2 {
+		t.Fatalf("len = %d, want 2", len(out))
+	}
+	if out[1].Content != "runtime" {
+		t.Fatalf("unexpected transient message: %q", out[1].Content)
+	}
+}
+
+func TestSelectCompactionPrefixAndTailBoundary(t *testing.T) {
+	view := []memory.Message{
+		{ID: 11, Role: "user", Content: "u1"},
+		{ID: 12, Role: "assistant", Content: "a1"},
+		{ID: 13, Role: "user", Content: "u2"},
+		{ID: 14, Role: "assistant", Content: "a2"},
+		{ID: 15, Role: "tool", Content: "t2"},
 	}
 
-	prompt := buildCompactPrompt(messages)
+	prefix, tail := selectCompactionPrefixAndTail(view)
+	if len(prefix) != 2 || len(tail) != 3 {
+		t.Fatalf("unexpected split: prefix=%d tail=%d", len(prefix), len(tail))
+	}
+	if prefix[len(prefix)-1].ID != 12 {
+		t.Fatalf("unexpected prefix boundary id: %d", prefix[len(prefix)-1].ID)
+	}
+	if tail[0].ID != 13 {
+		t.Fatalf("unexpected tail start id: %d", tail[0].ID)
+	}
+}
 
-	if !strings.Contains(prompt, "User: Hello") {
-		t.Error("prompt should contain user message")
+func TestSplitSystemMessages(t *testing.T) {
+	input := []llm.Message{
+		{Role: "system", Content: "main system"},
+		{Role: "system", Content: "Session summary:\nold summary"},
+		{Role: "system", Content: "another system"},
+		{Role: "system", Content: "Session summary:\nnew summary"},
+		{Role: "user", Content: "hello"},
 	}
-	if !strings.Contains(prompt, "Assistant: Hi there!") {
-		t.Error("prompt should contain assistant message")
+
+	base, latestSummary := splitSystemMessages(input)
+	if len(base) != 2 {
+		t.Fatalf("expected 2 base system messages, got %d", len(base))
 	}
-	if !strings.Contains(prompt, "Summary:") {
-		t.Error("prompt should end with Summary:")
+	if latestSummary == "" || !strings.Contains(latestSummary, "new summary") {
+		t.Fatalf("expected latest summary to be kept, got %q", latestSummary)
 	}
 }
 
@@ -139,105 +193,17 @@ func TestBuildCompactPromptWithToolCalls(t *testing.T) {
 	if !strings.Contains(prompt, "Tool: results") {
 		t.Error("prompt should contain tool response")
 	}
+	if !strings.Contains(prompt, "Summary:") {
+		t.Error("prompt should end with Summary:")
+	}
 }
 
-func TestExtractLastTurn(t *testing.T) {
-	tests := []struct {
-		name              string
-		messages          []llm.Message
-		wantLastTurnCount int
-		wantRemaining     int
-		wantUserContent   string // Content of the first message in lastTurn (should be user if exists)
-	}{
-		{
-			name: "empty messages",
-			messages: []llm.Message{},
-			wantLastTurnCount: 0,
-			wantRemaining: 0,
-		},
-		{
-			name: "only user message",
-			messages: []llm.Message{
-				{Role: "user", Content: "hello"},
-			},
-			wantLastTurnCount: 1,
-			wantRemaining: 0,
-			wantUserContent: "hello",
-		},
-		{
-			name: "user then assistant - preserve user",
-			messages: []llm.Message{
-				{Role: "user", Content: "search for Go"},
-				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{
-					{ID: "1", Function: llm.ToolCallFn{Name: "brave_search"}},
-				}},
-				{Role: "tool", ToolCallID: "1", Content: "results"},
-			},
-			wantLastTurnCount: 3,
-			wantRemaining: 0,
-			wantUserContent: "search for Go",
-		},
-		{
-			name: "multiple turns - preserve last user",
-			messages: []llm.Message{
-				{Role: "user", Content: "first request"},
-				{Role: "assistant", Content: "first response"},
-				{Role: "user", Content: "second request"},
-				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{
-					{ID: "1", Function: llm.ToolCallFn{Name: "brave_search"}},
-				}},
-				{Role: "tool", ToolCallID: "1", Content: "results"},
-			},
-			wantLastTurnCount: 3,
-			wantRemaining: 2,
-			wantUserContent: "second request",
-		},
-		{
-			name: "assistant without tool calls",
-			messages: []llm.Message{
-				{Role: "user", Content: "hello"},
-				{Role: "assistant", Content: "hi there"},
-			},
-			wantLastTurnCount: 2,
-			wantRemaining: 0,
-			wantUserContent: "hello",
-		},
-		{
-			name: "filter unrelated tool responses",
-			messages: []llm.Message{
-				{Role: "user", Content: "search"},
-				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{
-					{ID: "1", Function: llm.ToolCallFn{Name: "search"}},
-				}},
-				{Role: "tool", ToolCallID: "2", Content: "old results"}, // Unrelated
-				{Role: "tool", ToolCallID: "1", Content: "new results"}, // Related
-			},
-			wantLastTurnCount: 3, // user + assistant + related tool
-			wantRemaining: 0,
-			wantUserContent: "search",
-		},
+func TestBuildCompactPromptUsesRealNewlines(t *testing.T) {
+	prompt := buildCompactPrompt([]llm.Message{{Role: "user", Content: "hello"}})
+	if !strings.Contains(prompt, "Conversation:\n---\n") {
+		t.Fatalf("prompt should contain real newline separators: %q", prompt)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			lastTurn, remaining := extractLastTurn(tt.messages)
-			
-			if len(lastTurn) != tt.wantLastTurnCount {
-				t.Errorf("lastTurn count = %d, want %d", len(lastTurn), tt.wantLastTurnCount)
-			}
-			
-			if len(remaining) != tt.wantRemaining {
-				t.Errorf("remaining count = %d, want %d", len(remaining), tt.wantRemaining)
-			}
-			
-			if tt.wantUserContent != "" && len(lastTurn) > 0 {
-				if lastTurn[0].Role != "user" {
-					t.Errorf("first message in lastTurn should be user, got %s", lastTurn[0].Role)
-				}
-				if lastTurn[0].Content != tt.wantUserContent {
-					t.Errorf("user content = %q, want %q", lastTurn[0].Content, tt.wantUserContent)
-				}
-			}
-		})
+	if strings.Contains(prompt, "Conversation:\\n---\\n") {
+		t.Fatalf("prompt should not contain escaped newline literals: %q", prompt)
 	}
 }
