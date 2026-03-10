@@ -18,6 +18,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -28,6 +29,14 @@ const (
 	maxToolArgsKeys       = 4
 	maxToolArgRunes       = 120
 	maxToolRawRunes       = 160
+	// Rate limit for Telegram draft messages: 2 messages per second
+	telegramDraftRateLimit = 2
+	telegramDraftBurst      = 2
+)
+
+var (
+	// Global rate limiters per bot instance
+	globalRateLimiters sync.Map // map[*bot.Bot]*rate.Limiter
 )
 
 type telegramProgress struct {
@@ -45,8 +54,6 @@ type telegramProgress struct {
 	lastSentBytes int
 	lastDraftSent time.Time
 	sequence      int64
-
-	draftRetryUntil time.Time
 }
 
 func newTelegramProgress(b *bot.Bot, chatID int64, threadID int, businessConnectionID string) *telegramProgress {
@@ -57,6 +64,27 @@ func newTelegramProgress(b *bot.Bot, chatID int64, threadID int, businessConnect
 		businessConnectionID: strings.TrimSpace(businessConnectionID),
 		log:                  logging.L().Named("telegram"),
 	}
+}
+
+// getRateLimiter returns the rate limiter for a bot instance.
+// Each bot instance shares the same rate limiter across all sessions.
+func getRateLimiter(b *bot.Bot) *rate.Limiter {
+	if limiter, ok := globalRateLimiters.Load(b); ok {
+		return limiter.(*rate.Limiter)
+	}
+	
+	// Create a new rate limiter: 2 messages per second, burst of 2
+	limiter := rate.NewLimiter(rate.Limit(telegramDraftRateLimit), telegramDraftBurst)
+	actual, _ := globalRateLimiters.LoadOrStore(b, limiter)
+	return actual.(*rate.Limiter)
+}
+
+// allowRateLimit checks if we can send a draft message now.
+// Returns true if allowed, false if rate limited (should skip this draft).
+// This is non-blocking - it won't wait, just check and return immediately.
+func (p *telegramProgress) allowRateLimit() bool {
+	limiter := getRateLimiter(p.bot)
+	return limiter.Allow()
 }
 
 func (p *telegramProgress) Stop() {
@@ -105,30 +133,26 @@ func (p *telegramProgress) maybeSendDraftLocked(ctx context.Context) {
 	if bytesDelta < draftMinDeltaRunes && elapsed < draftMinInterval {
 		return
 	}
-	now := time.Now()
-	if !p.draftRetryUntil.IsZero() && now.Before(p.draftRetryUntil) {
-		return
-	}
 	baseID := p.streamBaseID
 	text := p.buildDraftText()
 	lastSent := p.lastSentBytes
 	if currentBytes <= lastSent {
 		return
 	}
-	wait, err := p.sendDraftOnce(ctx, baseID, text)
-	if wait > 0 {
-		until := time.Now().Add(wait + telegramRetryPadding)
-		if until.After(p.draftRetryUntil) {
-			p.draftRetryUntil = until
-		}
+	
+	// Check rate limit - if limited, skip this draft (non-blocking)
+	if !p.allowRateLimit() {
+		p.log.Debug("draft rate limited, skipping")
 		return
 	}
-	if err != nil {
+	
+	if err := p.sendDraftOnce(ctx, baseID, text); err != nil {
+		p.log.Debug("send draft failed", zap.Error(err))
 		return
 	}
+	
 	p.lastSentBytes = currentBytes
 	p.lastDraftSent = time.Now()
-	p.draftRetryUntil = time.Time{}
 }
 
 // buildDraftText constructs the draft text with reasoning in italic format.
@@ -176,21 +200,17 @@ func (p *telegramProgress) OnToolCalls(ctx context.Context, calls []llm.ToolCall
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	now := time.Now()
-	if !p.draftRetryUntil.IsZero() && now.Before(p.draftRetryUntil) {
-		return
-	}
+	
 	baseID := p.currentDraftBaseLocked()
-	wait, err := p.sendDraftOnce(ctx, baseID, text)
-	if wait > 0 {
-		until := time.Now().Add(wait + telegramRetryPadding)
-		if until.After(p.draftRetryUntil) {
-			p.draftRetryUntil = until
-		}
+	
+	// Check rate limit - if limited, skip this draft (non-blocking)
+	if !p.allowRateLimit() {
+		p.log.Debug("draft rate limited, skipping")
 		return
 	}
-	if err != nil {
-		return
+	
+	if err := p.sendDraftOnce(ctx, baseID, text); err != nil {
+		p.log.Debug("send draft failed", zap.Error(err))
 	}
 }
 
@@ -278,7 +298,6 @@ func (p *telegramProgress) resetStream() {
 	p.reasoningText = ""
 	p.lastSentBytes = 0
 	p.lastDraftSent = time.Time{}
-	p.draftRetryUntil = time.Time{}
 	p.mu.Unlock()
 }
 
@@ -293,12 +312,12 @@ func (p *telegramProgress) currentDraftBaseLocked() int64 {
 	return p.streamBaseID
 }
 
-func (p *telegramProgress) sendDraftOnce(ctx context.Context, baseID int64, text string) (time.Duration, error) {
+func (p *telegramProgress) sendDraftOnce(ctx context.Context, baseID int64, text string) error {
 	if p == nil || p.bot == nil {
-		return 0, nil
+		return nil
 	}
 	if text == "" {
-		return 0, nil
+		return nil
 	}
 	// For draft messages, truncate to safe byte limit instead of splitting.
 	// We keep the last part because the most recent content is at the end.
@@ -348,26 +367,17 @@ func truncateToByteLimit(text string, maxBytes int) string {
 	return string(runes[startRune:])
 }
 
-func sendTelegramDraftOnce(ctx context.Context, log *zap.Logger, b *bot.Bot, params *bot.SendMessageDraftParams) (time.Duration, error) {
+func sendTelegramDraftOnce(ctx context.Context, log *zap.Logger, b *bot.Bot, params *bot.SendMessageDraftParams) error {
 	_, err := b.SendMessageDraft(ctx, params)
-	if err == nil {
-		return 0, nil
+	if err != nil {
+		// Try without parse mode if markdown fails
+		params.ParseMode = ""
+		_, err = b.SendMessageDraft(ctx, params)
+		if err != nil && log != nil {
+			log.Debug("telegram sendMessageDraft failed", zap.Error(err))
+		}
 	}
-	if wait, ok := retryAfterFromError(err); ok {
-		return wait, err
-	}
-	params.ParseMode = ""
-	_, err = b.SendMessageDraft(ctx, params)
-	if err == nil {
-		return 0, nil
-	}
-	if wait, ok := retryAfterFromError(err); ok {
-		return wait, err
-	}
-	if log != nil {
-		log.Debug("telegram sendMessageDraft failed", zap.Error(err))
-	}
-	return 0, err
+	return err
 }
 
 func formatToolCalls(calls []llm.ToolCall) string {
