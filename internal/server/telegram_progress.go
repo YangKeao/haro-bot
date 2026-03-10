@@ -369,17 +369,13 @@ func truncateToByteLimit(text string, maxBytes int) string {
 
 func sendTelegramDraftOnce(ctx context.Context, log *zap.Logger, b *bot.Bot, params *bot.SendMessageDraftParams) error {
 	_, err := b.SendMessageDraft(ctx, params)
-	if err == nil {
-		return nil
-	}
-	// Try without parse mode if markdown fails
-	params.ParseMode = ""
-	_, err = b.SendMessageDraft(ctx, params)
-	if err == nil {
-		return nil
-	}
-	if log != nil {
-		log.Debug("telegram sendMessageDraft failed", zap.Error(err))
+	if err != nil {
+		// Try without parse mode if markdown fails
+		params.ParseMode = ""
+		_, err = b.SendMessageDraft(ctx, params)
+		if err != nil && log != nil {
+			log.Debug("telegram sendMessageDraft failed", zap.Error(err))
+		}
 	}
 	return err
 }
