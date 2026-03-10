@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/YangKeao/haro-bot/internal/guidelines"
@@ -29,6 +30,9 @@ type DefaultPromptBuilder struct {
 }
 
 func NewDefaultPromptBuilder(gl GuidelinesLoader) *DefaultPromptBuilder {
+	if isNilGuidelinesLoader(gl) {
+		gl = nil
+	}
 	return &DefaultPromptBuilder{gl: gl}
 }
 
@@ -57,7 +61,7 @@ func buildPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.Mem
 	}
 	b.WriteString("You are an assistant. Use the provided long-term memory when relevant.\n")
 	b.WriteString("When the conversation gets long or you need a clean handoff, create a session summary using the session_summary tool with a concise summary and optional state.\n")
-	
+
 	// Load and include guidelines if available
 	if gl != nil {
 		if g, err := gl.GetActive(ctx); err == nil && g != nil && g.Content != "" {
@@ -66,7 +70,7 @@ func buildPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.Mem
 			b.WriteString("\n\n")
 		}
 	}
-	
+
 	if len(memories) > 0 {
 		b.WriteString("Long-term memory:\n")
 		for _, m := range memories {
@@ -195,4 +199,15 @@ func xmlEscape(s string) string {
 
 func isClaudeFormat(format string) bool {
 	return format == "claude" || format == "anthropic" || format == "xml"
+}
+
+func isNilGuidelinesLoader(gl GuidelinesLoader) bool {
+	if gl == nil {
+		return true
+	}
+	v := reflect.ValueOf(gl)
+	if v.Kind() == reflect.Ptr && v.IsNil() {
+		return true
+	}
+	return false
 }

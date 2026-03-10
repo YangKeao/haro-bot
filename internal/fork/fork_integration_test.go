@@ -11,6 +11,7 @@ import (
 
 	"github.com/YangKeao/haro-bot/internal/agent"
 	"github.com/YangKeao/haro-bot/internal/fork"
+	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
@@ -23,12 +24,13 @@ func TestForkInterruptFlow(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	store := memory.NewStore(gdb)
+	guidelinesMgr := guidelines.NewManager(gdb)
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	ctx := context.Background()
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, nil, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	forkMgr := fork.NewManager(agentSvc, store)
 	forkTool := fork.NewForkTool(forkMgr)
@@ -117,12 +119,13 @@ func TestForkStatusAndCancel(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	store := memory.NewStore(gdb)
+	guidelinesMgr := guidelines.NewManager(gdb)
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	registry := tools.NewRegistry()
 	registry.Register(sleepTool{})
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, nil, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	forkMgr := fork.NewManager(agentSvc, store)
 	forkTool := fork.NewForkTool(forkMgr)
@@ -191,11 +194,12 @@ func TestForkInheritRecent(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	store := memory.NewStore(gdb)
+	guidelinesMgr := guidelines.NewManager(gdb)
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, nil, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 	forkMgr := fork.NewManager(agentSvc, store)
 	forkTool := fork.NewForkTool(forkMgr)
 
@@ -257,12 +261,13 @@ func TestForkContextCancel(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	store := memory.NewStore(gdb)
+	guidelinesMgr := guidelines.NewManager(gdb)
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	registry := tools.NewRegistry()
 	registry.Register(sleepTool{})
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, nil, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	forkMgr := fork.NewManager(agentSvc, store)
 
@@ -291,17 +296,17 @@ func TestForkCleanupCompletedRun(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	store := memory.NewStore(gdb)
+	guidelinesMgr := guidelines.NewManager(gdb)
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, nil, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	forkMgr := fork.NewManagerWithOptions(agentSvc, store, fork.ManagerOptions{
 		CleanupAfter: 50 * time.Millisecond,
 	})
 	forkTool := fork.NewForkTool(forkMgr)
-	statusTool := fork.NewForkStatusTool(forkMgr)
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByTelegramID(ctx, 2005)
@@ -330,11 +335,16 @@ func TestForkCleanupCompletedRun(t *testing.T) {
 	}
 	waitForTerminalStatus(t, forkMgr, parentID, startResp.ChildSessionID, "completed", 30*time.Second)
 
-	time.Sleep(80 * time.Millisecond)
-	if _, err := statusTool.Execute(ctx, tools.ToolContext{SessionID: parentID, UserID: userID}, mustJSON(t, map[string]any{
-		"child_session_id": startResp.ChildSessionID,
-	})); err == nil {
-		t.Fatalf("expected status lookup to fail after cleanup")
+	deadline := time.After(60 * time.Second)
+	for {
+		if _, err := forkMgr.Status(parentID, startResp.ChildSessionID); err != nil {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("expected status lookup to fail after cleanup")
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 }
 

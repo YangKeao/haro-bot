@@ -17,6 +17,8 @@ type LLMSettings struct {
 
 func LLMSettingsFromEnv(t *testing.T) LLMSettings {
 	t.Helper()
+	EnsureIntegrationEnv(t)
+
 	baseURL := os.Getenv("LLM_BASE_URL")
 	apiKey := os.Getenv("LLM_API_KEY")
 	model := os.Getenv("LLM_MODEL")

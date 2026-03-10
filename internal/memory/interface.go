@@ -17,6 +17,9 @@ type StoreAPI interface {
 	// AddMessage appends a message to a session. Metadata captures tool calls/outputs and status.
 	AddMessage(ctx context.Context, sessionID int64, role, content string, metadata *MessageMetadata) error
 
+	// AddMessageAndGetID appends a message to a session and returns the inserted message ID.
+	AddMessageAndGetID(ctx context.Context, sessionID int64, role, content string, metadata *MessageMetadata) (int64, error)
+
 	// AppendSummary stores a summary snapshot for a session. If EntryID is 0,
 	// it summarizes the latest message in the session.
 	AppendSummary(ctx context.Context, sessionID int64, summary Summary) (int64, error)

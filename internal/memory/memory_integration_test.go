@@ -38,6 +38,41 @@ func TestMemoryStoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAddMessageAndGetID(t *testing.T) {
+	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
+	t.Cleanup(cleanup)
+	store := memory.NewStore(gdb)
+	ctx := context.Background()
+
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 1010)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	sessionID, err := store.GetOrCreateSession(ctx, userID, "message-id")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	entryID, err := store.AddMessageAndGetID(ctx, sessionID, "user", "hello-id", nil)
+	if err != nil {
+		t.Fatalf("add message and get id: %v", err)
+	}
+	if entryID == 0 {
+		t.Fatal("expected non-zero message id")
+	}
+
+	msgs, _, err := store.LoadViewMessages(ctx, sessionID, 10)
+	if err != nil {
+		t.Fatalf("load messages: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].ID != entryID {
+		t.Fatalf("message id mismatch: got %d want %d", msgs[0].ID, entryID)
+	}
+}
+
 func TestLoadViewMessagesPreservesMetadata(t *testing.T) {
 	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
 	t.Cleanup(cleanup)

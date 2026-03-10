@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
 )
@@ -66,5 +67,14 @@ func TestBuildInterruptPromptNoSkills(t *testing.T) {
 	}
 	if strings.Contains(out, "activate_skill") || strings.Contains(out, "## Skills") {
 		t.Fatalf("did not expect skills section, got: %s", out)
+	}
+}
+
+func TestDefaultPromptBuilderWithTypedNilGuidelinesLoader(t *testing.T) {
+	var gl *guidelines.Manager
+	builder := NewDefaultPromptBuilder(gl)
+	out := builder.System(context.Background(), nil, nil, "openai")
+	if !strings.Contains(out, "You are an assistant.") {
+		t.Fatalf("unexpected prompt output: %s", out)
 	}
 }
