@@ -30,3 +30,5 @@
 config.toml
 
 workspace
+# Git worktrees
+.worktrees/
