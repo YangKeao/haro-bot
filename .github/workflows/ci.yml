@@ -100,14 +100,13 @@ jobs:
           MEMORY_EMBEDDER_DIMENSIONS: ${{ secrets.MEMORY_EMBEDDER_DIMENSIONS }}
         run: |
           set -euo pipefail
-          cat > "${RUNNER_TEMP}/integration.toml" <<EOF
-[db]
-tidb_dsn = "root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true"
-
-[memory.embedder]
-model = "${MEMORY_EMBEDDER_MODEL}"
-dimensions = ${MEMORY_EMBEDDER_DIMENSIONS}
-EOF
+          {
+            printf "[db]\n"
+            printf "tidb_dsn = \"root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true\"\n\n"
+            printf "[memory.embedder]\n"
+            printf "model = \"%s\"\n" "${MEMORY_EMBEDDER_MODEL}"
+            printf "dimensions = %s\n" "${MEMORY_EMBEDDER_DIMENSIONS}"
+          } > "${RUNNER_TEMP}/integration.toml"
           echo "HARO_CONFIG_PATH=${RUNNER_TEMP}/integration.toml" >> "${GITHUB_ENV}"
 
       - name: Run integration and e2e tests
