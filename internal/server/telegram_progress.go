@@ -81,10 +81,12 @@ func getRateLimiter(b *bot.Bot) *rate.Limiter {
 	return actual.(*rate.Limiter)
 }
 
-// waitForRateLimit waits for the rate limiter to allow the next message.
-func (p *telegramProgress) waitForRateLimit(ctx context.Context) error {
+// allowRateLimit checks if we can send a draft message now.
+// Returns true if allowed, false if rate limited (should skip this draft).
+// This is non-blocking - it won't wait, just check and return immediately.
+func (p *telegramProgress) allowRateLimit() bool {
 	limiter := getRateLimiter(p.bot)
-	return limiter.Wait(ctx)
+	return limiter.Allow()
 }
 
 func (p *telegramProgress) Stop() {
@@ -144,9 +146,9 @@ func (p *telegramProgress) maybeSendDraftLocked(ctx context.Context) {
 		return
 	}
 	
-	// Wait for rate limiter before sending
-	if err := p.waitForRateLimit(ctx); err != nil {
-		p.log.Debug("rate limit wait cancelled", zap.Error(err))
+	// Check rate limit - if limited, skip this draft (non-blocking)
+	if !p.allowRateLimit() {
+		p.log.Debug("draft rate limited, skipping")
 		return
 	}
 	
@@ -217,9 +219,9 @@ func (p *telegramProgress) OnToolCalls(ctx context.Context, calls []llm.ToolCall
 	}
 	baseID := p.currentDraftBaseLocked()
 	
-	// Wait for rate limiter before sending
-	if err := p.waitForRateLimit(ctx); err != nil {
-		p.log.Debug("rate limit wait cancelled", zap.Error(err))
+	// Check rate limit - if limited, skip this draft (non-blocking)
+	if !p.allowRateLimit() {
+		p.log.Debug("draft rate limited, skipping")
 		return
 	}
 	
