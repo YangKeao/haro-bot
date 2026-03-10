@@ -173,7 +173,6 @@ func toLLMMessages(msgs []memory.Message) []llm.Message {
 	return out
 }
 
-
 func toLLMMessage(m memory.Message) llm.Message {
 	llmMsg := llm.Message{Role: m.Role, Content: m.Content}
 	if m.Metadata != nil {

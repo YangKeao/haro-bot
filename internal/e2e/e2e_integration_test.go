@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -244,5 +245,105 @@ func TestE2ESessionStatus(t *testing.T) {
 	status = agentSvc.GetSessionStatus(sessionID)
 	if status.State != "idle" {
 		t.Fatalf("expected final state to be idle, got: %s", status.State)
+	}
+}
+
+// TestE2EContextAutoCompaction verifies that oversized session history is compacted
+// and the conversation can continue normally afterwards.
+func TestE2EContextAutoCompaction(t *testing.T) {
+	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
+	t.Cleanup(cleanup)
+
+	store := memory.NewStore(gdb)
+	skillsStore := skills.NewStore(gdb)
+	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
+	guidelinesMgr := guidelines.NewManager(gdb)
+	registry := tools.NewRegistry()
+	client, model := testutil.NewLLMClientFromEnv(t)
+
+	contextCfg := llm.ContextConfig{
+		WindowTokens:                  1400,
+		AutoCompactTokenLimit:         1000,
+		EffectiveContextWindowPercent: 80,
+	}
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, contextCfg)
+
+	ctx := context.Background()
+	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9006)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	sessionID, err := store.GetOrCreateSession(ctx, userID, "e2e-context-compact")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	// Seed enough persisted history to exceed the configured compact threshold.
+	blob := strings.Repeat("This is a long history sentence used to force context compaction. ", 40)
+	for i := 0; i < 8; i++ {
+		if err := store.AddMessage(ctx, sessionID, "user", fmt.Sprintf("history user %d: %s", i, blob), nil); err != nil {
+			t.Fatalf("seed user message %d: %v", i, err)
+		}
+		if err := store.AddMessage(ctx, sessionID, "assistant", fmt.Sprintf("history assistant %d: %s", i, blob), nil); err != nil {
+			t.Fatalf("seed assistant message %d: %v", i, err)
+		}
+	}
+
+	beforeView, beforeSummary, err := store.LoadViewMessages(ctx, sessionID, 0)
+	if err != nil {
+		t.Fatalf("load view before handle: %v", err)
+	}
+	if beforeSummary != nil {
+		t.Fatalf("expected no summary before handle, got %+v", beforeSummary)
+	}
+	if len(beforeView) < 12 {
+		t.Fatalf("expected seeded history to be long enough, got %d messages", len(beforeView))
+	}
+
+	resp, err := agentSvc.Handle(ctx, userID, "e2e-context-compact", "Reply with exactly: compact-ok")
+	if err != nil {
+		t.Fatalf("handle with oversized context: %v", err)
+	}
+	if strings.TrimSpace(resp) == "" {
+		t.Fatal("empty response after compaction")
+	}
+
+	summary, err := store.LoadLatestSummary(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("load latest summary: %v", err)
+	}
+	if summary == nil {
+		t.Fatal("expected auto compaction summary to be created")
+	}
+	if summary.Phase != "auto-compact" {
+		t.Fatalf("expected auto-compact phase, got %q", summary.Phase)
+	}
+	if strings.TrimSpace(summary.Summary) == "" {
+		t.Fatal("expected non-empty summary text")
+	}
+
+	afterView, viewSummary, err := store.LoadViewMessages(ctx, sessionID, 0)
+	if err != nil {
+		t.Fatalf("load view after handle: %v", err)
+	}
+	if viewSummary == nil || viewSummary.ID != summary.ID {
+		t.Fatalf("expected view summary id=%d, got %+v", summary.ID, viewSummary)
+	}
+	if len(afterView) >= len(beforeView) {
+		t.Fatalf("expected compacted view to be shorter: before=%d after=%d", len(beforeView), len(afterView))
+	}
+	if len(afterView) == 0 {
+		t.Fatal("expected non-empty view after compaction")
+	}
+	if afterView[0].ID <= summary.EntryID {
+		t.Fatalf("expected view to start after summary entry id %d, got first message id %d", summary.EntryID, afterView[0].ID)
+	}
+
+	resp2, err := agentSvc.Handle(ctx, userID, "e2e-context-compact", "Reply with exactly: compact-ok-2")
+	if err != nil {
+		t.Fatalf("follow-up handle after compaction: %v", err)
+	}
+	if strings.TrimSpace(resp2) == "" {
+		t.Fatal("empty follow-up response after compaction")
 	}
 }

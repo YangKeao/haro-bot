@@ -20,6 +20,8 @@ import (
 
 func NewTestDB(t *testing.T) (*gorm.DB, func()) {
 	t.Helper()
+	EnsureIntegrationEnv(t)
+
 	dsn := os.Getenv("TIDB_DSN")
 	if dsn == "" {
 		t.Skip("TIDB_DSN not set")
