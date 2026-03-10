@@ -96,17 +96,19 @@ jobs:
             exit 1
           fi
 
-      - name: Wait for TiDB
+      - name: Wait for TiDB and TiFlash readiness
         shell: bash
         run: |
           set -euo pipefail
-          for _ in {1..900}; do
-            if (echo > /dev/tcp/127.0.0.1/4000) >/dev/null 2>&1; then
-              exit 0
+          for _ in {1..1200}; do
+            if grep -q "TiDB Playground Cluster is started" "${RUNNER_TEMP}/tiup-playground.log"; then
+              if (echo > /dev/tcp/127.0.0.1/4000) >/dev/null 2>&1; then
+                exit 0
+              fi
             fi
             sleep 1
           done
-          echo "::error::TiDB did not become ready on 127.0.0.1:4000"
+          echo "::error::TiDB playground did not become fully ready"
           tail -n 200 "${RUNNER_TEMP}/tiup-playground.log" || true
           exit 1
 
@@ -140,6 +142,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f "${RUNNER_TEMP}/tiup-playground.pid" ]; then
-            kill -INT "$(cat "${RUNNER_TEMP}/tiup-playground.pid)" >/dev/null 2>&1 || true
+            pid="$(cat "${RUNNER_TEMP}/tiup-playground.pid" || true)"
+            if [ -n "${pid}" ]; then
+              kill -INT "${pid}" >/dev/null 2>&1 || true
+            fi
           fi
           sleep 3
