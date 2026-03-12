@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/YangKeao/haro-bot/internal/logging"
+	skillsgit "github.com/YangKeao/haro-bot/internal/skills/source/git"
 	"go.uber.org/zap"
 )
 
@@ -265,7 +266,7 @@ func (m *Manager) refreshSource(ctx context.Context, src Source, merged map[stri
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
 		return "", err
 	}
-	_, version, err := syncRepo(ctx, src.URL, src.Ref, repoDir)
+	_, version, err := skillsgit.SyncRepo(ctx, src.URL, src.Ref, repoDir)
 	if err != nil {
 		log.Warn("sync repo failed", zap.Int64("source_id", src.ID), zap.Error(err))
 		return "", err

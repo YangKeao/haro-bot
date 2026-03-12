@@ -18,7 +18,7 @@ func TestMemoryStoreRoundTrip(t *testing.T) {
 	store := memory.NewStore(gdb)
 	ctx := context.Background()
 
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 1001)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "1001")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestAddMessageAndGetID(t *testing.T) {
 	store := memory.NewStore(gdb)
 	ctx := context.Background()
 
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 1010)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "1010")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestLoadViewMessagesPreservesMetadata(t *testing.T) {
 	store := memory.NewStore(gdb)
 	ctx := context.Background()
 
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 1002)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "1002")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestLoadViewMessagesSoftDeletesInvalidToolOutputs(t *testing.T) {
 	store := memory.NewStore(gdb)
 	ctx := context.Background()
 
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 1003)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "1003")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestLoadViewMessagesUsesSummary(t *testing.T) {
 	store := memory.NewStore(gdb)
 	ctx := context.Background()
 
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 1004)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "1004")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

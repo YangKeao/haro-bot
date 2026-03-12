@@ -5,14 +5,19 @@ import (
 	"time"
 )
 
+type SessionStatusWriter interface {
+	SetState(sessionID int64, state SessionState)
+	SetToolRunning(sessionID int64, toolName string)
+	SetLLMModel(sessionID int64, model string)
+}
+
 // SessionState represents the current state of a session.
 type SessionState string
 
 const (
-	StateIdle              SessionState = "idle"
-	StateWaitingForLLM     SessionState = "waiting_for_llm"
-	StateRunningTools      SessionState = "running_tools"
-	StateWaitingForApproval SessionState = "waiting_for_approval"
+	StateIdle          SessionState = "idle"
+	StateWaitingForLLM SessionState = "waiting_for_llm"
+	StateRunningTools  SessionState = "running_tools"
 )
 
 // SessionStatus contains detailed status information about a session.
@@ -21,7 +26,6 @@ type SessionStatus struct {
 	CurrentTool string    // Name of the tool currently running (if any)
 	LLMModel    string    // Model being used (if known)
 	StartTime   time.Time // When the current operation started
-	Message     string    // Additional status message
 }
 
 // sessionStateManager tracks the state of active sessions.
@@ -36,53 +40,41 @@ func newSessionStateManager() *sessionStateManager {
 	}
 }
 
+func (m *sessionStateManager) ensureStatus(sessionID int64) *SessionStatus {
+	s := m.status[sessionID]
+	if s == nil {
+		s = &SessionStatus{}
+		m.status[sessionID] = s
+	}
+	return s
+}
+
 func (m *sessionStateManager) SetState(sessionID int64, state SessionState) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s := m.status[sessionID]
-	if s == nil {
-		s = &SessionStatus{StartTime: time.Now()}
-		m.status[sessionID] = s
+	s := m.ensureStatus(sessionID)
+	if s.State != state {
+		s.StartTime = time.Now()
 	}
 	s.State = state
 	if state == StateIdle {
 		s.CurrentTool = ""
-		s.Message = ""
 	}
 }
 
 func (m *sessionStateManager) SetToolRunning(sessionID int64, toolName string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s := m.status[sessionID]
-	if s == nil {
-		s = &SessionStatus{StartTime: time.Now()}
-		m.status[sessionID] = s
-	}
+	s := m.ensureStatus(sessionID)
 	s.State = StateRunningTools
+	s.StartTime = time.Now()
 	s.CurrentTool = toolName
-}
-
-func (m *sessionStateManager) SetWaitingForApproval(sessionID int64, message string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	s := m.status[sessionID]
-	if s == nil {
-		s = &SessionStatus{StartTime: time.Now()}
-		m.status[sessionID] = s
-	}
-	s.State = StateWaitingForApproval
-	s.Message = message
 }
 
 func (m *sessionStateManager) SetLLMModel(sessionID int64, model string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s := m.status[sessionID]
-	if s == nil {
-		s = &SessionStatus{StartTime: time.Now()}
-		m.status[sessionID] = s
-	}
+	s := m.ensureStatus(sessionID)
 	s.LLMModel = model
 }
 
@@ -94,10 +86,4 @@ func (m *sessionStateManager) GetStatus(sessionID int64) *SessionStatus {
 		return &result
 	}
 	return &SessionStatus{State: StateIdle}
-}
-
-func (m *sessionStateManager) Clear(sessionID int64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.status, sessionID)
 }

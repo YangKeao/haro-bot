@@ -18,7 +18,6 @@ type ToolContext struct {
 	SessionID int64
 	UserID    int64
 	BaseDir   string
-	SkillName string
 }
 
 type Registry struct {

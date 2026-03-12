@@ -12,10 +12,13 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
+	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
 	dbmodel "github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/memory"
+	memopenai "github.com/YangKeao/haro-bot/internal/memory/embedder/openai"
+	memtidb "github.com/YangKeao/haro-bot/internal/memory/vectorstore/tidb"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/testutil"
 	"github.com/YangKeao/haro-bot/internal/tools"
@@ -38,17 +41,18 @@ func TestE2EAgentReadFileToolFlow(t *testing.T) {
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	guidelinesMgr := guidelines.NewManager(gdb)
 	auditStore := tools.NewAuditStore(gdb)
-	fsTools := tools.NewFS([]string{rootDir}, auditStore, false)
+	fsTools := tools.NewFS(auditStore)
 	registry := tools.NewRegistry(
 		tools.NewListDirTool(fsTools),
 		tools.NewReadFileTool(fsTools),
 	)
 
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, rootDir, 12, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, skillsMgr, registry, rootDir, 12, client, model, "openai", llm.ReasoningConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9101)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9101")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -118,7 +122,12 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	memEngine, err := memory.NewEngine(gdb, store, client, model, cfg.Memory)
+	embedder, err := memopenai.New(cfg.Memory.Embedder)
+	if err != nil {
+		t.Fatalf("init embedder: %v", err)
+	}
+	vectorStore := memtidb.New(gdb, cfg.Memory.Vector.Distance)
+	memEngine, err := memory.NewEngine(store, client, model, embedder, vectorStore, cfg.Memory)
 	if err != nil {
 		t.Fatalf("init memory engine: %v", err)
 	}
@@ -129,28 +138,25 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 	}
 	agentSvc := agent.New(
 		store,
-		memEngine,
 		skillsMgr,
-		registry,
-		guidelinesMgr,
-		t.TempDir(),
+		registry, t.TempDir(),
 		6,
 		client,
 		model,
 		promptFormat,
 		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
-		llm.ContextConfig{},
 	)
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memEngine, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9102)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9102")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
 	token := fmt.Sprintf("CITY-E2E-%d", time.Now().UnixNano())
 	seedText := fmt.Sprintf("User preference: favorite city keyword is %s.", token)
-	embedder, err := memory.NewOpenAIEmbedder(cfg.Memory.Embedder)
+	embedder, err = memopenai.New(cfg.Memory.Embedder)
 	if err != nil {
 		t.Fatalf("init embedder: %v", err)
 	}
@@ -158,7 +164,7 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("embed seed memory: %v", err)
 	}
-	vectorStore := memory.NewTiDBVectorStore(gdb, cfg.Memory.Vector.Distance)
+	vectorStore = memtidb.New(gdb, cfg.Memory.Vector.Distance)
 	if _, err := vectorStore.Insert(ctx, memory.MemoryItem{
 		UserID:  userID,
 		Type:    "preference",
