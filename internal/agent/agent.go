@@ -3,10 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 
-	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
@@ -16,38 +14,22 @@ import (
 )
 
 type Agent struct {
-	store          ConversationStore
-	memoryEngine   *memory.Engine
-	skills         *skills.Manager
-	toolRegistry   *tools.Registry
-	promptBuilder  PromptBuilder
-	toolRunner     ToolRunner
-	defaultBaseDir string
-	maxToolTurns   int
-	llm            *llm.Client
-	model          string
-	promptFormat   string
-	reasoning      llm.ReasoningConfig
-	contextConfig  llm.ContextConfig
-	sessions       *sessionManager
-	stateManager   *sessionStateManager
-	messenger      SessionMessenger
+	store        memory.StoreAPI
+	sessions     *sessionManager
+	stateManager *sessionStateManager
 }
 
-func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Manager, toolRegistry *tools.Registry, guidelinesMgr *guidelines.Manager, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
+func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient llm.ChatModel, model string, promptFormat string, reasoning llm.ReasoningConfig) *Agent {
 	if maxToolTurns <= 0 {
 		maxToolTurns = 1024
 	}
-	promptBuilder := NewDefaultPromptBuilder(guidelinesMgr)
 	estimator, _ := llm.NewTokenEstimator(model)
-	toolRunner := NewToolRunner(toolRegistry, store, skills, promptBuilder, estimator)
+	toolRunner := NewToolRunner(toolRegistry, store, skills, estimator)
 	stateMgr := newSessionStateManager()
 	deps := &sessionDeps{
 		store:          store,
-		memoryEngine:   memoryEngine,
 		skills:         skills,
 		toolRegistry:   toolRegistry,
-		promptBuilder:  promptBuilder,
 		toolRunner:     toolRunner,
 		defaultBaseDir: defaultBaseDir,
 		maxToolTurns:   maxToolTurns,
@@ -55,122 +37,53 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 		model:          model,
 		promptFormat:   promptFormat,
 		reasoning:      reasoning,
-		contextConfig:  contextConfig,
 		tokenEstimator: estimator,
-		stateManager:   stateMgr,
+		middleware:     MiddlewareSet{},
 	}
 	return &Agent{
-		store:          store,
-		memoryEngine:   memoryEngine,
-		skills:         skills,
-		toolRegistry:   toolRegistry,
-		promptBuilder:  promptBuilder,
-		toolRunner:     toolRunner,
-		defaultBaseDir: defaultBaseDir,
-		maxToolTurns:   maxToolTurns,
-		llm:            llmClient,
-		model:          model,
-		promptFormat:   promptFormat,
-		reasoning:      reasoning,
-		contextConfig:  contextConfig,
-		sessions:       newSessionManager(deps),
-		stateManager:   stateMgr,
+		store:        store,
+		sessions:     newSessionManager(deps),
+		stateManager: stateMgr,
 	}
 }
 
-// SetSessionMessenger registers a messenger for out-of-band session notifications (e.g., Telegram).
-func (a *Agent) SetSessionMessenger(messenger SessionMessenger) {
-	if a == nil {
-		return
-	}
-	a.messenger = messenger
+func (a *Agent) SetMiddleware(middleware MiddlewareSet) {
+	a.sessions.deps.middleware = middleware
+}
+
+func (a *Agent) SessionStatusWriter() SessionStatusWriter {
+	return a.stateManager
 }
 
 func (a *Agent) Handle(ctx context.Context, userID int64, channel string, input string) (string, error) {
-	return a.handleWithObserver(ctx, userID, channel, input, "", nil)
+	return a.handleWithMiddleware(ctx, userID, channel, input, "", MiddlewareSet{})
 }
 
-func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel string, input string, modelOverride string) (string, error) {
-	return a.handleWithObserver(ctx, userID, channel, input, modelOverride, nil)
+func (a *Agent) HandleWithMiddleware(ctx context.Context, userID int64, channel string, input string, modelOverride string, middleware MiddlewareSet) (string, error) {
+	return a.handleWithMiddleware(ctx, userID, channel, input, modelOverride, middleware)
 }
 
-func (a *Agent) HandleWithObserver(ctx context.Context, userID int64, channel string, input string, modelOverride string, observer ProgressObserver) (string, error) {
-	return a.handleWithObserver(ctx, userID, channel, input, modelOverride, observer)
-}
-
-func (a *Agent) handleWithObserver(ctx context.Context, userID int64, channel string, input string, modelOverride string, observer ProgressObserver) (string, error) {
+func (a *Agent) handleWithMiddleware(ctx context.Context, userID int64, channel string, input string, modelOverride string, middleware MiddlewareSet) (string, error) {
 	log := logging.L().Named("agent")
 	sessionID, err := a.store.GetOrCreateSession(ctx, userID, channel)
 	if err != nil {
 		log.Error("get session failed", zap.Error(err))
 		return "", err
 	}
-	if a.sessions == nil {
-		log.Error("session manager not configured", zap.Int64("session_id", sessionID))
-		return "", errors.New("session manager not configured")
-	}
 	session := a.sessions.Get(sessionID)
 	defer a.sessions.Release(sessionID)
-	return session.Handle(ctx, userID, channel, input, modelOverride, observer)
-}
-
-// InterruptSession generates a response from an existing session context without using tools.
-// If storeInSession is true, the interrupt message and response are persisted to the session.
-func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID int64, input string, modelOverride string, storeInSession bool, metadata *memory.MessageMetadata) (string, error) {
-	log := logging.L().Named("agent_interrupt")
-	if a.sessions == nil {
-		log.Error("session manager not configured", zap.Int64("session_id", sessionID))
-		return "", errors.New("session manager not configured")
-	}
-	session := a.sessions.Get(sessionID)
-	defer a.sessions.Release(sessionID)
-	return session.Interrupt(ctx, userID, input, modelOverride, storeInSession, metadata, a.messenger)
+	return session.Handle(ctx, userID, channel, input, modelOverride, middleware)
 }
 
 // GetSessionStatus returns the current status of a session.
 func (a *Agent) GetSessionStatus(sessionID int64) *SessionStatus {
-	if a == nil || a.stateManager == nil {
-		return &SessionStatus{State: StateIdle}
-	}
 	return a.stateManager.GetStatus(sessionID)
-}
-
-// SetSessionState updates the state of a session.
-func (a *Agent) SetSessionState(sessionID int64, state SessionState) {
-	if a != nil && a.stateManager != nil {
-		a.stateManager.SetState(sessionID, state)
-	}
-}
-
-// SetSessionToolRunning marks a session as running a specific tool.
-func (a *Agent) SetSessionToolRunning(sessionID int64, toolName string) {
-	if a != nil && a.stateManager != nil {
-		a.stateManager.SetToolRunning(sessionID, toolName)
-	}
-}
-
-// SetSessionWaitingForApproval marks a session as waiting for user approval.
-func (a *Agent) SetSessionWaitingForApproval(sessionID int64, message string) {
-	if a != nil && a.stateManager != nil {
-		a.stateManager.SetWaitingForApproval(sessionID, message)
-	}
 }
 
 // CancelSession cancels any ongoing operation for the session.
 // Returns true if there was an operation to cancel.
 func (a *Agent) CancelSession(sessionID int64) bool {
-	if a == nil || a.sessions == nil {
-		return false
-	}
 	return a.sessions.Cancel(sessionID)
-}
-
-func toLLMMessages(msgs []memory.Message) []llm.Message {
-	out := make([]llm.Message, 0, len(msgs))
-	for _, m := range msgs {
-		out = append(out, toLLMMessage(m))
-	}
-	return out
 }
 
 func toLLMMessage(m memory.Message) llm.Message {

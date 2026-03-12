@@ -14,9 +14,8 @@ type Skill struct {
 }
 
 type Frontmatter struct {
-	Name          string         `yaml:"name"`
-	Description   string         `yaml:"description"`
-	License       string         `yaml:"license"`
-	Compatibility map[string]any `yaml:"compatibility"`
-	Metadata      map[string]any `yaml:"metadata"`
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description"`
+	License     string         `yaml:"license"`
+	Metadata    map[string]any `yaml:"metadata"`
 }

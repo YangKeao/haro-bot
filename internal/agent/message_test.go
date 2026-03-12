@@ -19,7 +19,10 @@ func TestToLLMMessagesRestoresToolMetadata(t *testing.T) {
 		{Role: "assistant", Content: "tooling", Metadata: meta},
 		{Role: "tool", Content: "ok", Metadata: meta},
 	}
-	llmMsgs := toLLMMessages(msgs)
+	llmMsgs := make([]llm.Message, 0, len(msgs))
+	for _, msg := range msgs {
+		llmMsgs = append(llmMsgs, toLLMMessage(msg))
+	}
 	if len(llmMsgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(llmMsgs))
 	}

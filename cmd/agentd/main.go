@@ -2,23 +2,29 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
+	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/db"
-	"github.com/YangKeao/haro-bot/internal/fork"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
+	"github.com/YangKeao/haro-bot/internal/im"
+	imtelegram "github.com/YangKeao/haro-bot/internal/im/telegram"
 	"github.com/YangKeao/haro-bot/internal/llm"
+	llmopenai "github.com/YangKeao/haro-bot/internal/llm/openai"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
-	"github.com/YangKeao/haro-bot/internal/server"
+	memopenai "github.com/YangKeao/haro-bot/internal/memory/embedder/openai"
+	memtidb "github.com/YangKeao/haro-bot/internal/memory/vectorstore/tidb"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
 	"go.uber.org/zap"
@@ -26,7 +32,6 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.toml", "path to config file")
-	unrestricted := flag.Bool("unrestricted", false, "skip path restrictions and symlink checks (audit logging still enabled)")
 	flag.Parse()
 
 	bootLogger, _ := zap.NewProduction()
@@ -66,11 +71,8 @@ func main() {
 	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
 	guidelinesMgr := guidelines.NewManager(dbConn)
 
-	if *unrestricted {
-		log.Warn("running in UNRESTRICTED mode - path restrictions and symlink checks are disabled!")
-	}
 	auditStore := tools.NewAuditStore(dbConn)
-	fsTools := tools.NewFS(cfg.FSAllowedRoots, auditStore, *unrestricted)
+	fsTools := tools.NewFS(auditStore)
 
 	execMgr := tools.NewExecManager()
 	toolRegistry := tools.NewRegistry(
@@ -87,47 +89,36 @@ func main() {
 		tools.NewUpdateGuidelinesTool(guidelinesMgr),
 		tools.NewApplyPatchTool(fsTools),
 	)
-	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
+	llmClient := llmopenai.New(cfg.LLMBaseURL, cfg.LLMAPIKey, llmopenai.WithHTTPDebug(cfg.LLMHTTPDebug))
 	contextCfg := llm.ContextConfig{
 		WindowTokens:                  cfg.LLMContextWindow,
 		AutoCompactTokenLimit:         cfg.LLMAutoCompactTokenLimit,
 		EffectiveContextWindowPercent: cfg.LLMEffectiveContextWindowPercent,
 	}
-	memoryEngine, err := memory.NewEngine(dbConn, store, llmClient, cfg.LLMModel, cfg.Memory)
+	embedder, err := newMemoryEmbedder(cfg)
+	if err != nil {
+		log.Fatal("memory embedder init failed", zap.Error(err))
+	}
+	vectorStore := memtidb.New(dbConn, cfg.Memory.Vector.Distance)
+	memoryEngine, err := memory.NewEngine(store, llmClient, cfg.LLMModel, embedder, vectorStore, cfg.Memory)
 	if err != nil {
 		log.Fatal("memory engine init failed", zap.Error(err))
 	}
 
 	agentSvc := agent.New(
 		store,
-		memoryEngine,
 		skillsMgr,
-		toolRegistry,
-		guidelinesMgr,
-		fsTools.DefaultBase(),
+		toolRegistry, fsTools.DefaultBase(),
 		cfg.ToolMaxTurns,
 		llmClient,
 		cfg.LLMModel,
 		string(cfg.LLMPromptFormat),
 		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
-		contextCfg,
 	)
-	forkMgr := fork.NewManager(agentSvc, store)
-	toolRegistry.Register(fork.NewForkTool(forkMgr))
-	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))
-	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
-	toolRegistry.Register(fork.NewForkStatusTool(forkMgr))
-	srv := server.New(cfg, agentSvc, store, skillsMgr, memoryEngine)
-	if cfg.TelegramToken != "" && !*unrestricted {
-		agentSvc.SetSessionMessenger(srv)
-		fsTools.SetApprover(srv)
-	}
-	if cfg.SecurityAuditModel != "" && !*unrestricted {
-		auditClient := llm.NewClient(cfg.SecurityAuditBaseURL, cfg.SecurityAuditAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
-		srv.SetSecurityAudit(auditClient, cfg.SecurityAuditModel)
-	}
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memoryEngine, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
+	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store)
 
-	srv.StartTelegramPolling(ctx)
+	imRuntime.Start(ctx)
 
 	if err := skillsMgr.RefreshAll(ctx); err != nil {
 		log.Warn("skills refresh failed", zap.Error(err))
@@ -184,5 +175,14 @@ func syncLoop(ctx context.Context, mgr *skills.Manager, interval time.Duration) 
 				log.Warn("skills refresh failed", zap.Error(err))
 			}
 		}
+	}
+}
+
+func newMemoryEmbedder(cfg config.Config) (memory.Embedder, error) {
+	switch strings.ToLower(strings.TrimSpace(cfg.Memory.Embedder.Provider)) {
+	case "openai", "openai_compatible":
+		return memopenai.New(cfg.Memory.Embedder)
+	default:
+		return nil, errors.New("unsupported memory embedder provider: " + cfg.Memory.Embedder.Provider)
 	}
 }

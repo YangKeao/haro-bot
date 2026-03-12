@@ -123,9 +123,9 @@ func (t *ReadFileTool) Execute(ctx context.Context, tc ToolContext, args json.Ra
 		return "", errors.New("mode must be \"slice\" or \"indentation\"")
 	}
 
-	abs, allowed, err := t.fs.resolvePathWithApproval(ctx, tc, "read_file", "", a.FilePath, false)
+	abs, err := t.fs.resolvePath("", a.FilePath, false)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "read_file", a.FilePath, allowed, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "read_file", a.FilePath, err)
 		return "", err
 	}
 
@@ -137,7 +137,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, tc ToolContext, args json.Ra
 		lines, err = readFileIndentation(abs, offset, limit, a.AnchorLine, a.MaxLevels, a.MaxLines)
 	}
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "read_file", abs, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "read_file", abs, err)
 		return "", err
 	}
 	t.fs.auditOK(ctx, tc.SessionID, tc.UserID, "read_file", abs, map[string]any{"lines": len(lines)})

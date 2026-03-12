@@ -98,14 +98,14 @@ func (t *GrepFilesTool) Execute(ctx context.Context, tc ToolContext, args json.R
 		path = tc.BaseDir
 	}
 
-	abs, allowed, err := t.fs.resolvePathWithApproval(ctx, tc, "grep_files", tc.BaseDir, path, false)
+	abs, err := t.fs.resolvePath(tc.BaseDir, path, false)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "grep_files", path, allowed, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "grep_files", path, err)
 		return "", err
 	}
 
 	if _, err := os.Stat(abs); err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "grep_files", abs, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "grep_files", abs, err)
 		return "", err
 	}
 
@@ -121,7 +121,7 @@ func (t *GrepFilesTool) Execute(ctx context.Context, tc ToolContext, args json.R
 
 	results, err := runGrepFiles(ctx, pattern, include, abs, cwd, limit)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "grep_files", abs, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "grep_files", abs, err)
 		return "", err
 	}
 	if len(results) == 0 {

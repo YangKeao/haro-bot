@@ -11,6 +11,7 @@ import (
 
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/memory"
+	memtidb "github.com/YangKeao/haro-bot/internal/memory/vectorstore/tidb"
 	"github.com/YangKeao/haro-bot/internal/testutil"
 )
 
@@ -31,7 +32,7 @@ func TestTiDBVectorStoreRoundTripWithConfig(t *testing.T) {
 	gdb, cleanup := testutil.NewTestDBWithMigrationsConfig(t, cfg.Memory)
 	t.Cleanup(cleanup)
 
-	store := memory.NewTiDBVectorStore(gdb, cfg.Memory.Vector.Distance)
+	store := memtidb.New(gdb, cfg.Memory.Vector.Distance)
 	if err := store.EnsureSchema(context.Background(), cfg.Memory); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}

@@ -11,52 +11,37 @@ import (
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 type Engine struct {
 	cfg      config.MemoryConfig
 	store    StoreAPI
-	llm      *llm.Client
+	llm      llm.ChatModel
 	model    string
 	embedder Embedder
 	vectors  VectorStore
-	graph    GraphStore
 	log      *zap.Logger
 }
 
-func NewEngine(db *gorm.DB, store StoreAPI, llmClient *llm.Client, model string, cfg config.MemoryConfig) (*Engine, error) {
-	if db == nil {
-		return nil, errors.New("memory db required")
-	}
+func NewEngine(store StoreAPI, llmClient llm.ChatModel, model string, embedder Embedder, vectors VectorStore, cfg config.MemoryConfig) (*Engine, error) {
 	if store == nil {
 		return nil, errors.New("memory store required")
 	}
 	if llmClient == nil {
 		return nil, errors.New("memory llm client required")
 	}
-	if strings.TrimSpace(cfg.Embedder.Provider) == "" {
-		return nil, errors.New("memory embedder provider required")
-	}
 	if strings.TrimSpace(cfg.Embedder.Model) == "" {
 		return nil, errors.New("memory embedder model required")
 	}
-	var embedder Embedder
-	switch strings.ToLower(strings.TrimSpace(cfg.Embedder.Provider)) {
-	case "openai", "openai_compatible":
-		emb, err := NewOpenAIEmbedder(cfg.Embedder)
-		if err != nil {
-			return nil, err
-		}
-		embedder = emb
-	default:
-		return nil, fmt.Errorf("unsupported memory embedder provider: %s", cfg.Embedder.Provider)
+	if embedder == nil {
+		return nil, errors.New("memory embedder required")
 	}
-	vectors := NewTiDBVectorStore(db, cfg.Vector.Distance)
+	if vectors == nil {
+		return nil, errors.New("memory vector store required")
+	}
 	if err := vectors.EnsureSchema(context.Background(), cfg); err != nil {
 		return nil, err
 	}
-	graph := GraphStore(NewNoopGraphStore())
 	return &Engine{
 		cfg:      cfg,
 		store:    store,
@@ -64,7 +49,6 @@ func NewEngine(db *gorm.DB, store StoreAPI, llmClient *llm.Client, model string,
 		model:    model,
 		embedder: embedder,
 		vectors:  vectors,
-		graph:    graph,
 		log:      logging.L().Named("memory_engine"),
 	}, nil
 }

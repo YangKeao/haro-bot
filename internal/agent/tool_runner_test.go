@@ -19,6 +19,10 @@ func (s *toolRunnerStore) GetOrCreateUserByTelegramID(context.Context, int64) (i
 	return 0, nil
 }
 
+func (s *toolRunnerStore) GetOrCreateUserByExternalID(context.Context, string, string) (int64, error) {
+	return 0, nil
+}
+
 func (s *toolRunnerStore) GetOrCreateSession(context.Context, int64, string) (int64, error) {
 	return 0, nil
 }
@@ -77,7 +81,7 @@ func TestToolRunnerTruncatesLargeToolOutput(t *testing.T) {
 
 	store := &toolRunnerStore{}
 	registry := tools.NewRegistry(&staticTool{name: "big_tool", output: output})
-	runner := NewToolRunner(registry, store, nil, nil, estimator)
+	runner := NewToolRunner(registry, store, nil, estimator)
 
 	msgs, _, err := runner.Run(context.Background(), 1, 2, "", nil, []llm.ToolCall{{
 		ID:   "call-1",
@@ -93,7 +97,7 @@ func TestToolRunnerTruncatesLargeToolOutput(t *testing.T) {
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
 	}
-	got := msgs[0].ToLLM().Content
+	got := msgs[0].Message.Content
 	if !strings.Contains(got, "tokens truncated") {
 		t.Fatalf("expected truncation marker, got %q", got)
 	}
@@ -118,7 +122,7 @@ func TestToolRunnerKeepsSmallToolOutput(t *testing.T) {
 	}
 	store := &toolRunnerStore{}
 	registry := tools.NewRegistry(&staticTool{name: "small_tool", output: "short output"})
-	runner := NewToolRunner(registry, store, nil, nil, estimator)
+	runner := NewToolRunner(registry, store, nil, estimator)
 
 	msgs, _, err := runner.Run(context.Background(), 1, 2, "", nil, []llm.ToolCall{{
 		ID:   "call-1",
@@ -131,7 +135,7 @@ func TestToolRunnerKeepsSmallToolOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run tool: %v", err)
 	}
-	if got := msgs[0].ToLLM().Content; got != "short output" {
+	if got := msgs[0].Message.Content; got != "short output" {
 		t.Fatalf("expected output unchanged, got %q", got)
 	}
 }

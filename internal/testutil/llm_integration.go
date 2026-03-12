@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
+	llmopenai "github.com/YangKeao/haro-bot/internal/llm/openai"
 )
 
 type LLMSettings struct {
@@ -38,8 +39,8 @@ func LLMSettingsFromEnv(t *testing.T) LLMSettings {
 	}
 }
 
-func NewLLMClientFromEnv(t *testing.T) (*llm.Client, string) {
+func NewLLMClientFromEnv(t *testing.T) (llm.ChatModel, string) {
 	t.Helper()
 	settings := LLMSettingsFromEnv(t)
-	return llm.NewClient(settings.BaseURL, settings.APIKey), settings.Model
+	return llmopenai.New(settings.BaseURL, settings.APIKey), settings.Model
 }

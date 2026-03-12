@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
+	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
 	"github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
@@ -26,10 +27,11 @@ func TestAgentStoresAssistantResponse(t *testing.T) {
 	guidelinesMgr := guidelines.NewManager(gdb)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 3001)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "3001")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

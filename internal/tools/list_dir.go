@@ -103,26 +103,26 @@ func (t *ListDirTool) Execute(ctx context.Context, tc ToolContext, args json.Raw
 		depth = *a.Depth
 	}
 
-	abs, allowed, err := t.fs.resolvePathWithApproval(ctx, tc, "list_dir", "", a.DirPath, false)
+	abs, err := t.fs.resolvePath("", a.DirPath, false)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", a.DirPath, allowed, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", a.DirPath, err)
 		return "", err
 	}
 
 	info, err := os.Stat(abs)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", abs, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", abs, err)
 		return "", err
 	}
 	if !info.IsDir() {
 		err := errors.New("dir_path is not a directory")
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", abs, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", abs, err)
 		return "", err
 	}
 
 	entries, err := listDirSlice(abs, offset, limit, depth)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", abs, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", abs, err)
 		return "", err
 	}
 	out := make([]string, 0, len(entries)+1)
