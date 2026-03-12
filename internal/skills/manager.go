@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -70,6 +71,7 @@ func (m *Manager) RegisterSource(ctx context.Context, src Source) (int64, error)
 		if src.Ref == "" {
 			src.Ref = "main"
 		}
+		src.SkillFilters = normalizeSkillFilters(src.SkillFilters)
 		cleanSubdir, err := normalizeSubdir(src.Subdir)
 		if err != nil {
 			return 0, err
@@ -132,6 +134,9 @@ func (m *Manager) RefreshSource(ctx context.Context, sourceID int64) error {
 	if target == nil {
 		return errors.New("source not found")
 	}
+	if target.Status != "active" {
+		return errors.New("source not active")
+	}
 	merged := make(map[string]Metadata)
 	version, err := m.refreshSource(ctx, *target, merged)
 	if err != nil {
@@ -140,14 +145,34 @@ func (m *Manager) RefreshSource(ctx context.Context, sourceID int64) error {
 		return err
 	}
 	_ = m.store.UpdateSourceSync(ctx, target.ID, version, "")
-
-	m.mu.Lock()
-	for name, meta := range merged {
-		m.skills[name] = meta
+	if err := m.loadFromDB(ctx); err != nil {
+		return err
 	}
-	m.mu.Unlock()
 	log.Info("source refreshed", zap.Int64("source_id", target.ID), zap.Int("skills", len(merged)))
 	return nil
+}
+
+func (m *Manager) ListSources(ctx context.Context, includeDisabled bool) ([]Source, error) {
+	if m.store == nil {
+		return nil, errors.New("store not configured")
+	}
+	return m.store.ListSources(ctx, includeDisabled)
+}
+
+func (m *Manager) DeleteSource(ctx context.Context, sourceID int64) error {
+	if m.store == nil {
+		return errors.New("store not configured")
+	}
+	if sourceID <= 0 {
+		return errors.New("source_id required")
+	}
+	if err := m.store.DeleteSource(ctx, sourceID); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(m.repoDirForSource(sourceID)); err != nil {
+		logging.L().Named("skills").Warn("remove source dir failed", zap.Int64("source_id", sourceID), zap.Error(err))
+	}
+	return m.loadFromDB(ctx)
 }
 
 func (m *Manager) List() []Metadata {
@@ -283,20 +308,35 @@ func (m *Manager) refreshSource(ctx context.Context, src Source, merged map[stri
 			return "", err
 		}
 	}
-	err = m.scanSource(ctx, src, repoDir, root, version, merged)
+	entries, metas, err := m.scanSource(ctx, src, repoDir, root, version)
 	if err != nil {
 		log.Warn("scan source failed", zap.Int64("source_id", src.ID), zap.Error(err))
+		return version, err
 	}
-	return version, err
+	if err := m.store.ReplaceSkillsForSource(ctx, src.ID, entries); err != nil {
+		log.Warn("replace skills failed", zap.Int64("source_id", src.ID), zap.Error(err))
+		return version, err
+	}
+	for _, meta := range metas {
+		if _, exists := merged[meta.Name]; !exists {
+			merged[meta.Name] = meta
+		}
+	}
+	return version, nil
 }
 
-func (m *Manager) scanSource(ctx context.Context, src Source, repoDir, root, version string, merged map[string]Metadata) error {
-	log := logging.L().Named("skills")
+func (m *Manager) scanSource(_ context.Context, src Source, repoDir, root, version string) ([]RegistryEntry, []Metadata, error) {
 	repoDirAbs, err := filepath.Abs(repoDir)
 	if err != nil {
 		repoDirAbs = repoDir
 	}
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	filterSet := make(map[string]struct{}, len(src.SkillFilters))
+	for _, filter := range src.SkillFilters {
+		filterSet[filter] = struct{}{}
+	}
+	var entries []RegistryEntry
+	var metas []Metadata
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -326,6 +366,11 @@ func (m *Manager) scanSource(ctx context.Context, src Source, repoDir, root, ver
 		if name == "" || desc == "" {
 			return nil
 		}
+		if len(filterSet) > 0 {
+			if _, ok := filterSet[name]; !ok {
+				return nil
+			}
+		}
 		if filepath.Base(dir) != name {
 			return nil
 		}
@@ -344,10 +389,8 @@ func (m *Manager) scanSource(ctx context.Context, src Source, repoDir, root, ver
 			Version:     version,
 			Hash:        hash,
 		}
-		if _, exists := merged[name]; !exists {
-			merged[name] = meta
-		}
-		if err := m.store.UpsertSkill(ctx, RegistryEntry{
+		metas = append(metas, meta)
+		entries = append(entries, RegistryEntry{
 			SourceID:    src.ID,
 			Name:        name,
 			Description: desc,
@@ -355,12 +398,23 @@ func (m *Manager) scanSource(ctx context.Context, src Source, repoDir, root, ver
 			SkillPath:   relPath,
 			ContentHash: hash,
 			Status:      "active",
-		}); err != nil {
-			log.Warn("upsert skill failed", zap.Int64("source_id", src.ID), zap.String("name", name), zap.Error(err))
-			return err
-		}
+		})
 		return nil
 	})
+	if err != nil {
+		return nil, nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name < entries[j].Name
+	})
+	sort.Slice(metas, func(i, j int) bool {
+		return metas[i].Name < metas[j].Name
+	})
+	return entries, metas, nil
+}
+
+func (m *Manager) repoDirForSource(sourceID int64) string {
+	return filepath.Join(m.baseDir, fmt.Sprintf("source-%d", sourceID))
 }
 
 func normalizeSubdir(subdir string) (string, error) {

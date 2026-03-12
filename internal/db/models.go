@@ -55,18 +55,19 @@ type SessionSummary struct {
 func (SessionSummary) TableName() string { return "session_summaries" }
 
 type SkillSource struct {
-	ID            int64      `gorm:"primaryKey;autoIncrement"`
-	SourceType    string     `gorm:"column:source_type;size:32"`
-	InstallMethod string     `gorm:"column:install_method;size:32"`
-	SourceURL     string     `gorm:"column:source_url;type:text"`
-	SourceRef     string     `gorm:"column:source_ref;size:128"`
-	SourceSubdir  string     `gorm:"column:source_subdir;size:255"`
-	Status        string     `gorm:"column:status;size:16"`
-	Version       *string    `gorm:"column:version;size:64"`
-	LastSyncAt    *time.Time `gorm:"column:last_sync_at"`
-	LastError     *string    `gorm:"column:last_error;type:text"`
-	CreatedAt     time.Time  `gorm:"column:created_at"`
-	UpdatedAt     time.Time  `gorm:"column:updated_at"`
+	ID            int64          `gorm:"primaryKey;autoIncrement"`
+	SourceType    string         `gorm:"column:source_type;size:32"`
+	InstallMethod string         `gorm:"column:install_method;size:32"`
+	SourceURL     string         `gorm:"column:source_url;type:text"`
+	SourceRef     string         `gorm:"column:source_ref;size:128"`
+	SourceSubdir  string         `gorm:"column:source_subdir;size:255"`
+	SkillFilters  datatypes.JSON `gorm:"column:skill_filters_json;type:json"`
+	Status        string         `gorm:"column:status;size:16"`
+	Version       *string        `gorm:"column:version;size:64"`
+	LastSyncAt    *time.Time     `gorm:"column:last_sync_at"`
+	LastError     *string        `gorm:"column:last_error;type:text"`
+	CreatedAt     time.Time      `gorm:"column:created_at"`
+	UpdatedAt     time.Time      `gorm:"column:updated_at"`
 }
 
 func (SkillSource) TableName() string { return "skill_sources" }

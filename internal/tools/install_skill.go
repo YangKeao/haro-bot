@@ -15,17 +15,19 @@ type InstallSkillTool struct {
 }
 
 type installSkillArgs struct {
-	SourceType    string `json:"source_type"`
-	InstallMethod string `json:"install_method"`
-	URL           string `json:"url"`
-	Ref           string `json:"ref"`
-	Subdir        string `json:"subdir"`
-	Status        string `json:"status"`
+	SourceType    string   `json:"source_type"`
+	InstallMethod string   `json:"install_method"`
+	URL           string   `json:"url"`
+	Ref           string   `json:"ref"`
+	Subdir        string   `json:"subdir"`
+	IncludeSkills []string `json:"include_skills"`
+	Status        string   `json:"status"`
 }
 
 type installSkillResult struct {
-	SourceID int64                `json:"source_id"`
-	Skills   []installSkillRecord `json:"skills,omitempty"`
+	SourceID      int64                `json:"source_id"`
+	IncludeSkills []string             `json:"include_skills,omitempty"`
+	Skills        []installSkillRecord `json:"skills,omitempty"`
 }
 
 type installSkillRecord struct {
@@ -67,6 +69,13 @@ func (t *InstallSkillTool) Parameters() map[string]any {
 				"type":        "string",
 				"description": "Subdirectory within the repo to scan for skills.",
 			},
+			"include_skills": map[string]any{
+				"type":        "array",
+				"description": "Optional skill-name allowlist. When set, only these skill names are loaded from the source.",
+				"items": map[string]any{
+					"type": "string",
+				},
+			},
 			"status": map[string]any{
 				"type":        "string",
 				"description": "Source status (default: active).",
@@ -94,6 +103,7 @@ func (t *InstallSkillTool) Execute(ctx context.Context, _ ToolContext, args json
 		URL:           payload.URL,
 		Ref:           payload.Ref,
 		Subdir:        payload.Subdir,
+		SkillFilters:  payload.IncludeSkills,
 		Status:        payload.Status,
 	})
 	if err != nil {
@@ -109,7 +119,10 @@ func (t *InstallSkillTool) Execute(ctx context.Context, _ ToolContext, args json
 		log.Warn("list skills failed", zap.Int64("source_id", sourceID), zap.Error(err))
 		return "", err
 	}
-	result := installSkillResult{SourceID: sourceID}
+	result := installSkillResult{
+		SourceID:      sourceID,
+		IncludeSkills: payload.IncludeSkills,
+	}
 	if len(installed) > 0 {
 		result.Skills = make([]installSkillRecord, 0, len(installed))
 		for _, meta := range installed {
