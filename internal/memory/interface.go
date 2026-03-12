@@ -6,9 +6,9 @@ import "context"
 // It is implemented by the memory store and is used by higher-level components (agent/tools)
 // to avoid depending on concrete storage details.
 type StoreAPI interface {
-	// GetOrCreateUserByTelegramID returns the internal user ID for a Telegram user.
-	// If the user does not exist, it is created.
-	GetOrCreateUserByTelegramID(ctx context.Context, telegramID int64) (int64, error)
+	// GetOrCreateUserByExternalID returns the internal user ID for an external IM user.
+	// The provider identifies the IM platform (for example "telegram").
+	GetOrCreateUserByExternalID(ctx context.Context, provider, externalID string) (int64, error)
 
 	// GetOrCreateSession returns the active session ID for a user/channel pair.
 	// If no session exists, a new one is created.

@@ -48,7 +48,7 @@ func TestE2EAgentReadFileToolFlow(t *testing.T) {
 	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, rootDir, 12, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9101)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9101")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9102)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9102")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

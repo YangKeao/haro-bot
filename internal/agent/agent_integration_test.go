@@ -29,7 +29,7 @@ func TestAgentStoresAssistantResponse(t *testing.T) {
 	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 3001)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "3001")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

@@ -6,19 +6,17 @@ import (
 	"github.com/YangKeao/haro-bot/internal/llm"
 )
 
-func TestCompactCutoffEntryIDUsesLastPersistedMessage(t *testing.T) {
-	system := newTransientContextMessage(llm.Message{Role: "system", Content: "sys"})
-	user, err := newPersistedContextMessage(101, llm.Message{Role: "user", Content: "u1"})
+func TestCompactCutoffEntryIDUsesLastStoredMessage(t *testing.T) {
+	user, err := newStoredMessage(101, llm.Message{Role: "user", Content: "u1"})
 	if err != nil {
-		t.Fatalf("create user context message: %v", err)
+		t.Fatalf("create user message: %v", err)
 	}
-	assistant, err := newPersistedContextMessage(202, llm.Message{Role: "assistant", Content: "a1"})
+	assistant, err := newStoredMessage(202, llm.Message{Role: "assistant", Content: "a1"})
 	if err != nil {
-		t.Fatalf("create assistant context message: %v", err)
+		t.Fatalf("create assistant message: %v", err)
 	}
-	ephemeral := newTransientContextMessage(llm.Message{Role: "system", Content: "hint"})
 
-	cutoff, err := compactCutoffEntryID([]ContextMessage{system, user, assistant, ephemeral})
+	cutoff, err := compactCutoffEntryID([]StoredMessage{user, assistant})
 	if err != nil {
 		t.Fatalf("compactCutoffEntryID returned error: %v", err)
 	}
@@ -27,39 +25,21 @@ func TestCompactCutoffEntryIDUsesLastPersistedMessage(t *testing.T) {
 	}
 }
 
-func TestCompactCutoffEntryIDFailsWithoutPersistedMessages(t *testing.T) {
-	_, err := compactCutoffEntryID([]ContextMessage{
-		newTransientContextMessage(llm.Message{Role: "system", Content: "sys"}),
-		newTransientContextMessage(llm.Message{Role: "user", Content: "temp"}),
-	})
+func TestCompactCutoffEntryIDFailsWithoutStoredMessages(t *testing.T) {
+	_, err := compactCutoffEntryID(nil)
 	if err == nil {
-		t.Fatal("expected error when no persisted message exists")
+		t.Fatal("expected error when no stored message exists")
 	}
 }
 
-func TestCompactCutoffEntryIDFailsOnInvalidPersistedEntryID(t *testing.T) {
-	_, err := compactCutoffEntryID([]ContextMessage{
-		testContextMessage{
-			msg:       llm.Message{Role: "user", Content: "bad"},
-			entryID:   0,
-			persisted: true,
+func TestCompactCutoffEntryIDFailsOnInvalidStoredEntryID(t *testing.T) {
+	_, err := compactCutoffEntryID([]StoredMessage{
+		{
+			EntryID: 0,
+			Message: llm.Message{Role: "user", Content: "bad"},
 		},
 	})
 	if err == nil {
-		t.Fatal("expected error for invalid persisted entry id")
+		t.Fatal("expected error for invalid stored entry id")
 	}
-}
-
-type testContextMessage struct {
-	msg       llm.Message
-	entryID   int64
-	persisted bool
-}
-
-func (m testContextMessage) ToLLM() llm.Message {
-	return m.msg
-}
-
-func (m testContextMessage) EntryID() (int64, bool) {
-	return m.entryID, m.persisted
 }

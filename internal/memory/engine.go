@@ -17,7 +17,7 @@ import (
 type Engine struct {
 	cfg      config.MemoryConfig
 	store    StoreAPI
-	llm      *llm.Client
+	llm      llm.ChatModel
 	model    string
 	embedder Embedder
 	vectors  VectorStore
@@ -25,7 +25,7 @@ type Engine struct {
 	log      *zap.Logger
 }
 
-func NewEngine(db *gorm.DB, store StoreAPI, llmClient *llm.Client, model string, cfg config.MemoryConfig) (*Engine, error) {
+func NewEngine(db *gorm.DB, store StoreAPI, llmClient llm.ChatModel, model string, cfg config.MemoryConfig) (*Engine, error) {
 	if db == nil {
 		return nil, errors.New("memory db required")
 	}
@@ -41,16 +41,9 @@ func NewEngine(db *gorm.DB, store StoreAPI, llmClient *llm.Client, model string,
 	if strings.TrimSpace(cfg.Embedder.Model) == "" {
 		return nil, errors.New("memory embedder model required")
 	}
-	var embedder Embedder
-	switch strings.ToLower(strings.TrimSpace(cfg.Embedder.Provider)) {
-	case "openai", "openai_compatible":
-		emb, err := NewOpenAIEmbedder(cfg.Embedder)
-		if err != nil {
-			return nil, err
-		}
-		embedder = emb
-	default:
-		return nil, fmt.Errorf("unsupported memory embedder provider: %s", cfg.Embedder.Provider)
+	embedder, err := NewEmbedder(cfg.Embedder)
+	if err != nil {
+		return nil, err
 	}
 	vectors := NewTiDBVectorStore(db, cfg.Vector.Distance)
 	if err := vectors.EnsureSchema(context.Background(), cfg); err != nil {

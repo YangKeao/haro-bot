@@ -15,10 +15,11 @@ import (
 	"github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/fork"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
+	"github.com/YangKeao/haro-bot/internal/im"
+	imtelegram "github.com/YangKeao/haro-bot/internal/im/telegram"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
-	"github.com/YangKeao/haro-bot/internal/server"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
 	"go.uber.org/zap"
@@ -126,17 +127,17 @@ func main() {
 	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))
 	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
 	toolRegistry.Register(fork.NewForkStatusTool(forkMgr))
-	srv := server.New(cfg, agentSvc, store, skillsMgr, memoryEngine)
+	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store, skillsMgr, memoryEngine)
 	if cfg.TelegramToken != "" && !*unrestricted {
-		agentSvc.SetSessionMessenger(srv)
-		fsTools.SetApprover(srv)
+		agentSvc.SetSessionMessenger(imRuntime.SessionMessenger())
+		fsTools.SetApprover(imRuntime.Approver())
 	}
 	if cfg.SecurityAuditModel != "" && !*unrestricted {
 		auditClient := llm.NewClient(cfg.SecurityAuditBaseURL, cfg.SecurityAuditAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
-		srv.SetSecurityAudit(auditClient, cfg.SecurityAuditModel)
+		imRuntime.SetSecurityAudit(auditClient, cfg.SecurityAuditModel)
 	}
 
-	srv.StartTelegramPolling(ctx)
+	imRuntime.Start(ctx)
 
 	if err := skillsMgr.RefreshAll(ctx); err != nil {
 		log.Warn("skills refresh failed", zap.Error(err))

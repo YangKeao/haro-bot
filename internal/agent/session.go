@@ -101,21 +101,12 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 		return "", err
 	}
 	systemPrompt := s.deps.promptBuilder.System(ctx, memories, availableSkills, s.deps.promptFormat)
-	baseMessages := []ContextMessage{newTransientContextMessage(llm.Message{Role: "system", Content: systemPrompt})}
-	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
-		baseMessages = append(baseMessages, newTransientContextMessage(llm.Message{Role: "system", Content: summaryMsg}))
-	}
-	contextMessages, err := toContextMessages(recent)
+	stored, err := toStoredMessages(recent)
 	if err != nil {
 		return "", err
 	}
-	messages := baseMessages
-	// Add hint for task-phase transitions and error recovery (context limits handled by auto-compact)
-	if hint := summaryHint(recent); hint != "" {
-		messages = append(messages, newTransientContextMessage(llm.Message{Role: "system", Content: hint}))
-	}
-	messages = append(messages, contextMessages...)
-	output, err := s.runLoop(ctx, userID, messages, model, nil, observer)
+	transient := buildTransientContext(systemPrompt, summary, recent, "")
+	output, err := s.runLoop(ctx, userID, stored, transient, model, nil, observer)
 	if err != nil {
 		log.Error("handle failed", zap.Int64("session_id", s.id), zap.Error(err))
 		return "", err
@@ -148,24 +139,16 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 	if err != nil {
 		return "", err
 	}
-	baseMessages := []ContextMessage{newTransientContextMessage(llm.Message{Role: "system", Content: systemPrompt})}
-	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
-		baseMessages = append(baseMessages, newTransientContextMessage(llm.Message{Role: "system", Content: summaryMsg}))
-	}
-	contextMessages, err := toContextMessages(recent)
+	stored, err := toStoredMessages(recent)
 	if err != nil {
 		return "", err
 	}
+	pendingInput := ""
 	if !storeInSession {
-		contextMessages = append(contextMessages, newTransientContextMessage(llm.Message{Role: "user", Content: input}))
+		pendingInput = input
 	}
-	messages := baseMessages
-	// Add hint for task-phase transitions and error recovery (context limits handled by auto-compact)
-	if hint := summaryHint(recent); hint != "" {
-		messages = append(messages, newTransientContextMessage(llm.Message{Role: "system", Content: hint}))
-	}
-	messages = append(messages, contextMessages...)
-	resp, _, err := s.callLLMWithTrim(ctx, log, model, messages, nil, nil)
+	transient := buildTransientContext(systemPrompt, summary, recent, pendingInput)
+	resp, _, _, err := s.callLLMWithTrim(ctx, log, model, stored, transient, nil, nil)
 	if err != nil {
 		log.Error("interrupt llm error", zap.Int64("session_id", s.id), zap.Error(err))
 		return "", err
@@ -189,25 +172,27 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 	return content, nil
 }
 
-func (s *Session) runLoop(ctx context.Context, userID int64, messages []ContextMessage, model string, activeSkill *skills.Skill, observer ProgressObserver) (string, error) {
+func (s *Session) runLoop(ctx context.Context, userID int64, stored []StoredMessage, transient TransientContext, model string, activeSkill *skills.Skill, observer ProgressObserver) (string, error) {
 	log := logging.L().Named("agent_loop")
 	maxTurns := s.deps.maxToolTurns
 	for i := 0; i < maxTurns; i++ {
+		llmMessages := composeLLMMessages(stored, transient)
 		log.Debug("loop turn",
 			zap.Int("turn", i+1),
 			zap.Int("max_turns", maxTurns),
-			zap.Int("message_count", len(messages)),
+			zap.Int("message_count", len(llmMessages)),
 			zap.String("model", model),
 		)
 		tools := s.toolsFor()
 		log.Debug("tools prepared", zap.Int("count", len(tools)))
 		s.setState(StateWaitingForLLM)
-		resp, trimmed, err := s.callLLMWithTrim(ctx, log, model, messages, tools, observer)
+		resp, trimmedStored, trimmedTransient, err := s.callLLMWithTrim(ctx, log, model, stored, transient, tools, observer)
 		if err != nil {
 			log.Error("llm chat error", zap.Int64("session_id", s.id), zap.Error(err))
 			return "", err
 		}
-		messages = trimmed
+		stored = trimmedStored
+		transient = trimmedTransient
 		if len(resp.Choices) == 0 {
 			return "", errors.New("empty llm response")
 		}
@@ -233,7 +218,7 @@ func (s *Session) runLoop(ctx context.Context, userID int64, messages []ContextM
 		if err != nil {
 			return "", err
 		}
-		assistantCtxMsg, err := newPersistedContextMessage(assistantEntryID, msg)
+		assistantMsg, err := newStoredMessage(assistantEntryID, msg)
 		if err != nil {
 			return "", err
 		}
@@ -249,8 +234,8 @@ func (s *Session) runLoop(ctx context.Context, userID int64, messages []ContextM
 		}
 		log.Debug("tool run completed", zap.Int("tool_messages", len(toolMsgs)))
 		activeSkill = updatedSkill
-		messages = append(messages, assistantCtxMsg)
-		messages = append(messages, toolMsgs...)
+		stored = append(stored, assistantMsg)
+		stored = append(stored, toolMsgs...)
 	}
 	return "", errors.New("tool loop exceeded")
 }

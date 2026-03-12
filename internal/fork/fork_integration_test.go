@@ -38,7 +38,7 @@ func TestForkInterruptFlow(t *testing.T) {
 	registry.Register(forkTool)
 	registry.Register(interruptTool)
 
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 2001)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "2001")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestForkStatusAndCancel(t *testing.T) {
 	statusTool := fork.NewForkStatusTool(forkMgr)
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 2002)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "2002")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestForkInheritRecent(t *testing.T) {
 	forkTool := fork.NewForkTool(forkMgr)
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 2003)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "2003")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestForkContextCancel(t *testing.T) {
 	forkMgr := fork.NewManager(agentSvc, store)
 
 	baseCtx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(baseCtx, 2004)
+	userID, err := store.GetOrCreateUserByExternalID(baseCtx, "telegram", "2004")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestForkCleanupCompletedRun(t *testing.T) {
 	forkTool := fork.NewForkTool(forkMgr)
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 2005)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "2005")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

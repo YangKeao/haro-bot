@@ -32,13 +32,13 @@ func NewToolRunner(registry *tools.Registry, store ConversationStore, skillsMgr 
 	}
 }
 
-func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, baseDir string, activeSkill *skills.Skill, calls []llm.ToolCall) ([]ContextMessage, *skills.Skill, error) {
+func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, baseDir string, activeSkill *skills.Skill, calls []llm.ToolCall) ([]StoredMessage, *skills.Skill, error) {
 	log := logging.L().Named("tool_runner")
 	if r == nil || r.registry == nil {
 		return nil, activeSkill, errors.New("tool registry not configured")
 	}
 	currentSkill := activeSkill
-	out := make([]ContextMessage, 0, len(calls))
+	out := make([]StoredMessage, 0, len(calls))
 	for _, call := range calls {
 		tool, ok := r.registry.Get(call.Function.Name)
 		if !ok {
@@ -51,7 +51,7 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 			if err != nil {
 				return nil, currentSkill, err
 			}
-			ctxMsg, err := newPersistedContextMessage(entryID, toolMsg)
+			ctxMsg, err := newStoredMessage(entryID, toolMsg)
 			if err != nil {
 				return nil, currentSkill, err
 			}
@@ -102,7 +102,7 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 		if err != nil {
 			return nil, currentSkill, err
 		}
-		ctxMsg, err := newPersistedContextMessage(entryID, toolMsg)
+		ctxMsg, err := newStoredMessage(entryID, toolMsg)
 		if err != nil {
 			return nil, currentSkill, err
 		}

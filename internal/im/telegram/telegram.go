@@ -1,7 +1,8 @@
-package server
+package telegram
 
 import (
 	"context"
+	"strconv"
 	"unicode/utf8"
 
 	"github.com/YangKeao/haro-bot/internal/logging"
@@ -51,7 +52,7 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 		log.Warn("telegram update missing sender")
 		return
 	}
-	uid, err := s.store.GetOrCreateUserByTelegramID(ctx, update.Message.From.ID)
+	uid, err := s.store.GetOrCreateUserByExternalID(ctx, "telegram", strconv.FormatInt(update.Message.From.ID, 10))
 	if err != nil {
 		log.Warn("telegram user error", zap.Error(err))
 		return
@@ -123,7 +124,7 @@ func (s *Server) handleTelegramCallback(ctx context.Context, b *bot.Bot, query *
 		log.Warn("telegram callback missing sender")
 		return
 	}
-	uid, err := s.store.GetOrCreateUserByTelegramID(ctx, query.From.ID)
+	uid, err := s.store.GetOrCreateUserByExternalID(ctx, "telegram", strconv.FormatInt(query.From.ID, 10))
 	if err != nil {
 		log.Warn("telegram user error", zap.Error(err))
 		return

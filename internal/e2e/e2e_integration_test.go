@@ -33,7 +33,7 @@ func TestE2ESimpleConversation(t *testing.T) {
 	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9001)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9001")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestE2EToolExecution(t *testing.T) {
 	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9002)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9002")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestE2ESessionInterrupt(t *testing.T) {
 	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9003)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9003")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestE2EMultipleSessions(t *testing.T) {
 	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9004)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9004")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestE2ESessionStatus(t *testing.T) {
 	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9005)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9005")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestE2EContextAutoCompaction(t *testing.T) {
 	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, contextCfg)
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, 9006)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9006")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

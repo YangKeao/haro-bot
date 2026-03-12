@@ -9,27 +9,26 @@ import (
 	"go.uber.org/zap"
 )
 
-func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model string, messages []ContextMessage, tools []llm.Tool, observer ProgressObserver) (llm.ChatResponse, []ContextMessage, error) {
+func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model string, stored []StoredMessage, transient TransientContext, tools []llm.Tool, observer ProgressObserver) (llm.ChatResponse, []StoredMessage, TransientContext, error) {
 	var out llm.ChatResponse
 	if s == nil || s.deps == nil {
-		return out, messages, errors.New("session not configured")
+		return out, stored, transient, errors.New("session not configured")
 	}
 
 	estimator := s.estimatorForModel(model)
 	budget := computeTokenBudget(s.deps.contextConfig)
 	compactor := NewCompactor(s.deps.store, s.deps.llm, estimator, model)
 
-	// Check if we should preemptively compact before calling LLM
-	if compactor.ShouldCompact(contextMessagesToLLM(messages), budget.InputBudget) {
+	if compactor.ShouldCompact(composeLLMMessages(stored, transient), budget.InputBudget) {
 		log.Info("context approaching limit, triggering preemptive compact",
 			zap.Int64("session_id", s.id),
 		)
-		newMessages, compErr := s.compactAndReload(ctx, log, compactor, messages, budget.InputBudget)
+		reloadedStored, reloadedTransient, compErr := s.compactAndReload(ctx, log, compactor, stored, transient, budget.InputBudget)
 		if compErr != nil {
-			// Return error through normal path - this will be sent to user
-			return out, messages, fmt.Errorf("failed to compact context: %w", compErr)
+			return out, stored, transient, fmt.Errorf("failed to compact context: %w", compErr)
 		}
-		messages = newMessages
+		stored = reloadedStored
+		transient = reloadedTransient
 	}
 
 	if observer != nil {
@@ -50,7 +49,7 @@ func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model st
 
 	resp, err := s.deps.llm.Chat(ctx, llm.ChatRequest{
 		Model:            model,
-		Messages:         contextMessagesToLLM(messages),
+		Messages:         composeLLMMessages(stored, transient),
 		Tools:            tools,
 		ReasoningEnabled: s.deps.reasoning.Enabled,
 		ReasoningEffort:  s.deps.reasoning.Effort,
@@ -64,20 +63,18 @@ func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model st
 				zap.Int64("session_id", s.id),
 				zap.Error(err),
 			)
-			newMessages, compErr := s.compactAndReload(ctx, log, compactor, messages, budget.InputBudget)
+			reloadedStored, reloadedTransient, compErr := s.compactAndReload(ctx, log, compactor, stored, transient, budget.InputBudget)
 			if compErr != nil {
-				// Return error through normal path
-				return out, messages, fmt.Errorf("failed to compact context after overflow: %w", compErr)
+				return out, stored, transient, fmt.Errorf("failed to compact context after overflow: %w", compErr)
 			}
-			messages = newMessages
-
-			// Retry once - compactor guarantees success, so one retry is sufficient
+			stored = reloadedStored
+			transient = reloadedTransient
 			if observer != nil {
 				observer.OnLLMStart(ctx, LLMStartInfo{Model: model, Attempt: 1})
 			}
 			resp, err = s.deps.llm.Chat(ctx, llm.ChatRequest{
 				Model:            model,
-				Messages:         contextMessagesToLLM(messages),
+				Messages:         composeLLMMessages(stored, transient),
 				Tools:            tools,
 				ReasoningEnabled: s.deps.reasoning.Enabled,
 				ReasoningEffort:  s.deps.reasoning.Effort,
@@ -85,172 +82,58 @@ func (s *Session) callLLMWithTrim(ctx context.Context, log *zap.Logger, model st
 				Purpose:          llm.PurposeChat,
 			})
 		}
-		return resp, messages, err
+		return resp, stored, transient, err
 	}
 
-	return resp, messages, nil
+	return resp, stored, transient, nil
 }
 
-// extractLastTurn extracts the last complete turn from context messages.
-// A "turn" is defined as the triggering user message plus the last assistant message
-// and all related tool responses. This ensures that after compact, the LLM can
-// continue with the task because it has both the original request and any pending tool calls.
-func extractLastTurn(messages []ContextMessage) (lastTurn, remaining []ContextMessage) {
-	if len(messages) == 0 {
-		return nil, messages
+func (s *Session) compactAndReload(ctx context.Context, log *zap.Logger, compactor *Compactor, stored []StoredMessage, transient TransientContext, budget int) ([]StoredMessage, TransientContext, error) {
+	toCompact, tail := selectCompactionPrefixAndTail(stored)
+	if len(toCompact) == 0 {
+		return stored, transient, nil
 	}
-
-	// Find the last assistant message (which may contain tool calls)
-	lastAssistantIdx := -1
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].ToLLM().Role == "assistant" {
-			lastAssistantIdx = i
-			break
-		}
-	}
-
-	// If no assistant message, check for last user message
-	if lastAssistantIdx == -1 {
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].ToLLM().Role == "user" {
-				return messages[i:], messages[:i]
-			}
-		}
-		return nil, messages
-	}
-
-	// Find the last user message that triggered this assistant response
-	// This is the user message immediately before the assistant message
-	lastUserIdx := -1
-	for i := lastAssistantIdx - 1; i >= 0; i-- {
-		if messages[i].ToLLM().Role == "user" {
-			lastUserIdx = i
-			break
-		}
-	}
-
-	// Collect tool call IDs from the last assistant message
-	toolCallIDs := make(map[string]bool)
-	for _, call := range messages[lastAssistantIdx].ToLLM().ToolCalls {
-		toolCallIDs[call.ID] = true
-	}
-
-	// Determine the start of the last turn
-	turnStartIdx := lastAssistantIdx
-	if lastUserIdx != -1 {
-		turnStartIdx = lastUserIdx
-	}
-
-	// The last turn includes:
-	// 1. The triggering user message (if exists)
-	// 2. The last assistant message
-	// 3. All subsequent tool responses (that respond to its tool calls)
-	// 4. Any subsequent user message
-	lastTurn = messages[turnStartIdx:]
-	remaining = messages[:turnStartIdx]
-
-	// If there are tool calls, we need to keep all related tool responses
-	// They are already included in lastTurn since we take everything from turnStartIdx onwards
-	// But we should verify the tool responses match the tool calls
-	if len(toolCallIDs) > 0 {
-		// Filter lastTurn to only include:
-		// - The triggering user message (if exists)
-		// - The assistant message
-		// - Tool responses that match our tool calls
-		// - Any user messages at the end
-		filtered := make([]ContextMessage, 0, len(lastTurn))
-
-		// Find where the assistant message is in lastTurn
-		assistantOffset := 0
-		if lastUserIdx != -1 {
-			assistantOffset = lastAssistantIdx - lastUserIdx
-		}
-
-		// Include messages before the assistant (the user message)
-		for i := 0; i < assistantOffset; i++ {
-			filtered = append(filtered, lastTurn[i])
-		}
-
-		// Always include the assistant message
-		filtered = append(filtered, lastTurn[assistantOffset])
-
-		for i := assistantOffset + 1; i < len(lastTurn); i++ {
-			msg := lastTurn[i].ToLLM()
-			if msg.Role == "tool" {
-				// Only include tool responses that match our tool calls
-				if toolCallIDs[msg.ToolCallID] {
-					filtered = append(filtered, lastTurn[i])
-				}
-			} else if msg.Role == "user" {
-				// Include any user message that came after
-				filtered = append(filtered, lastTurn[i])
-			}
-		}
-		lastTurn = filtered
-	}
-
-	return lastTurn, remaining
-}
-
-// compactAndReload performs compaction and preserves the last turn for task continuity.
-// It returns the updated messages or an error.
-func (s *Session) compactAndReload(ctx context.Context, log *zap.Logger, compactor *Compactor, messages []ContextMessage, budget int) ([]ContextMessage, error) {
-	// 1. Extract the last turn before compacting
-	lastTurn, toCompact := extractLastTurn(messages)
 	cutoffEntryID, err := compactCutoffEntryID(toCompact)
 	if err != nil {
-		return nil, err
+		return nil, transient, err
 	}
 
-	log.Debug("extracting last turn before compact",
+	log.Debug("compacting persisted context",
 		zap.Int64("session_id", s.id),
-		zap.Int("total_messages", len(messages)),
-		zap.Int("last_turn_messages", len(lastTurn)),
-		zap.Int("to_compact_messages", len(toCompact)),
+		zap.Int("stored_messages", len(stored)),
+		zap.Int("compact_prefix", len(toCompact)),
+		zap.Int("preserved_tail", len(tail)),
 	)
 
-	// 2. Perform compaction on messages excluding the last turn
-	summary, err := compactor.Compact(ctx, s.id, contextMessagesToLLM(toCompact), budget, cutoffEntryID)
+	if _, err := compactor.Compact(ctx, s.id, storedMessagesToLLM(toCompact), budget, cutoffEntryID); err != nil {
+		return nil, transient, err
+	}
+
+	recent, summary, err := s.deps.store.LoadViewMessages(ctx, s.id, 0)
 	if err != nil {
-		return nil, err
+		return nil, transient, err
 	}
-
-	// 3. Rebuild messages: system messages + summary + last turn
-	var systemMsgs []ContextMessage
-	for _, msg := range messages {
-		if msg.ToLLM().Role == "system" {
-			systemMsgs = append(systemMsgs, msg)
-		}
+	reloadedStored, err := toStoredMessages(recent)
+	if err != nil {
+		return nil, transient, err
 	}
-
-	summaryMsg := formatSummaryMessage(summary)
-	if summaryMsg != "" {
-		systemMsgs = append(systemMsgs, newTransientContextMessage(llm.Message{Role: "system", Content: summaryMsg}))
-	}
-
-	// 4. Append the preserved last turn
-	newMessages := append(systemMsgs, lastTurn...)
+	reloadedTransient := refreshTransientContext(transient, summary, recent)
 
 	log.Info("context compacted",
 		zap.Int64("session_id", s.id),
-		zap.Int("old_message_count", len(messages)),
-		zap.Int("new_message_count", len(newMessages)),
-		zap.Int("preserved_last_turn", len(lastTurn)),
+		zap.Int("old_stored_count", len(stored)),
+		zap.Int("new_stored_count", len(reloadedStored)),
 	)
-
-	return newMessages, nil
+	return reloadedStored, reloadedTransient, nil
 }
 
-func compactCutoffEntryID(messages []ContextMessage) (int64, error) {
-	for i := len(messages) - 1; i >= 0; i-- {
-		entryID, ok := messages[i].EntryID()
-		if !ok {
-			continue
-		}
-		if entryID <= 0 {
-			return 0, fmt.Errorf("invalid compact cutoff entry id: %d", entryID)
-		}
-		return entryID, nil
+func compactCutoffEntryID(messages []StoredMessage) (int64, error) {
+	if len(messages) == 0 {
+		return 0, errors.New("no persisted message found in compaction prefix")
 	}
-	return 0, errors.New("no persisted message found in compaction prefix")
+	last := messages[len(messages)-1].EntryID
+	if last <= 0 {
+		return 0, fmt.Errorf("invalid compact cutoff entry id: %d", last)
+	}
+	return last, nil
 }

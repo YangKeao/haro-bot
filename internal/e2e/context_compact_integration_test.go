@@ -160,7 +160,7 @@ func newCompactTestRig(t *testing.T, telegramID int64) (memory.StoreAPI, *gorm.D
 	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 6, client, model, "openai", llm.ReasoningConfig{}, contextCfg)
 
 	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByTelegramID(ctx, telegramID)
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", fmt.Sprint(telegramID))
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

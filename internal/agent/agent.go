@@ -24,7 +24,7 @@ type Agent struct {
 	toolRunner     ToolRunner
 	defaultBaseDir string
 	maxToolTurns   int
-	llm            *llm.Client
+	llm            llm.ChatModel
 	model          string
 	promptFormat   string
 	reasoning      llm.ReasoningConfig
@@ -34,7 +34,7 @@ type Agent struct {
 	messenger      SessionMessenger
 }
 
-func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Manager, toolRegistry *tools.Registry, guidelinesMgr *guidelines.Manager, defaultBaseDir string, maxToolTurns int, llmClient *llm.Client, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
+func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Manager, toolRegistry *tools.Registry, guidelinesMgr *guidelines.Manager, defaultBaseDir string, maxToolTurns int, llmClient llm.ChatModel, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
 	if maxToolTurns <= 0 {
 		maxToolTurns = 1024
 	}

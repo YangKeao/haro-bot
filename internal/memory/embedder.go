@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -21,6 +22,15 @@ type OpenAIEmbedder struct {
 	model  string
 	mu     sync.Mutex
 	dims   int
+}
+
+func NewEmbedder(cfg config.MemoryEmbedderConfig) (Embedder, error) {
+	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+	case "openai", "openai_compatible":
+		return NewOpenAIEmbedder(cfg)
+	default:
+		return nil, fmt.Errorf("unsupported memory embedder provider: %s", cfg.Provider)
+	}
 }
 
 func NewOpenAIEmbedder(cfg config.MemoryEmbedderConfig) (*OpenAIEmbedder, error) {

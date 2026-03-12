@@ -15,12 +15,15 @@ import (
 	"go.uber.org/zap"
 )
 
-type Client struct {
+type OpenAIChatModel struct {
 	baseURL string
 	apiKey  string
 	http    *http.Client
 	client  *openai.Client
 }
+
+// Client is kept as a compatibility alias for the default OpenAI-compatible provider.
+type Client = OpenAIChatModel
 
 type clientOptions struct {
 	httpDebug       bool
@@ -48,7 +51,7 @@ func WithHTTPDebugMaxBody(maxBytes int64) ClientOption {
 	}
 }
 
-func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
+func NewOpenAIChatModel(baseURL, apiKey string, opts ...ClientOption) *OpenAIChatModel {
 	options := clientOptions{httpDebugMaxBod: defaultHTTPDebugMaxBody}
 	for _, opt := range opts {
 		if opt != nil {
@@ -68,7 +71,7 @@ func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
 		reqOpts = append(reqOpts, option.WithAPIKey(apiKey))
 	}
 	c := openai.NewClient(reqOpts...)
-	return &Client{
+	return &OpenAIChatModel{
 		baseURL: baseURL,
 		apiKey:  apiKey,
 		http:    httpClient,
@@ -76,7 +79,11 @@ func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
 	}
 }
 
-func (c *Client) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
+	return NewOpenAIChatModel(baseURL, apiKey, opts...)
+}
+
+func (c *OpenAIChatModel) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
 	log := logging.L().Named("llm")
 	start := time.Now()
 	var out ChatResponse

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,9 +57,44 @@ type Summary struct {
 	CreatedAt      time.Time
 }
 
-// GetOrCreateUserByTelegramID returns the internal user ID for a Telegram user,
+// GetOrCreateUserByExternalID returns the internal user ID for an external IM user,
 // creating the user if it does not exist.
-func (s *store) GetOrCreateUserByTelegramID(ctx context.Context, telegramID int64) (int64, error) {
+func (s *store) GetOrCreateUserByExternalID(ctx context.Context, provider, externalID string) (int64, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	externalID = strings.TrimSpace(externalID)
+	if provider == "" {
+		return 0, errors.New("provider required")
+	}
+	if externalID == "" {
+		return 0, errors.New("external id required")
+	}
+	if provider == "telegram" {
+		telegramID, err := strconv.ParseInt(externalID, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid telegram external id %q: %w", externalID, err)
+		}
+		return s.getOrCreateUserByTelegramID(ctx, telegramID)
+	}
+
+	key := providerScopedExternalID(provider, externalID)
+	var user dbmodel.User
+	tx := s.db.WithContext(ctx)
+	if err := tx.Where("external_id = ?", key).First(&user).Error; err == nil {
+		return user.ID, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, err
+	}
+	user = dbmodel.User{ExternalID: &key}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&user).Error; err != nil {
+		return 0, err
+	}
+	if err := tx.Where("external_id = ?", key).First(&user).Error; err != nil {
+		return 0, err
+	}
+	return user.ID, nil
+}
+
+func (s *store) getOrCreateUserByTelegramID(ctx context.Context, telegramID int64) (int64, error) {
 	var user dbmodel.User
 	tx := s.db.WithContext(ctx)
 	if err := tx.Where("telegram_id = ?", telegramID).First(&user).Error; err == nil {
@@ -448,4 +485,8 @@ func (s *store) latestMessageID(ctx context.Context, sessionID int64) (int64, er
 func escapeLike(value string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 	return replacer.Replace(value)
+}
+
+func providerScopedExternalID(provider, externalID string) string {
+	return provider + ":" + externalID
 }

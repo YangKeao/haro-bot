@@ -1,4 +1,4 @@
-package server
+package telegram
 
 import (
 	"context"
@@ -33,7 +33,7 @@ func newToolApprovalManager() *toolApprovalManager {
 }
 
 type auditModel struct {
-	client *llm.Client
+	client llm.ChatModel
 	model  string
 }
 
@@ -96,7 +96,7 @@ func parseAuditDecision(content string) (tools.ApprovalDecision, string, error) 
 }
 
 // SetSecurityAudit registers an optional audit model to pre-approve tool access.
-func (s *Server) SetSecurityAudit(client *llm.Client, model string) {
+func (s *Server) SetSecurityAudit(client llm.ChatModel, model string) {
 	if s == nil {
 		return
 	}

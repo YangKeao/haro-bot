@@ -158,31 +158,31 @@ func TestBuildCompactPromptWithToolCalls(t *testing.T) {
 	}
 }
 
-func TestExtractLastTurn(t *testing.T) {
+func TestSelectCompactionPrefixAndTail(t *testing.T) {
 	tests := []struct {
-		name              string
-		messages          []llm.Message
-		wantLastTurnCount int
-		wantRemaining     int
-		wantUserContent   string // Content of the first message in lastTurn (should be user if exists)
+		name            string
+		messages        []llm.Message
+		wantPrefixCount int
+		wantTailCount   int
+		wantTailFirst   string
 	}{
 		{
-			name:              "empty messages",
-			messages:          []llm.Message{},
-			wantLastTurnCount: 0,
-			wantRemaining:     0,
+			name:            "empty messages",
+			messages:        []llm.Message{},
+			wantPrefixCount: 0,
+			wantTailCount:   0,
 		},
 		{
 			name: "only user message",
 			messages: []llm.Message{
 				{Role: "user", Content: "hello"},
 			},
-			wantLastTurnCount: 1,
-			wantRemaining:     0,
-			wantUserContent:   "hello",
+			wantPrefixCount: 0,
+			wantTailCount:   1,
+			wantTailFirst:   "hello",
 		},
 		{
-			name: "user then assistant - preserve user",
+			name: "user then assistant keeps current turn",
 			messages: []llm.Message{
 				{Role: "user", Content: "search for Go"},
 				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{
@@ -190,12 +190,12 @@ func TestExtractLastTurn(t *testing.T) {
 				}},
 				{Role: "tool", ToolCallID: "1", Content: "results"},
 			},
-			wantLastTurnCount: 3,
-			wantRemaining:     0,
-			wantUserContent:   "search for Go",
+			wantPrefixCount: 0,
+			wantTailCount:   3,
+			wantTailFirst:   "search for Go",
 		},
 		{
-			name: "multiple turns - preserve last user",
+			name: "multiple turns compacts earlier turn",
 			messages: []llm.Message{
 				{Role: "user", Content: "first request"},
 				{Role: "assistant", Content: "first response"},
@@ -205,72 +205,63 @@ func TestExtractLastTurn(t *testing.T) {
 				}},
 				{Role: "tool", ToolCallID: "1", Content: "results"},
 			},
-			wantLastTurnCount: 3,
-			wantRemaining:     2,
-			wantUserContent:   "second request",
+			wantPrefixCount: 2,
+			wantTailCount:   3,
+			wantTailFirst:   "second request",
 		},
 		{
-			name: "assistant without tool calls",
+			name: "assistant without tool calls keeps latest exchange",
 			messages: []llm.Message{
 				{Role: "user", Content: "hello"},
 				{Role: "assistant", Content: "hi there"},
 			},
-			wantLastTurnCount: 2,
-			wantRemaining:     0,
-			wantUserContent:   "hello",
-		},
-		{
-			name: "filter unrelated tool responses",
-			messages: []llm.Message{
-				{Role: "user", Content: "search"},
-				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{
-					{ID: "1", Function: llm.ToolCallFn{Name: "search"}},
-				}},
-				{Role: "tool", ToolCallID: "2", Content: "old results"}, // Unrelated
-				{Role: "tool", ToolCallID: "1", Content: "new results"}, // Related
-			},
-			wantLastTurnCount: 3, // user + assistant + related tool
-			wantRemaining:     0,
-			wantUserContent:   "search",
+			wantPrefixCount: 0,
+			wantTailCount:   2,
+			wantTailFirst:   "hello",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lastTurn, remaining := extractLastTurn(toTransientContextMessages(tt.messages))
+			stored, err := toStoredMessagesForTest(tt.messages)
+			if err != nil {
+				t.Fatalf("toStoredMessagesForTest: %v", err)
+			}
+			prefix, tail := selectCompactionPrefixAndTail(stored)
 
-			if len(lastTurn) != tt.wantLastTurnCount {
-				t.Errorf("lastTurn count = %d, want %d", len(lastTurn), tt.wantLastTurnCount)
+			if len(prefix) != tt.wantPrefixCount {
+				t.Errorf("prefix count = %d, want %d", len(prefix), tt.wantPrefixCount)
 			}
 
-			if len(remaining) != tt.wantRemaining {
-				t.Errorf("remaining count = %d, want %d", len(remaining), tt.wantRemaining)
+			if len(tail) != tt.wantTailCount {
+				t.Errorf("tail count = %d, want %d", len(tail), tt.wantTailCount)
 			}
 
-			if tt.wantUserContent != "" && len(lastTurn) > 0 {
-				first := lastTurn[0].ToLLM()
-				if first.Role != "user" {
-					t.Errorf("first message in lastTurn should be user, got %s", first.Role)
-				}
-				if first.Content != tt.wantUserContent {
-					t.Errorf("user content = %q, want %q", first.Content, tt.wantUserContent)
+			if tt.wantTailFirst != "" && len(tail) > 0 {
+				first := tail[0].Message
+				if first.Content != tt.wantTailFirst {
+					t.Errorf("tail first content = %q, want %q", first.Content, tt.wantTailFirst)
 				}
 			}
 		})
 	}
 }
 
-func toTransientContextMessages(messages []llm.Message) []ContextMessage {
-	out := make([]ContextMessage, 0, len(messages))
-	for _, msg := range messages {
-		out = append(out, newTransientContextMessage(msg))
+func toStoredMessagesForTest(messages []llm.Message) ([]StoredMessage, error) {
+	out := make([]StoredMessage, 0, len(messages))
+	for i, msg := range messages {
+		stored, err := newStoredMessage(int64(i+1), msg)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, stored)
 	}
-	return out
+	return out, nil
 }
 
 type noopStoreAPI struct{}
 
-func (noopStoreAPI) GetOrCreateUserByTelegramID(context.Context, int64) (int64, error) {
+func (noopStoreAPI) GetOrCreateUserByExternalID(context.Context, string, string) (int64, error) {
 	return 0, nil
 }
 

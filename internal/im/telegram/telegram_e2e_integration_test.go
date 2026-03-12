@@ -1,12 +1,15 @@
 //go:build integration
 
-package server
+package telegram
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,73 +28,48 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-type telegramSendCapture struct {
-	Text   string
-	ChatID int64
-}
-
-func parseTelegramPayload(t *testing.T, r *http.Request) map[string]string {
-	t.Helper()
-	ct := r.Header.Get("Content-Type")
-	if strings.Contains(ct, "application/json") {
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode json: %v", err)
-		}
-		out := make(map[string]string, len(payload))
-		for k, v := range payload {
-			switch val := v.(type) {
-			case string:
-				out[k] = val
-			case float64:
-				out[k] = strconv.FormatInt(int64(val), 10)
-			default:
-				out[k] = ""
-			}
-		}
-		return out
-	}
-	if err := r.ParseMultipartForm(1 << 20); err != nil {
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("parse form: %v", err)
-		}
-	}
-	return map[string]string{
-		"chat_id": r.FormValue("chat_id"),
-		"text":    r.FormValue("text"),
-	}
-}
-
-func TestTelegramHandlerSendsMessage(t *testing.T) {
+func TestTelegramHandlerReadFileToolFlow(t *testing.T) {
+	testutil.EnsureIntegrationEnv(t)
 	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
 	t.Cleanup(cleanup)
+
+	rootDir := t.TempDir()
+	token := fmt.Sprintf("TG-E2E-%d", time.Now().UnixNano())
+	filePath := filepath.Join(rootDir, "telegram_facts.txt")
+	if err := os.WriteFile(filePath, []byte("token="+token+"\n"), 0o644); err != nil {
+		t.Fatalf("write telegram facts file: %v", err)
+	}
 
 	store := memory.NewStore(gdb)
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	guidelinesMgr := guidelines.NewManager(gdb)
-	registry := tools.NewRegistry()
+	auditStore := tools.NewAuditStore(gdb)
+	fsTools := tools.NewFS([]string{rootDir}, auditStore, false)
+	registry := tools.NewRegistry(
+		tools.NewListDirTool(fsTools),
+		tools.NewReadFileTool(fsTools),
+	)
 	llmClient, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, llmClient, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-
+	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, rootDir, 12, llmClient, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
 	srv := New(config.Config{}, agentSvc, store, skillsMgr, nil)
 
-	token := "test-token"
+	tgToken := "test-token"
 	captureCh := make(chan telegramSendCapture, 1)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
 		switch r.URL.Path {
-		case "/bot" + token + "/sendMessage":
+		case "/bot" + tgToken + "/sendMessage":
 			payload := parseTelegramPayload(t, r)
-			chatIDStr := payload["chat_id"]
-			chatID, _ := strconv.ParseInt(chatIDStr, 10, 64)
+			chatID, _ := strconv.ParseInt(payload["chat_id"], 10, 64)
 			captureCh <- telegramSendCapture{
 				Text:   payload["text"],
 				ChatID: chatID,
 			}
-			resp := map[string]any{
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
 				"result": map[string]any{
 					"message_id": 1,
@@ -101,13 +79,11 @@ func TestTelegramHandlerSendsMessage(t *testing.T) {
 						"type": "private",
 					},
 				},
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-		case "/bot" + token + "/sendMessageDraft":
+			})
+		case "/bot" + tgToken + "/sendMessageDraft":
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": true})
-		case "/bot" + token + "/sendChatAction":
+		case "/bot" + tgToken + "/sendChatAction":
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": true})
 		default:
@@ -117,7 +93,7 @@ func TestTelegramHandlerSendsMessage(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	tg, err := bot.New(
-		token,
+		tgToken,
 		bot.WithSkipGetMe(),
 		bot.WithServerURL(ts.URL),
 		bot.WithHTTPClient(5*time.Second, ts.Client()),
@@ -126,30 +102,37 @@ func TestTelegramHandlerSendsMessage(t *testing.T) {
 		t.Fatalf("init bot: %v", err)
 	}
 
+	userMessage := fmt.Sprintf(
+		"Use tools to read file %s and reply with only the token value after token=.",
+		filePath,
+	)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 	srv.handleTelegramUpdate(ctx, tg, &models.Update{
 		Message: &models.Message{
-			From: &models.User{ID: 4242},
-			Chat: models.Chat{ID: 8686},
-			Text: "Say hello in one short sentence.",
+			From: &models.User{ID: 9898},
+			Chat: models.Chat{ID: 7878},
+			Text: userMessage,
 		},
 	})
 
 	select {
 	case got := <-captureCh:
-		if got.ChatID != 8686 {
-			t.Fatalf("expected chat id 8686, got %d", got.ChatID)
+		if got.ChatID != 7878 {
+			t.Fatalf("expected chat id 7878, got %d", got.ChatID)
 		}
-		if strings.TrimSpace(got.Text) == "" {
-			t.Fatalf("expected non-empty response")
+		if !strings.Contains(strings.ToLower(got.Text), strings.ToLower(token)) {
+			t.Fatalf("expected telegram response to contain %q, got: %s", token, got.Text)
 		}
-	case <-time.After(30 * time.Second):
+	case <-time.After(40 * time.Second):
 		t.Fatalf("timeout waiting for telegram sendMessage")
 	}
 
-	var user dbmodel.User
-	if err := gdb.Where("telegram_id = ?", int64(4242)).First(&user).Error; err != nil {
-		t.Fatalf("expected telegram user to be created: %v", err)
+	var audits []dbmodel.ToolAudit
+	if err := gdb.Where("tool = ? AND status = ?", "read_file", "ok").Find(&audits).Error; err != nil {
+		t.Fatalf("query tool audit: %v", err)
+	}
+	if len(audits) == 0 {
+		t.Fatalf("expected read_file audit record")
 	}
 }
