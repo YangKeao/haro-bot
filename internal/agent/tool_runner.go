@@ -16,18 +16,13 @@ type DefaultToolRunner struct {
 	registry *tools.Registry
 	store    ConversationStore
 	skills   *skills.Manager
-	prompts  PromptBuilder
 }
 
-func NewToolRunner(registry *tools.Registry, store ConversationStore, skillsMgr *skills.Manager, prompts PromptBuilder) *DefaultToolRunner {
-	if prompts == nil {
-		prompts = NewDefaultPromptBuilder(nil)
-	}
+func NewToolRunner(registry *tools.Registry, store ConversationStore, skillsMgr *skills.Manager) *DefaultToolRunner {
 	return &DefaultToolRunner{
 		registry: registry,
 		store:    store,
 		skills:   skillsMgr,
-		prompts:  prompts,
 	}
 }
 

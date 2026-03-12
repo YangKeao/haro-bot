@@ -105,13 +105,13 @@ func (p *telegramProgress) Stop() {
 	}
 }
 
-func (p *telegramProgress) OnLLMStart(ctx context.Context, _ *agent.TurnState, _ agent.LLMStartInfo) error {
+func (p *telegramProgress) HandleLLM(ctx context.Context, turn *agent.TurnState, call *agent.LLMCall, next agent.LLMHandler) (llm.ChatResponse, error) {
 	p.ensureTyping(ctx)
 	p.resetStream()
-	return nil
+	return next(ctx, turn, call)
 }
 
-func (p *telegramProgress) OnLLMDelta(ctx context.Context, _ *agent.TurnState, event llm.StreamEvent) error {
+func (p *telegramProgress) OnLLMDelta(ctx context.Context, _ *agent.TurnState, event llm.StreamEvent) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if event.Delta != "" {
@@ -121,7 +121,6 @@ func (p *telegramProgress) OnLLMDelta(ctx context.Context, _ *agent.TurnState, e
 		p.reasoningText += event.ReasoningDelta
 	}
 	p.maybeSendDraftLocked(ctx)
-	return nil
 }
 
 // maybeSendDraftLocked sends a draft if enough time or content has accumulated.

@@ -87,8 +87,11 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 	})
 	progress := newTelegramProgress(b, update.Message.Chat.ID, threadID, businessConnID)
 	defer progress.Stop()
-	output, err := s.agent.HandleWithHooks(ctx, uid, "telegram", update.Message.Text, "", agent.HookSet{
-		TurnHooks: []agent.TurnHook{progress},
+	output, err := s.agent.HandleWithMiddleware(ctx, uid, "telegram", update.Message.Text, "", agent.MiddlewareSet{
+		LLMMiddleware:     []agent.LLMMiddleware{progress},
+		LLMDeltaListeners: []agent.LLMDeltaListener{progress},
+		ToolCallListeners: []agent.ToolCallListener{progress},
+		OutputListeners:   []agent.OutputListener{progress},
 	})
 	if err != nil {
 		log.Error("telegram agent error", zap.Error(err))

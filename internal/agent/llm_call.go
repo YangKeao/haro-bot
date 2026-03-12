@@ -2,57 +2,31 @@ package agent
 
 import (
 	"context"
-	"errors"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"go.uber.org/zap"
 )
 
-func (s *Session) callLLM(ctx context.Context, log *zap.Logger, turn *TurnState, hooks HookSet, tools []llm.Tool) (llm.ChatResponse, error) {
-	var out llm.ChatResponse
-
+func (s *Session) callLLM(ctx context.Context, _ *zap.Logger, turn *TurnState, hooks MiddlewareSet, tools []llm.Tool) (llm.ChatResponse, error) {
 	if tools == nil {
 		tools = turn.Tools
 	}
-
-	for attempt := 0; attempt < 2; attempt++ {
-		call := &LLMCall{
-			Model:   turn.Model,
-			Attempt: attempt,
-			Tools:   tools,
-		}
-		if err := executeTurnBeforeLLMHooks(ctx, hooks.TurnHooks, turn, call); err != nil {
-			return out, err
-		}
-		if err := executeTurnLLMStartHooks(ctx, hooks.TurnHooks, turn, LLMStartInfo{Model: turn.Model, Attempt: attempt}); err != nil {
-			return out, err
-		}
-
+	call := &LLMCall{
+		Model: turn.Model,
+		Tools: tools,
+	}
+	return executeLLMMiddleware(ctx, hooks.LLMMiddleware, turn, call, func(ctx context.Context, turn *TurnState, call *LLMCall) (llm.ChatResponse, error) {
 		handler := func(event llm.StreamEvent) {
-			executeTurnLLMDeltaHooks(ctx, hooks.TurnHooks, turn, event)
+			executeLLMDeltaListeners(ctx, hooks.LLMDeltaListeners, turn, event)
 		}
-
-		resp, err := s.deps.llm.Chat(ctx, llm.ChatRequest{
+		return s.deps.llm.Chat(ctx, llm.ChatRequest{
 			Model:            turn.Model,
 			Messages:         turn.LLMMessages(),
-			Tools:            tools,
+			Tools:            call.Tools,
 			ReasoningEnabled: s.deps.reasoning.Enabled,
 			ReasoningEffort:  s.deps.reasoning.Effort,
 			StreamHandler:    handler,
 			Purpose:          llm.PurposeChat,
 		})
-		if err == nil {
-			return resp, nil
-		}
-		retry, hookErr := executeTurnLLMErrorHooks(ctx, hooks.TurnHooks, turn, call, err)
-		if hookErr != nil {
-			return out, hookErr
-		}
-		if !retry {
-			log.Error("llm chat error", zap.Int64("session_id", turn.Run.SessionID), zap.Error(err))
-			return resp, err
-		}
-	}
-
-	return out, errors.New("llm retry limit exceeded")
+	})
 }

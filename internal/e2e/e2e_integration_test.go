@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
-	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/hooks/defaults"
+	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/memory"
@@ -31,8 +31,8 @@ func TestE2ESimpleConversation(t *testing.T) {
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9001")
@@ -74,8 +74,8 @@ func TestE2EToolExecution(t *testing.T) {
 	// Register tools that the agent might use
 	registry.Register(tools.NewMemorySearchTool(store))
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9002")
@@ -119,8 +119,8 @@ func TestE2ESessionInterrupt(t *testing.T) {
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9003")
@@ -165,8 +165,8 @@ func TestE2EMultipleSessions(t *testing.T) {
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9004")
@@ -214,8 +214,8 @@ func TestE2ESessionStatus(t *testing.T) {
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9005")
@@ -272,8 +272,8 @@ func TestE2EContextAutoCompaction(t *testing.T) {
 		AutoCompactTokenLimit:         1000,
 		EffectiveContextWindowPercent: 80,
 	}
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, contextCfg)
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, contextCfg, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, contextCfg)
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, contextCfg, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9006")

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
-	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/hooks/defaults"
+	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
 	dbmodel "github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
@@ -158,8 +158,8 @@ func newCompactTestRig(t *testing.T, telegramID int64) (memory.StoreAPI, *gorm.D
 		AutoCompactTokenLimit:         1000,
 		EffectiveContextWindowPercent: 80,
 	}
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 6, client, model, "openai", llm.ReasoningConfig{}, contextCfg)
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, contextCfg, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 6, client, model, "openai", llm.ReasoningConfig{}, contextCfg)
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, contextCfg, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", fmt.Sprint(telegramID))

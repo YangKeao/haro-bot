@@ -1,10 +1,11 @@
-package agent
+package prompt
 
 import (
 	"context"
 	"strings"
 	"testing"
 
+	"github.com/YangKeao/haro-bot/internal/agent"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
@@ -12,12 +13,8 @@ import (
 
 func TestBuildSystemPromptIncludesSkillsAndMemories(t *testing.T) {
 	ctx := context.Background()
-	memories := []memory.MemoryItem{
-		{Type: "note", Content: "remember this"},
-	}
-	skillsList := []skills.Metadata{
-		{Name: "demo", Description: "demo skill", Dir: "/tmp/demo"},
-	}
+	memories := []memory.MemoryItem{{Type: "note", Content: "remember this"}}
+	skillsList := []skills.Metadata{{Name: "demo", Description: "demo skill", Dir: "/tmp/demo"}}
 	out := buildSystemPrompt(ctx, nil, memories, skillsList, "openai")
 	if !strings.Contains(out, "Long-term memory:") {
 		t.Fatalf("expected memory section, got: %s", out)
@@ -38,9 +35,7 @@ func TestBuildSystemPromptIncludesSkillsAndMemories(t *testing.T) {
 
 func TestBuildSystemPromptClaudeXML(t *testing.T) {
 	ctx := context.Background()
-	skillsList := []skills.Metadata{
-		{Name: "demo", Description: "demo skill", Dir: "/tmp/demo"},
-	}
+	skillsList := []skills.Metadata{{Name: "demo", Description: "demo skill", Dir: "/tmp/demo"}}
 	out := buildSystemPrompt(ctx, nil, nil, skillsList, "claude")
 	if !strings.HasPrefix(out, "<available_skills>") {
 		t.Fatalf("expected XML prefix, got: %s", out)
@@ -55,9 +50,7 @@ func TestBuildSystemPromptClaudeXML(t *testing.T) {
 
 func TestBuildInterruptPromptNoSkills(t *testing.T) {
 	ctx := context.Background()
-	memories := []memory.MemoryItem{
-		{Type: "note", Content: "remember this"},
-	}
+	memories := []memory.MemoryItem{{Type: "note", Content: "remember this"}}
 	out := buildInterruptPrompt(ctx, nil, memories, "openai")
 	if !strings.Contains(out, "Long-term memory:") {
 		t.Fatalf("expected memory section, got: %s", out)
@@ -70,10 +63,16 @@ func TestBuildInterruptPromptNoSkills(t *testing.T) {
 	}
 }
 
-func TestDefaultPromptBuilderWithTypedNilGuidelinesLoader(t *testing.T) {
+func TestMiddlewareWithTypedNilGuidelinesLoader(t *testing.T) {
 	var gl *guidelines.Manager
-	builder := NewDefaultPromptBuilder(gl)
-	out := builder.System(context.Background(), nil, nil, "openai")
+	mw := New(gl)
+	run := &agent.RunState{PromptMode: agent.PromptModeHandle, PromptFormat: "openai"}
+	out, err := mw.HandleRun(context.Background(), run, func(_ context.Context, run *agent.RunState) (string, error) {
+		return run.Prompt, nil
+	})
+	if err != nil {
+		t.Fatalf("execute prompt middleware: %v", err)
+	}
 	if !strings.Contains(out, "You are an assistant.") {
 		t.Fatalf("unexpected prompt output: %s", out)
 	}

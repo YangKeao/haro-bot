@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
-	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/hooks/defaults"
+	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
 	"github.com/YangKeao/haro-bot/internal/fork"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
@@ -31,8 +31,8 @@ func TestForkInterruptFlow(t *testing.T) {
 	ctx := context.Background()
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	forkMgr := fork.NewManager(agentSvc, store)
 	forkTool := fork.NewForkTool(forkMgr)
@@ -127,8 +127,8 @@ func TestForkStatusAndCancel(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(sleepTool{})
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	forkMgr := fork.NewManager(agentSvc, store)
 	forkTool := fork.NewForkTool(forkMgr)
@@ -202,8 +202,8 @@ func TestForkInheritRecent(t *testing.T) {
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 	forkMgr := fork.NewManager(agentSvc, store)
 	forkTool := fork.NewForkTool(forkMgr)
 
@@ -271,8 +271,8 @@ func TestForkContextCancel(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(sleepTool{})
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	forkMgr := fork.NewManager(agentSvc, store)
 
@@ -306,8 +306,8 @@ func TestForkCleanupCompletedRun(t *testing.T) {
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-	agentSvc.SetHooks(agentdefaults.New(store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	forkMgr := fork.NewManagerWithOptions(agentSvc, store, fork.ManagerOptions{
 		CleanupAfter: 50 * time.Millisecond,

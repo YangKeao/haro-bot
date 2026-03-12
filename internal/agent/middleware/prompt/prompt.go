@@ -1,4 +1,4 @@
-package agent
+package prompt
 
 import (
 	"context"
@@ -7,14 +7,39 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/YangKeao/haro-bot/internal/agent"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
 )
 
-// GuidelinesLoader fetches active guidelines for prompt building
+// GuidelinesLoader fetches active guidelines for prompt building.
 type GuidelinesLoader interface {
 	GetActive(ctx context.Context) (*guidelines.Guidelines, error)
+}
+
+type middleware struct {
+	gl GuidelinesLoader
+}
+
+func New(gl GuidelinesLoader) agent.RunMiddleware {
+	if isNilGuidelinesLoader(gl) {
+		gl = nil
+	}
+	return &middleware{gl: gl}
+}
+
+func (m *middleware) Name() string {
+	return "prompt"
+}
+
+func (m *middleware) Priority() int {
+	return 200
+}
+
+func (m *middleware) HandleRun(ctx context.Context, run *agent.RunState, next agent.RunHandler) (string, error) {
+	run.Prompt = buildPrompt(ctx, m.gl, run.Memories, run.AvailableSkills, run.PromptFormat, run.PromptMode == agent.PromptModeHandle)
+	return next(ctx, run)
 }
 
 func buildSystemPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.MemoryItem, skillsList []skills.Metadata, format string) string {
@@ -23,25 +48,6 @@ func buildSystemPrompt(ctx context.Context, gl GuidelinesLoader, memories []memo
 
 func buildInterruptPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.MemoryItem, format string) string {
 	return buildPrompt(ctx, gl, memories, nil, format, false)
-}
-
-type DefaultPromptBuilder struct {
-	gl GuidelinesLoader
-}
-
-func NewDefaultPromptBuilder(gl GuidelinesLoader) *DefaultPromptBuilder {
-	if isNilGuidelinesLoader(gl) {
-		gl = nil
-	}
-	return &DefaultPromptBuilder{gl: gl}
-}
-
-func (b *DefaultPromptBuilder) System(ctx context.Context, memories []memory.MemoryItem, skillsList []skills.Metadata, format string) string {
-	return buildSystemPrompt(ctx, b.gl, memories, skillsList, format)
-}
-
-func (b *DefaultPromptBuilder) Interrupt(ctx context.Context, memories []memory.MemoryItem, format string) string {
-	return buildInterruptPrompt(ctx, b.gl, memories, format)
 }
 
 func buildPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.MemoryItem, skillsList []skills.Metadata, format string, includeSkills bool) string {
@@ -58,7 +64,6 @@ func buildPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.Mem
 	b.WriteString("You are an assistant. Use the provided long-term memory when relevant.\n")
 	b.WriteString("When the conversation gets long or you need a clean handoff, create a session summary using the session_summary tool with a concise summary and optional state.\n")
 
-	// Load and include guidelines if available
 	if gl != nil {
 		if g, err := gl.GetActive(ctx); err == nil && g != nil && g.Content != "" {
 			b.WriteString("\n## Guidelines\n")
@@ -173,7 +178,7 @@ func xmlEscape(s string) string {
 		"&", "&amp;",
 		"<", "&lt;",
 		">", "&gt;",
-		"\"", "&quot;",
+		`"`, "&quot;",
 		"'", "&apos;",
 	)
 	return replacer.Replace(s)

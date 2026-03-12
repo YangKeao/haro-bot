@@ -12,7 +12,6 @@ type sessionDeps struct {
 	store          ConversationStore
 	skills         *skills.Manager
 	toolRegistry   *tools.Registry
-	promptBuilder  PromptBuilder
 	toolRunner     ToolRunner
 	defaultBaseDir string
 	maxToolTurns   int
@@ -21,7 +20,7 @@ type sessionDeps struct {
 	promptFormat   string
 	reasoning      llm.ReasoningConfig
 	tokenEstimator *llm.TokenEstimator
-	hooks          HookSet
+	middleware     MiddlewareSet
 }
 
 type sessionManager struct {

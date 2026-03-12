@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
@@ -18,7 +17,6 @@ type Agent struct {
 	store          ConversationStore
 	skills         *skills.Manager
 	toolRegistry   *tools.Registry
-	promptBuilder  PromptBuilder
 	toolRunner     ToolRunner
 	defaultBaseDir string
 	maxToolTurns   int
@@ -31,19 +29,17 @@ type Agent struct {
 	messenger      SessionMessenger
 }
 
-func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Manager, toolRegistry *tools.Registry, guidelinesMgr *guidelines.Manager, defaultBaseDir string, maxToolTurns int, llmClient llm.ChatModel, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
+func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient llm.ChatModel, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
 	if maxToolTurns <= 0 {
 		maxToolTurns = 1024
 	}
-	promptBuilder := NewDefaultPromptBuilder(guidelinesMgr)
-	toolRunner := NewToolRunner(toolRegistry, store, skills, promptBuilder)
+	toolRunner := NewToolRunner(toolRegistry, store, skills)
 	estimator, _ := llm.NewTokenEstimator(model)
 	stateMgr := newSessionStateManager()
 	deps := &sessionDeps{
 		store:          store,
 		skills:         skills,
 		toolRegistry:   toolRegistry,
-		promptBuilder:  promptBuilder,
 		toolRunner:     toolRunner,
 		defaultBaseDir: defaultBaseDir,
 		maxToolTurns:   maxToolTurns,
@@ -52,12 +48,12 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 		promptFormat:   promptFormat,
 		reasoning:      reasoning,
 		tokenEstimator: estimator,
+		middleware:     MiddlewareSet{},
 	}
 	return &Agent{
 		store:          store,
 		skills:         skills,
 		toolRegistry:   toolRegistry,
-		promptBuilder:  promptBuilder,
 		toolRunner:     toolRunner,
 		defaultBaseDir: defaultBaseDir,
 		maxToolTurns:   maxToolTurns,
@@ -70,8 +66,8 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 	}
 }
 
-func (a *Agent) SetHooks(hooks HookSet) {
-	a.sessions.deps.hooks = hooks
+func (a *Agent) SetMiddleware(middleware MiddlewareSet) {
+	a.sessions.deps.middleware = middleware
 }
 
 func (a *Agent) SessionStatusWriter() SessionStatusWriter {
@@ -84,18 +80,18 @@ func (a *Agent) SetSessionMessenger(messenger SessionMessenger) {
 }
 
 func (a *Agent) Handle(ctx context.Context, userID int64, channel string, input string) (string, error) {
-	return a.handleWithHooks(ctx, userID, channel, input, "", HookSet{})
+	return a.handleWithMiddleware(ctx, userID, channel, input, "", MiddlewareSet{})
 }
 
 func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel string, input string, modelOverride string) (string, error) {
-	return a.handleWithHooks(ctx, userID, channel, input, modelOverride, HookSet{})
+	return a.handleWithMiddleware(ctx, userID, channel, input, modelOverride, MiddlewareSet{})
 }
 
-func (a *Agent) HandleWithHooks(ctx context.Context, userID int64, channel string, input string, modelOverride string, hooks HookSet) (string, error) {
-	return a.handleWithHooks(ctx, userID, channel, input, modelOverride, hooks)
+func (a *Agent) HandleWithMiddleware(ctx context.Context, userID int64, channel string, input string, modelOverride string, middleware MiddlewareSet) (string, error) {
+	return a.handleWithMiddleware(ctx, userID, channel, input, modelOverride, middleware)
 }
 
-func (a *Agent) handleWithHooks(ctx context.Context, userID int64, channel string, input string, modelOverride string, hooks HookSet) (string, error) {
+func (a *Agent) handleWithMiddleware(ctx context.Context, userID int64, channel string, input string, modelOverride string, middleware MiddlewareSet) (string, error) {
 	log := logging.L().Named("agent")
 	sessionID, err := a.store.GetOrCreateSession(ctx, userID, channel)
 	if err != nil {
@@ -104,7 +100,7 @@ func (a *Agent) handleWithHooks(ctx context.Context, userID int64, channel strin
 	}
 	session := a.sessions.Get(sessionID)
 	defer a.sessions.Release(sessionID)
-	return session.Handle(ctx, userID, channel, input, modelOverride, hooks)
+	return session.Handle(ctx, userID, channel, input, modelOverride, middleware)
 }
 
 // InterruptSession generates a response from an existing session context without using tools.

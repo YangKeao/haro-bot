@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
-	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/hooks/defaults"
+	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/fork"
@@ -109,9 +109,7 @@ func main() {
 		store,
 		memoryEngine,
 		skillsMgr,
-		toolRegistry,
-		guidelinesMgr,
-		fsTools.DefaultBase(),
+		toolRegistry, fsTools.DefaultBase(),
 		cfg.ToolMaxTurns,
 		llmClient,
 		cfg.LLMModel,
@@ -119,7 +117,7 @@ func main() {
 		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
 		contextCfg,
 	)
-	agentSvc.SetHooks(agentdefaults.New(store, memoryEngine, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memoryEngine, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
 	forkMgr := fork.NewManager(agentSvc, store)
 	toolRegistry.Register(fork.NewForkTool(forkMgr))
 	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))

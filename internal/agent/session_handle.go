@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func (s *Session) Handle(ctx context.Context, userID int64, channel string, input string, modelOverride string, extraHooks HookSet) (output string, err error) {
+func (s *Session) Handle(ctx context.Context, userID int64, channel string, input string, modelOverride string, extraHooks MiddlewareSet) (output string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -30,39 +30,33 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 		return "", err
 	}
 
-	hooks := mergeHookSets(s.deps.hooks, extraHooks)
+	middleware := mergeMiddlewareSets(s.deps.middleware, extraHooks)
 	run := &RunState{
 		SessionID:       s.id,
 		UserID:          userID,
 		Channel:         channel,
 		Model:           model,
 		Input:           input,
+		PromptMode:      PromptModeHandle,
+		PromptFormat:    s.deps.promptFormat,
 		ShouldIngest:    true,
 		AvailableSkills: s.deps.skills.List(),
 	}
-	defer func() {
-		if finalizeErr := executeRunFinalizeHooks(ctx, hooks.RunHooks, run, err); finalizeErr != nil && err == nil {
-			err = finalizeErr
+	output, err = executeRunMiddleware(ctx, middleware.RunMiddleware, run, func(ctx context.Context, run *RunState) (string, error) {
+		snapshot, err := loadContextSnapshot(ctx, s.deps.store, s.id, run.Prompt, run.PendingInput)
+		if err != nil {
+			return "", err
 		}
-	}()
-
-	if err := executeRunBeforePromptHooks(ctx, hooks.RunHooks, run); err != nil {
-		return "", err
-	}
-	systemPrompt := s.deps.promptBuilder.System(ctx, run.Memories, run.AvailableSkills, s.deps.promptFormat)
-	snapshot, err := loadContextSnapshot(ctx, s.deps.store, s.id, systemPrompt, "")
-	if err != nil {
-		return "", err
-	}
-	snapshot.apply(run)
-
-	output, err = s.runLoop(ctx, run, hooks, nil)
+		snapshot.apply(run)
+		output, err := s.runLoop(ctx, run, middleware, nil)
+		if err != nil {
+			return "", err
+		}
+		run.Output = output
+		return output, nil
+	})
 	if err != nil {
 		log.Error("handle failed", zap.Int64("session_id", s.id), zap.Error(err))
-		return "", err
-	}
-	run.Output = output
-	if err := executeRunAfterHooks(ctx, hooks.RunHooks, run); err != nil {
 		return "", err
 	}
 	log.Info("handle completed", zap.Int64("session_id", s.id))

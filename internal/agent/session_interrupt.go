@@ -18,7 +18,7 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 	if modelOverride != "" {
 		model = modelOverride
 	}
-	hooks := s.deps.hooks
+	middleware := s.deps.middleware
 	if storeInSession {
 		if _, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "user", input, nil); err != nil {
 			return "", err
@@ -29,40 +29,36 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 		UserID:          userID,
 		Model:           model,
 		Input:           input,
+		PromptMode:      PromptModeInterrupt,
+		PromptFormat:    s.deps.promptFormat,
 		ShouldIngest:    false,
 		AvailableSkills: s.deps.skills.List(),
 	}
-	defer func() {
-		if finalizeErr := executeRunFinalizeHooks(ctx, hooks.RunHooks, run, err); finalizeErr != nil && err == nil {
-			err = finalizeErr
-		}
-	}()
-
-	if err := executeRunBeforePromptHooks(ctx, hooks.RunHooks, run); err != nil {
-		return "", err
-	}
-	systemPrompt := s.deps.promptBuilder.Interrupt(ctx, run.Memories, s.deps.promptFormat)
-	pendingInput := ""
 	if !storeInSession {
-		pendingInput = input
+		run.PendingInput = input
 	}
-	snapshot, err := loadContextSnapshot(ctx, s.deps.store, s.id, systemPrompt, pendingInput)
-	if err != nil {
-		return "", err
-	}
-	snapshot.apply(run)
+	content, err = executeRunMiddleware(ctx, middleware.RunMiddleware, run, func(ctx context.Context, run *RunState) (string, error) {
+		snapshot, err := loadContextSnapshot(ctx, s.deps.store, s.id, run.Prompt, run.PendingInput)
+		if err != nil {
+			return "", err
+		}
+		snapshot.apply(run)
 
-	turn := newTurnState(run, 1, model, s.estimatorForModel(model), nil)
-	resp, err := s.callLLM(ctx, log, turn, hooks, nil)
+		turn := newTurnState(run, 1, model, s.estimatorForModel(model), nil)
+		resp, err := s.callLLM(ctx, log, turn, middleware, nil)
+		if err != nil {
+			return "", err
+		}
+		if len(resp.Choices) == 0 {
+			return "", errors.New("empty llm response")
+		}
+		run.Output = resp.Choices[0].Message.Content
+		return run.Output, nil
+	})
 	if err != nil {
 		log.Error("interrupt llm error", zap.Int64("session_id", s.id), zap.Error(err))
 		return "", err
 	}
-	if len(resp.Choices) == 0 {
-		return "", errors.New("empty llm response")
-	}
-	content = resp.Choices[0].Message.Content
-	run.Output = content
 	if storeInSession {
 		if _, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "assistant", content, metadata); err != nil {
 			log.Error("interrupt store failed", zap.Int64("session_id", s.id), zap.Error(err))
@@ -73,9 +69,6 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 				log.Warn("interrupt send failed", zap.Int64("session_id", s.id), zap.Error(err))
 			}
 		}
-	}
-	if err := executeRunAfterHooks(ctx, hooks.RunHooks, run); err != nil {
-		return "", err
 	}
 	log.Info("interrupt completed", zap.Int64("session_id", s.id), zap.Bool("stored", storeInSession))
 	return content, nil

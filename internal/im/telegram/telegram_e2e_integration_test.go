@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
-	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/hooks/defaults"
+	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
 	"github.com/YangKeao/haro-bot/internal/config"
 	dbmodel "github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
@@ -52,8 +52,8 @@ func TestTelegramHandlerReadFileToolFlow(t *testing.T) {
 		tools.NewReadFileTool(fsTools),
 	)
 	llmClient, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, rootDir, 12, llmClient, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
-	agentSvc.SetHooks(agentdefaults.New(store, nil, llmClient, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc := agent.New(store, nil, skillsMgr, registry, rootDir, 12, llmClient, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, llmClient, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 	srv := New(config.Config{}, agentSvc, store, skillsMgr, nil)
 
 	tgToken := "test-token"

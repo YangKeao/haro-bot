@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type hook struct {
+type middleware struct {
 	store         memory.StoreAPI
 	llm           llm.ChatModel
 	contextConfig llm.ContextConfig
@@ -21,58 +21,60 @@ type tokenBudget struct {
 	InputBudget int
 }
 
-func New(store memory.StoreAPI, chatModel llm.ChatModel, contextConfig llm.ContextConfig) agent.TurnHook {
-	return &hook{
+func New(store memory.StoreAPI, chatModel llm.ChatModel, contextConfig llm.ContextConfig) agent.LLMMiddleware {
+	return &middleware{
 		store:         store,
 		llm:           chatModel,
 		contextConfig: contextConfig,
 	}
 }
 
-func (h *hook) Name() string {
+func (m *middleware) Name() string {
 	return "auto_compact"
 }
 
-func (h *hook) Priority() int {
+func (m *middleware) Priority() int {
 	return 100
 }
 
-func (h *hook) BeforeLLM(ctx context.Context, turn *agent.TurnState, _ *agent.LLMCall) error {
-	budget := computeTokenBudget(h.contextConfig)
-	if budget.InputBudget <= 0 {
-		return nil
-	}
-	compactor := newCompactor(h.store, h.llm, turn.Estimator, turn.Model)
-	if !compactor.shouldCompact(turn.LLMMessages(), budget.InputBudget) {
-		return nil
-	}
-	log := logging.L().Named("compact_hook")
-	log.Info("context approaching limit, triggering preemptive compact",
-		zap.Int64("session_id", turn.Run.SessionID),
-		zap.Int("turn", turn.Index),
-	)
-	return reloadTurnContext(ctx, log, h.store, compactor, turn, budget.InputBudget)
-}
+func (m *middleware) HandleLLM(ctx context.Context, turn *agent.TurnState, call *agent.LLMCall, next agent.LLMHandler) (llm.ChatResponse, error) {
+	budget := computeTokenBudget(m.contextConfig)
+	compactor := newCompactor(m.store, m.llm, turn.Estimator, turn.Model)
+	log := logging.L().Named("compact_middleware")
 
-func (h *hook) OnLLMError(ctx context.Context, turn *agent.TurnState, _ *agent.LLMCall, err error) (bool, error) {
-	if !llm.IsContextWindowExceeded(err) {
-		return false, nil
+	for attempt := 0; attempt < 2; attempt++ {
+		call.Attempt = attempt
+		if budget.InputBudget > 0 && compactor.shouldCompact(turn.LLMMessages(), budget.InputBudget) {
+			log.Info("context approaching limit, triggering preemptive compact",
+				zap.Int64("session_id", turn.Run.SessionID),
+				zap.Int("turn", turn.Index),
+				zap.Int("attempt", attempt),
+			)
+			if err := reloadTurnContext(ctx, log, m.store, compactor, turn, budget.InputBudget); err != nil {
+				return llm.ChatResponse{}, err
+			}
+		}
+
+		resp, err := next(ctx, turn, call)
+		if err == nil {
+			return resp, nil
+		}
+		if attempt == 1 || budget.InputBudget <= 0 || !llm.IsContextWindowExceeded(err) {
+			return resp, err
+		}
+
+		log.Warn("context window exceeded, triggering compact",
+			zap.Int64("session_id", turn.Run.SessionID),
+			zap.Int("turn", turn.Index),
+			zap.Int("attempt", attempt),
+			zap.Error(err),
+		)
+		if reloadErr := reloadTurnContext(ctx, log, m.store, compactor, turn, budget.InputBudget); reloadErr != nil {
+			return resp, reloadErr
+		}
 	}
-	budget := computeTokenBudget(h.contextConfig)
-	if budget.InputBudget <= 0 {
-		return false, nil
-	}
-	compactor := newCompactor(h.store, h.llm, turn.Estimator, turn.Model)
-	log := logging.L().Named("compact_hook")
-	log.Warn("context window exceeded, triggering compact",
-		zap.Int64("session_id", turn.Run.SessionID),
-		zap.Int("turn", turn.Index),
-		zap.Error(err),
-	)
-	if reloadErr := reloadTurnContext(ctx, log, h.store, compactor, turn, budget.InputBudget); reloadErr != nil {
-		return false, reloadErr
-	}
-	return true, nil
+
+	return llm.ChatResponse{}, nil
 }
 
 func computeTokenBudget(cfg llm.ContextConfig) tokenBudget {
@@ -82,9 +84,7 @@ func computeTokenBudget(cfg llm.ContextConfig) tokenBudget {
 	if inputBudget == 0 && autoCompact > 0 {
 		inputBudget = autoCompact
 	}
-	return tokenBudget{
-		InputBudget: inputBudget,
-	}
+	return tokenBudget{InputBudget: inputBudget}
 }
 
 func compactCutoffEntryID(messages []agent.StoredMessage) (int64, error) {
