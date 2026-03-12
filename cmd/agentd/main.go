@@ -27,7 +27,6 @@ import (
 	memtidb "github.com/YangKeao/haro-bot/internal/memory/vectorstore/tidb"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
-	toolsbrowser "github.com/YangKeao/haro-bot/internal/tools/browser"
 	"go.uber.org/zap"
 )
 
@@ -75,17 +74,8 @@ func main() {
 	auditStore := tools.NewAuditStore(dbConn)
 	fsTools := tools.NewFS(auditStore)
 
-	browserMgr := toolsbrowser.NewManager()
 	execMgr := tools.NewExecManager()
 	toolRegistry := tools.NewRegistry(
-		toolsbrowser.NewGotoTool(browserMgr),
-		toolsbrowser.NewGoBackTool(browserMgr),
-		toolsbrowser.NewGetPageStateTool(browserMgr),
-		toolsbrowser.NewTakeScreenshotTool(browserMgr),
-		toolsbrowser.NewClickTool(browserMgr),
-		toolsbrowser.NewFillTextTool(browserMgr),
-		toolsbrowser.NewPressKeyTool(browserMgr),
-		toolsbrowser.NewScrollTool(browserMgr),
 		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
 		tools.NewSessionSummaryTool(store),
 		tools.NewMemorySearchTool(store),

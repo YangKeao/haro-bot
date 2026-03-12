@@ -7,7 +7,7 @@ An AI agent with Telegram integration, long-term memory, and tool execution capa
 - **Telegram Integration**: Real-time message streaming with draft previews
 - **Long-term Memory**: Vector-based memory storage and retrieval using TiDB
 - **Skill System**: Extensible skills synced from Git repositories
-- **Tool Execution**: Filesystem operations, browser automation, command execution
+- **Tool Execution**: Filesystem operations and command execution
 - **Session Management**: Fork sessions for parallel task execution
 
 ## Quick Start
@@ -52,11 +52,6 @@ Configuration is primarily stored in `config.toml`. See `config.example.toml` fo
 - `grep_files`: Search file contents
 - `exec_command`: Run shell commands
 - `write_stdin`: Write to running process stdin
-
-### Browser Tools (Playwright)
-- `browser_goto`, `browser_go_back`
-- `browser_get_page_state`, `browser_take_screenshot`
-- `browser_click`, `browser_fill_text`, `browser_press_key`, `browser_scroll`
 
 ### Search Tools
 - `brave_search`: Web search (requires `BRAVE_SEARCH_API_KEY`)
