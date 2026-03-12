@@ -25,7 +25,7 @@ func (s *Session) runLoop(ctx context.Context, run *RunState, hooks MiddlewareSe
 		log.Debug("tools prepared", zap.Int("count", len(turn.Tools)))
 
 		err := executeTurnMiddleware(ctx, hooks.TurnMiddleware, turn, func(ctx context.Context, turn *TurnState) error {
-			resp, err := s.callLLM(ctx, log, turn, hooks, turn.Tools)
+			resp, err := s.callLLM(ctx, turn, hooks)
 			if err != nil {
 				return err
 			}

@@ -16,7 +16,7 @@ func TestApplyPatch_AddFile(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	fs := NewFS([]string{tmpDir}, nil, true)
+	fs := NewFS(nil)
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch
@@ -59,7 +59,7 @@ func TestApplyPatch_DeleteFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := NewFS([]string{tmpDir}, nil, true)
+	fs := NewFS(nil)
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch
@@ -95,7 +95,7 @@ func TestApplyPatch_UpdateFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := NewFS([]string{tmpDir}, nil, true)
+	fs := NewFS(nil)
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch
@@ -141,7 +141,7 @@ func TestApplyPatch_RenameFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := NewFS([]string{tmpDir}, nil, true)
+	fs := NewFS(nil)
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch
@@ -191,7 +191,7 @@ func TestApplyPatch_MultipleOperations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := NewFS([]string{tmpDir}, nil, true)
+	fs := NewFS(nil)
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch

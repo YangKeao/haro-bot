@@ -74,7 +74,7 @@ func main() {
 	guidelinesMgr := guidelines.NewManager(dbConn)
 
 	auditStore := tools.NewAuditStore(dbConn)
-	fsTools := tools.NewFS(nil, auditStore, true)
+	fsTools := tools.NewFS(auditStore)
 
 	browserMgr := toolsbrowser.NewManager()
 	execMgr := tools.NewExecManager()

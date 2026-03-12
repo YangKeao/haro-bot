@@ -15,7 +15,7 @@ type FS struct {
 	audit AuditLogger
 }
 
-func NewFS(_ []string, audit AuditLogger, _ bool) *FS {
+func NewFS(audit AuditLogger) *FS {
 	return &FS{
 		audit: audit,
 	}

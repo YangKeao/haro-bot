@@ -46,7 +46,7 @@ func TestTelegramHandlerReadFileToolFlow(t *testing.T) {
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	guidelinesMgr := guidelines.NewManager(gdb)
 	auditStore := tools.NewAuditStore(gdb)
-	fsTools := tools.NewFS([]string{rootDir}, auditStore, false)
+	fsTools := tools.NewFS(auditStore)
 	registry := tools.NewRegistry(
 		tools.NewListDirTool(fsTools),
 		tools.NewReadFileTool(fsTools),

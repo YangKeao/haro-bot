@@ -45,7 +45,7 @@ func (s *Session) Interrupt(ctx context.Context, userID int64, input string, mod
 		snapshot.apply(run)
 
 		turn := newTurnState(run, 1, model, s.estimatorForModel(model), nil)
-		resp, err := s.callLLM(ctx, log, turn, middleware, nil)
+		resp, err := s.callLLM(ctx, turn, middleware)
 		if err != nil {
 			return "", err
 		}
