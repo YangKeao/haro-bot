@@ -107,52 +107,6 @@ func TestE2EToolExecution(t *testing.T) {
 	}
 }
 
-// TestE2ESessionInterrupt tests session interruption
-func TestE2ESessionInterrupt(t *testing.T) {
-	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
-	t.Cleanup(cleanup)
-
-	store := memory.NewStore(gdb)
-	skillsStore := skills.NewStore(gdb)
-	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
-	guidelinesMgr := guidelines.NewManager(gdb)
-	registry := tools.NewRegistry()
-	client, model := testutil.NewLLMClientFromEnv(t)
-
-	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
-
-	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9003")
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-
-	// Create a session and add some messages
-	sessionID, err := store.GetOrCreateSession(ctx, userID, "e2e-interrupt")
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-
-	err = store.AddMessage(ctx, sessionID, "user", "Let's discuss Go programming.", nil)
-	if err != nil {
-		t.Fatalf("add message: %v", err)
-	}
-	err = store.AddMessage(ctx, sessionID, "assistant", "Sure! Go is a statically typed, compiled programming language designed at Google.", nil)
-	if err != nil {
-		t.Fatalf("add message: %v", err)
-	}
-
-	// Interrupt the session with a question
-	resp, err := agentSvc.InterruptSession(ctx, sessionID, userID, "What were we talking about?", "", false, nil)
-	if err != nil {
-		t.Fatalf("interrupt: %v", err)
-	}
-	if resp == "" {
-		t.Fatal("empty interrupt response")
-	}
-}
-
 // TestE2EMultipleSessions tests handling multiple sessions for the same user
 func TestE2EMultipleSessions(t *testing.T) {
 	gdb, cleanup := testutil.NewTestDBWithMigrations(t)

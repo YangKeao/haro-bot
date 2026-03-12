@@ -16,24 +16,17 @@ type Server struct {
 	store    memory.StoreAPI
 	skills   *skills.Manager
 	telegram *bot.Bot
-
-	telegramSessions *telegramSessionRegistry
 }
 
 func New(cfg config.Config, agent *agent.Agent, store memory.StoreAPI, skillsMgr *skills.Manager) *Server {
 	return &Server{
-		cfg:              cfg,
-		agent:            agent,
-		store:            store,
-		skills:           skillsMgr,
-		telegramSessions: newTelegramSessionRegistry(),
+		cfg:    cfg,
+		agent:  agent,
+		store:  store,
+		skills: skillsMgr,
 	}
 }
 
 func (s *Server) Start(ctx context.Context) {
 	s.StartTelegramPolling(ctx)
-}
-
-func (s *Server) SessionMessenger() agent.SessionMessenger {
-	return s
 }

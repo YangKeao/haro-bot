@@ -13,7 +13,7 @@ type Session struct {
 	deps *sessionDeps
 	mu   sync.Mutex
 
-	// For session interruption
+	// For session cancellation.
 	cancelMu   sync.Mutex
 	cancelFunc context.CancelFunc
 }

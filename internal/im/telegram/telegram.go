@@ -79,12 +79,6 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 	if update.Message.DirectMessagesTopic != nil {
 		directTopicID = update.Message.DirectMessagesTopic.TopicID
 	}
-	s.telegramSessions.Set(sessionID, telegramSessionDestination{
-		chatID:               update.Message.Chat.ID,
-		threadID:             threadID,
-		directTopicID:        directTopicID,
-		businessConnectionID: businessConnID,
-	})
 	progress := newTelegramProgress(b, update.Message.Chat.ID, threadID, businessConnID)
 	defer progress.Stop()
 	output, err := s.agent.HandleWithMiddleware(ctx, uid, "telegram", update.Message.Text, "", agent.MiddlewareSet{
@@ -133,25 +127,10 @@ func (s *Server) handleTelegramCallback(ctx context.Context, b *bot.Bot, query *
 		log.Warn("telegram user error", zap.Error(err))
 		return
 	}
-	sessionID, err := s.store.GetOrCreateSession(ctx, uid, "telegram")
+	_, err = s.store.GetOrCreateSession(ctx, uid, "telegram")
 	if err != nil {
 		log.Warn("telegram session error", zap.Error(err))
 		return
-	}
-	if query.Message.Message != nil {
-		msg := query.Message.Message
-		threadID := msg.MessageThreadID
-		businessConnID := msg.BusinessConnectionID
-		directTopicID := 0
-		if msg.DirectMessagesTopic != nil {
-			directTopicID = msg.DirectMessagesTopic.TopicID
-		}
-		s.telegramSessions.Set(sessionID, telegramSessionDestination{
-			chatID:               msg.Chat.ID,
-			threadID:             threadID,
-			directTopicID:        directTopicID,
-			businessConnectionID: businessConnID,
-		})
 	}
 	_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 		CallbackQueryID: query.ID,

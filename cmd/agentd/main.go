@@ -16,7 +16,6 @@ import (
 	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/db"
-	"github.com/YangKeao/haro-bot/internal/fork"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/im"
 	imtelegram "github.com/YangKeao/haro-bot/internal/im/telegram"
@@ -127,15 +126,7 @@ func main() {
 		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
 	)
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memoryEngine, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
-	forkMgr := fork.NewManager(agentSvc, store)
-	toolRegistry.Register(fork.NewForkTool(forkMgr))
-	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))
-	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
-	toolRegistry.Register(fork.NewForkStatusTool(forkMgr))
 	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store, skillsMgr)
-	if cfg.TelegramToken != "" {
-		agentSvc.SetSessionMessenger(imRuntime.SessionMessenger())
-	}
 
 	imRuntime.Start(ctx)
 

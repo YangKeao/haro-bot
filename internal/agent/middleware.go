@@ -21,8 +21,7 @@ type MiddlewareSet struct {
 type PromptMode string
 
 const (
-	PromptModeHandle    PromptMode = "handle"
-	PromptModeInterrupt PromptMode = "interrupt"
+	PromptModeHandle PromptMode = "handle"
 )
 
 type RunState struct {

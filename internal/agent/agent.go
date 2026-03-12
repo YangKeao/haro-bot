@@ -26,7 +26,6 @@ type Agent struct {
 	reasoning      llm.ReasoningConfig
 	sessions       *sessionManager
 	stateManager   *sessionStateManager
-	messenger      SessionMessenger
 }
 
 func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient llm.ChatModel, model string, promptFormat string, reasoning llm.ReasoningConfig) *Agent {
@@ -74,17 +73,8 @@ func (a *Agent) SessionStatusWriter() SessionStatusWriter {
 	return a.stateManager
 }
 
-// SetSessionMessenger registers a messenger for out-of-band session notifications (e.g., Telegram).
-func (a *Agent) SetSessionMessenger(messenger SessionMessenger) {
-	a.messenger = messenger
-}
-
 func (a *Agent) Handle(ctx context.Context, userID int64, channel string, input string) (string, error) {
 	return a.handleWithMiddleware(ctx, userID, channel, input, "", MiddlewareSet{})
-}
-
-func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel string, input string, modelOverride string) (string, error) {
-	return a.handleWithMiddleware(ctx, userID, channel, input, modelOverride, MiddlewareSet{})
 }
 
 func (a *Agent) HandleWithMiddleware(ctx context.Context, userID int64, channel string, input string, modelOverride string, middleware MiddlewareSet) (string, error) {
@@ -101,14 +91,6 @@ func (a *Agent) handleWithMiddleware(ctx context.Context, userID int64, channel 
 	session := a.sessions.Get(sessionID)
 	defer a.sessions.Release(sessionID)
 	return session.Handle(ctx, userID, channel, input, modelOverride, middleware)
-}
-
-// InterruptSession generates a response from an existing session context without using tools.
-// If storeInSession is true, the interrupt message and response are persisted to the session.
-func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID int64, input string, modelOverride string, storeInSession bool, metadata *memory.MessageMetadata) (string, error) {
-	session := a.sessions.Get(sessionID)
-	defer a.sessions.Release(sessionID)
-	return session.Interrupt(ctx, userID, input, modelOverride, storeInSession, metadata, a.messenger)
 }
 
 // GetSessionStatus returns the current status of a session.
