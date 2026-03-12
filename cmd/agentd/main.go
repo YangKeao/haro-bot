@@ -126,7 +126,7 @@ func main() {
 		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
 	)
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memoryEngine, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
-	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store, skillsMgr)
+	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store)
 
 	imRuntime.Start(ctx)
 

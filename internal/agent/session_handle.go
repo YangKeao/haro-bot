@@ -34,7 +34,6 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 	run := &RunState{
 		SessionID:       s.id,
 		UserID:          userID,
-		Channel:         channel,
 		Model:           model,
 		Input:           input,
 		PromptMode:      PromptModeHandle,

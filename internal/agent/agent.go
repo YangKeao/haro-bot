@@ -14,18 +14,9 @@ import (
 )
 
 type Agent struct {
-	store          memory.StoreAPI
-	skills         *skills.Manager
-	toolRegistry   *tools.Registry
-	toolRunner     ToolRunner
-	defaultBaseDir string
-	maxToolTurns   int
-	llm            llm.ChatModel
-	model          string
-	promptFormat   string
-	reasoning      llm.ReasoningConfig
-	sessions       *sessionManager
-	stateManager   *sessionStateManager
+	store        memory.StoreAPI
+	sessions     *sessionManager
+	stateManager *sessionStateManager
 }
 
 func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient llm.ChatModel, model string, promptFormat string, reasoning llm.ReasoningConfig) *Agent {
@@ -50,18 +41,9 @@ func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Regi
 		middleware:     MiddlewareSet{},
 	}
 	return &Agent{
-		store:          store,
-		skills:         skills,
-		toolRegistry:   toolRegistry,
-		toolRunner:     toolRunner,
-		defaultBaseDir: defaultBaseDir,
-		maxToolTurns:   maxToolTurns,
-		llm:            llmClient,
-		model:          model,
-		promptFormat:   promptFormat,
-		reasoning:      reasoning,
-		sessions:       newSessionManager(deps),
-		stateManager:   stateMgr,
+		store:        store,
+		sessions:     newSessionManager(deps),
+		stateManager: stateMgr,
 	}
 }
 

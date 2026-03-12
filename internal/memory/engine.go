@@ -20,7 +20,6 @@ type Engine struct {
 	model    string
 	embedder Embedder
 	vectors  VectorStore
-	graph    GraphStore
 	log      *zap.Logger
 }
 
@@ -43,7 +42,6 @@ func NewEngine(store StoreAPI, llmClient llm.ChatModel, model string, embedder E
 	if err := vectors.EnsureSchema(context.Background(), cfg); err != nil {
 		return nil, err
 	}
-	graph := GraphStore(NewNoopGraphStore())
 	return &Engine{
 		cfg:      cfg,
 		store:    store,
@@ -51,7 +49,6 @@ func NewEngine(store StoreAPI, llmClient llm.ChatModel, model string, embedder E
 		model:    model,
 		embedder: embedder,
 		vectors:  vectors,
-		graph:    graph,
 		log:      logging.L().Named("memory_engine"),
 	}, nil
 }

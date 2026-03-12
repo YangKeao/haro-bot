@@ -377,7 +377,6 @@ type execProcess struct {
 	start   time.Time
 	done    chan struct{}
 	exit    *int
-	exitErr error
 	bufMu   sync.Mutex
 	buf     []byte
 	readPos int
@@ -427,7 +426,6 @@ func (p *execProcess) wait() {
 	}
 	p.bufMu.Lock()
 	p.exit = &exitCode
-	p.exitErr = err
 	p.bufMu.Unlock()
 	close(p.done)
 }

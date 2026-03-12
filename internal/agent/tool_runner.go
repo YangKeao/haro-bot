@@ -57,7 +57,6 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 		}
 		if currentSkill != nil {
 			tc.BaseDir = currentSkill.Metadata.Dir
-			tc.SkillName = currentSkill.Metadata.Name
 		}
 		output, err := tool.Execute(ctx, tc, json.RawMessage(call.Function.Arguments))
 		status := "ok"

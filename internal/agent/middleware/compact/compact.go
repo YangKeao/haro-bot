@@ -43,7 +43,6 @@ func (m *middleware) HandleLLM(ctx context.Context, turn *agent.TurnState, call 
 	log := logging.L().Named("compact_middleware")
 
 	for attempt := 0; attempt < 2; attempt++ {
-		call.Attempt = attempt
 		if budget.InputBudget > 0 && compactor.shouldCompact(turn.LLMMessages(), budget.InputBudget) {
 			log.Info("context approaching limit, triggering preemptive compact",
 				zap.Int64("session_id", turn.Run.SessionID),

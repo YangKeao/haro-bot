@@ -26,7 +26,6 @@ type SessionStatus struct {
 	CurrentTool string    // Name of the tool currently running (if any)
 	LLMModel    string    // Model being used (if known)
 	StartTime   time.Time // When the current operation started
-	Message     string    // Additional status message
 }
 
 // sessionStateManager tracks the state of active sessions.
@@ -60,7 +59,6 @@ func (m *sessionStateManager) SetState(sessionID int64, state SessionState) {
 	s.State = state
 	if state == StateIdle {
 		s.CurrentTool = ""
-		s.Message = ""
 	}
 }
 

@@ -27,7 +27,6 @@ const (
 type RunState struct {
 	SessionID int64
 	UserID    int64
-	Channel   string
 	Model     string
 	Input     string
 
@@ -60,9 +59,8 @@ type TurnState struct {
 }
 
 type LLMCall struct {
-	Model   string
-	Attempt int
-	Tools   []llm.Tool
+	Model string
+	Tools []llm.Tool
 }
 
 type RunHandler func(ctx context.Context, run *RunState) (string, error)
