@@ -76,15 +76,11 @@ type Config struct {
 	LLMContextWindow                 int
 	LLMAutoCompactTokenLimit         int
 	LLMEffectiveContextWindowPercent int
-	SecurityAuditBaseURL             string
-	SecurityAuditAPIKey              string
-	SecurityAuditModel               string
 	TelegramToken                    string
 	SkillsDir                        string
 	SkillsRepoAllowlist              []string
 	SkillsSyncInterval               time.Duration
 	BraveSearchAPIKey                string
-	FSAllowedRoots                   []string
 	ToolMaxTurns                     int
 	Log                              LogConfig
 	Memory                           MemoryConfig
@@ -110,11 +106,6 @@ type fileConfig struct {
 		AutoCompactTokenLimit         int    `toml:"auto_compact_token_limit"`
 		EffectiveContextWindowPercent int    `toml:"effective_context_window_percent"`
 	} `toml:"llm"`
-	Security struct {
-		BaseURL string `toml:"base_url"`
-		APIKey  string `toml:"api_key"`
-		Model   string `toml:"model"`
-	} `toml:"security_audit"`
 	Telegram struct {
 		Token string `toml:"token"`
 	} `toml:"telegram"`
@@ -126,9 +117,6 @@ type fileConfig struct {
 	Brave struct {
 		SearchAPIKey string `toml:"search_api_key"`
 	} `toml:"brave"`
-	FS struct {
-		AllowedRoots []string `toml:"allowed_roots"`
-	} `toml:"fs"`
 	Tool struct {
 		MaxTurns int `toml:"max_turns"`
 	} `toml:"tool"`
@@ -188,11 +176,6 @@ func defaultFileConfig() fileConfig {
 		}{
 			Dir:          skillsDir,
 			SyncInterval: "10m",
-		},
-		FS: struct {
-			AllowedRoots []string `toml:"allowed_roots"`
-		}{
-			AllowedRoots: []string{skillsDir},
 		},
 		Tool: struct {
 			MaxTurns int `toml:"max_turns"`
@@ -265,15 +248,8 @@ func (r fileConfig) withDefaults() fileConfig {
 	r.LLM.Model = strDefault(r.LLM.Model, def.LLM.Model)
 	r.LLM.PromptFormat = strDefault(r.LLM.PromptFormat, def.LLM.PromptFormat)
 	r.LLM.EffectiveContextWindowPercent = intDefault(r.LLM.EffectiveContextWindowPercent, def.LLM.EffectiveContextWindowPercent)
-	if strings.TrimSpace(r.Security.Model) != "" {
-		r.Security.BaseURL = strDefault(r.Security.BaseURL, r.LLM.BaseURL)
-		r.Security.APIKey = strDefault(r.Security.APIKey, r.LLM.APIKey)
-	}
 	r.Skills.Dir = strDefault(r.Skills.Dir, def.Skills.Dir)
 	r.Skills.SyncInterval = strDefault(r.Skills.SyncInterval, def.Skills.SyncInterval)
-	if len(r.FS.AllowedRoots) == 0 {
-		r.FS.AllowedRoots = []string{r.Skills.Dir}
-	}
 	r.Tool.MaxTurns = intDefault(r.Tool.MaxTurns, def.Tool.MaxTurns)
 	r.Log.Level = strDefault(r.Log.Level, def.Log.Level)
 	r.Log.Encoding = strDefault(r.Log.Encoding, def.Log.Encoding)
@@ -305,9 +281,6 @@ func (r *fileConfig) normalize() {
 	if r.LLM.EffectiveContextWindowPercent > 100 {
 		r.LLM.EffectiveContextWindowPercent = 100
 	}
-	r.Security.BaseURL = strings.TrimSpace(r.Security.BaseURL)
-	r.Security.APIKey = strings.TrimSpace(r.Security.APIKey)
-	r.Security.Model = strings.TrimSpace(r.Security.Model)
 	r.Memory.Embedder.Provider = strings.ToLower(strings.TrimSpace(r.Memory.Embedder.Provider))
 	if r.Memory.Embedder.Provider == "" {
 		r.Memory.Embedder.Provider = "openai"
@@ -321,10 +294,6 @@ func (r *fileConfig) normalize() {
 func (r fileConfig) toConfig() Config {
 	r = r.withDefaults()
 	syncInterval := parseDurationDefault(r.Skills.SyncInterval, 10*time.Minute)
-	fsRoots := r.FS.AllowedRoots
-	if len(fsRoots) == 0 {
-		fsRoots = []string{r.Skills.Dir}
-	}
 	return Config{
 		ServerAddr:                       r.Server.Addr,
 		TiDBDSN:                          r.DB.TiDBDSN,
@@ -338,15 +307,11 @@ func (r fileConfig) toConfig() Config {
 		LLMContextWindow:                 r.LLM.ContextWindow,
 		LLMAutoCompactTokenLimit:         r.LLM.AutoCompactTokenLimit,
 		LLMEffectiveContextWindowPercent: r.LLM.EffectiveContextWindowPercent,
-		SecurityAuditBaseURL:             r.Security.BaseURL,
-		SecurityAuditAPIKey:              r.Security.APIKey,
-		SecurityAuditModel:               r.Security.Model,
 		TelegramToken:                    r.Telegram.Token,
 		SkillsDir:                        r.Skills.Dir,
 		SkillsRepoAllowlist:              r.Skills.RepoAllowlist,
 		SkillsSyncInterval:               syncInterval,
 		BraveSearchAPIKey:                r.Brave.SearchAPIKey,
-		FSAllowedRoots:                   fsRoots,
 		ToolMaxTurns:                     r.Tool.MaxTurns,
 		Log:                              r.Log,
 		Memory:                           r.Memory,

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"unicode/utf8"
 
+	"github.com/YangKeao/haro-bot/internal/agent"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -86,13 +87,13 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 	})
 	progress := newTelegramProgress(b, update.Message.Chat.ID, threadID, businessConnID)
 	defer progress.Stop()
-	output, err := s.agent.HandleWithObserver(ctx, uid, "telegram", update.Message.Text, "", progress)
+	output, err := s.agent.HandleWithHooks(ctx, uid, "telegram", update.Message.Text, "", agent.HookSet{
+		TurnHooks: []agent.TurnHook{progress},
+	})
 	if err != nil {
 		log.Error("telegram agent error", zap.Error(err))
 		return
 	}
-	// Clear draft before sending the final message to avoid simultaneous display
-	progress.ClearDraft(ctx)
 	for _, chunk := range splitTelegramMessage(output) {
 		params := &bot.SendMessageParams{
 			ChatID:    update.Message.Chat.ID,
@@ -149,18 +150,9 @@ func (s *Server) handleTelegramCallback(ctx context.Context, b *bot.Bot, query *
 			businessConnectionID: businessConnID,
 		})
 	}
-	handled := false
-	if s.toolApprovals != nil {
-		handled = s.toolApprovals.handleCallback(ctx, sessionID, uid, query.Data, func(ctx context.Context, msg string) error {
-			return s.SendSessionMessage(ctx, sessionID, msg)
-		})
-	}
 	_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 		CallbackQueryID: query.ID,
 	})
-	if handled {
-		return
-	}
 	log.Debug("telegram callback ignored", zap.String("data", query.Data))
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
+	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/hooks/defaults"
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/fork"
@@ -27,7 +28,6 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.toml", "path to config file")
-	unrestricted := flag.Bool("unrestricted", false, "skip path restrictions and symlink checks (audit logging still enabled)")
 	flag.Parse()
 
 	bootLogger, _ := zap.NewProduction()
@@ -67,11 +67,8 @@ func main() {
 	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
 	guidelinesMgr := guidelines.NewManager(dbConn)
 
-	if *unrestricted {
-		log.Warn("running in UNRESTRICTED mode - path restrictions and symlink checks are disabled!")
-	}
 	auditStore := tools.NewAuditStore(dbConn)
-	fsTools := tools.NewFS(cfg.FSAllowedRoots, auditStore, *unrestricted)
+	fsTools := tools.NewFS(nil, auditStore, true)
 
 	browserMgr := tools.NewBrowserManager()
 	execMgr := tools.NewExecManager()
@@ -122,19 +119,15 @@ func main() {
 		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
 		contextCfg,
 	)
+	agentSvc.SetHooks(agentdefaults.New(store, memoryEngine, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
 	forkMgr := fork.NewManager(agentSvc, store)
 	toolRegistry.Register(fork.NewForkTool(forkMgr))
 	toolRegistry.Register(fork.NewForkInterruptTool(forkMgr))
 	toolRegistry.Register(fork.NewForkCancelTool(forkMgr))
 	toolRegistry.Register(fork.NewForkStatusTool(forkMgr))
-	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store, skillsMgr, memoryEngine)
-	if cfg.TelegramToken != "" && !*unrestricted {
+	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store, skillsMgr)
+	if cfg.TelegramToken != "" {
 		agentSvc.SetSessionMessenger(imRuntime.SessionMessenger())
-		fsTools.SetApprover(imRuntime.Approver())
-	}
-	if cfg.SecurityAuditModel != "" && !*unrestricted {
-		auditClient := llm.NewClient(cfg.SecurityAuditBaseURL, cfg.SecurityAuditAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
-		imRuntime.SetSecurityAudit(auditClient, cfg.SecurityAuditModel)
 	}
 
 	imRuntime.Start(ctx)

@@ -115,6 +115,10 @@ func refreshTransientContext(base TransientContext, summary *memory.Summary, rec
 	}
 }
 
+func isSessionSummarySystemMessage(content string) bool {
+	return strings.HasPrefix(strings.TrimSpace(content), "Session summary")
+}
+
 func isSessionHintSystemMessage(content string) bool {
 	return strings.HasPrefix(strings.TrimSpace(content), "Host notice:")
 }

@@ -117,17 +117,9 @@ func (t *ExecCommandTool) Execute(ctx context.Context, tc ToolContext, args json
 	if workdir == "" {
 		return "", errors.New("workdir required")
 	}
-	resolvedWorkdir, allowed, err := t.fs.resolvePath(tc.BaseDir, workdir, false)
-	if err != nil && !(errors.Is(err, errPathDenied) && t.fs.approver != nil) {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", workdir, allowed, err)
-		return "", err
-	}
-	reason := fmt.Sprintf("Command: %s", cmdText)
-	if errors.Is(err, errPathDenied) && strings.TrimSpace(resolvedWorkdir) != "" {
-		reason += "\nWorkdir outside allowed roots: " + resolvedWorkdir
-	}
-	if err := t.fs.requestApproval(ctx, tc, "exec_command", resolvedWorkdir, reason); err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", resolvedWorkdir, allowed, err)
+	resolvedWorkdir, err := t.fs.resolvePath(tc.BaseDir, workdir, false)
+	if err != nil {
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", workdir, err)
 		return "", err
 	}
 	info, err := os.Stat(resolvedWorkdir)
@@ -135,7 +127,7 @@ func (t *ExecCommandTool) Execute(ctx context.Context, tc ToolContext, args json
 		if err == nil {
 			err = errors.New("workdir is not a directory")
 		}
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", resolvedWorkdir, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", resolvedWorkdir, err)
 		return "", err
 	}
 
@@ -151,7 +143,7 @@ func (t *ExecCommandTool) Execute(ctx context.Context, tc ToolContext, args json
 
 	command, err := buildShellCommand(ctx, cmdText, a.Shell, useLogin, resolvedWorkdir)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", resolvedWorkdir, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", resolvedWorkdir, err)
 		return "", err
 	}
 
@@ -172,7 +164,7 @@ func (t *ExecCommandTool) Execute(ctx context.Context, tc ToolContext, args json
 
 	start := time.Now()
 	if err := command.Start(); err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", resolvedWorkdir, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", resolvedWorkdir, err)
 		return "", err
 	}
 

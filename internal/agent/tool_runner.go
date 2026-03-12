@@ -71,19 +71,6 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 		output, err := tool.Execute(ctx, tc, json.RawMessage(call.Function.Arguments))
 		status := "ok"
 		if err != nil {
-			if errors.Is(err, tools.ErrApprovalStopped) {
-				if output == "" {
-					output = "operation stopped by user"
-				}
-				if _, storeErr := r.store.AddMessageAndGetID(ctx, sessionID, "tool", output, &memory.MessageMetadata{
-					ToolCallID: call.ID,
-					Status:     "error",
-				}); storeErr != nil {
-					return nil, currentSkill, storeErr
-				}
-				log.Warn("tool stopped", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID), zap.Error(err))
-				return nil, currentSkill, err
-			}
 			status = "error"
 			if output == "" {
 				output = "error: " + err.Error()

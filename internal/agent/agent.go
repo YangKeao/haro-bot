@@ -17,7 +17,6 @@ import (
 
 type Agent struct {
 	store          ConversationStore
-	memoryEngine   *memory.Engine
 	skills         *skills.Manager
 	toolRegistry   *tools.Registry
 	promptBuilder  PromptBuilder
@@ -28,7 +27,6 @@ type Agent struct {
 	model          string
 	promptFormat   string
 	reasoning      llm.ReasoningConfig
-	contextConfig  llm.ContextConfig
 	sessions       *sessionManager
 	stateManager   *sessionStateManager
 	messenger      SessionMessenger
@@ -44,7 +42,6 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 	stateMgr := newSessionStateManager()
 	deps := &sessionDeps{
 		store:          store,
-		memoryEngine:   memoryEngine,
 		skills:         skills,
 		toolRegistry:   toolRegistry,
 		promptBuilder:  promptBuilder,
@@ -55,13 +52,10 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 		model:          model,
 		promptFormat:   promptFormat,
 		reasoning:      reasoning,
-		contextConfig:  contextConfig,
 		tokenEstimator: estimator,
-		stateManager:   stateMgr,
 	}
 	return &Agent{
 		store:          store,
-		memoryEngine:   memoryEngine,
 		skills:         skills,
 		toolRegistry:   toolRegistry,
 		promptBuilder:  promptBuilder,
@@ -72,10 +66,23 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 		model:          model,
 		promptFormat:   promptFormat,
 		reasoning:      reasoning,
-		contextConfig:  contextConfig,
 		sessions:       newSessionManager(deps),
 		stateManager:   stateMgr,
 	}
+}
+
+func (a *Agent) SetHooks(hooks HookSet) {
+	if a == nil || a.sessions == nil || a.sessions.deps == nil {
+		return
+	}
+	a.sessions.deps.hooks = hooks
+}
+
+func (a *Agent) SessionStatusWriter() SessionStatusWriter {
+	if a == nil {
+		return nil
+	}
+	return a.stateManager
 }
 
 // SetSessionMessenger registers a messenger for out-of-band session notifications (e.g., Telegram).
@@ -87,18 +94,18 @@ func (a *Agent) SetSessionMessenger(messenger SessionMessenger) {
 }
 
 func (a *Agent) Handle(ctx context.Context, userID int64, channel string, input string) (string, error) {
-	return a.handleWithObserver(ctx, userID, channel, input, "", nil)
+	return a.handleWithHooks(ctx, userID, channel, input, "", HookSet{})
 }
 
 func (a *Agent) HandleWithModel(ctx context.Context, userID int64, channel string, input string, modelOverride string) (string, error) {
-	return a.handleWithObserver(ctx, userID, channel, input, modelOverride, nil)
+	return a.handleWithHooks(ctx, userID, channel, input, modelOverride, HookSet{})
 }
 
-func (a *Agent) HandleWithObserver(ctx context.Context, userID int64, channel string, input string, modelOverride string, observer ProgressObserver) (string, error) {
-	return a.handleWithObserver(ctx, userID, channel, input, modelOverride, observer)
+func (a *Agent) HandleWithHooks(ctx context.Context, userID int64, channel string, input string, modelOverride string, hooks HookSet) (string, error) {
+	return a.handleWithHooks(ctx, userID, channel, input, modelOverride, hooks)
 }
 
-func (a *Agent) handleWithObserver(ctx context.Context, userID int64, channel string, input string, modelOverride string, observer ProgressObserver) (string, error) {
+func (a *Agent) handleWithHooks(ctx context.Context, userID int64, channel string, input string, modelOverride string, hooks HookSet) (string, error) {
 	log := logging.L().Named("agent")
 	sessionID, err := a.store.GetOrCreateSession(ctx, userID, channel)
 	if err != nil {
@@ -111,7 +118,7 @@ func (a *Agent) handleWithObserver(ctx context.Context, userID int64, channel st
 	}
 	session := a.sessions.Get(sessionID)
 	defer a.sessions.Release(sessionID)
-	return session.Handle(ctx, userID, channel, input, modelOverride, observer)
+	return session.Handle(ctx, userID, channel, input, modelOverride, hooks)
 }
 
 // InterruptSession generates a response from an existing session context without using tools.
@@ -135,27 +142,6 @@ func (a *Agent) GetSessionStatus(sessionID int64) *SessionStatus {
 	return a.stateManager.GetStatus(sessionID)
 }
 
-// SetSessionState updates the state of a session.
-func (a *Agent) SetSessionState(sessionID int64, state SessionState) {
-	if a != nil && a.stateManager != nil {
-		a.stateManager.SetState(sessionID, state)
-	}
-}
-
-// SetSessionToolRunning marks a session as running a specific tool.
-func (a *Agent) SetSessionToolRunning(sessionID int64, toolName string) {
-	if a != nil && a.stateManager != nil {
-		a.stateManager.SetToolRunning(sessionID, toolName)
-	}
-}
-
-// SetSessionWaitingForApproval marks a session as waiting for user approval.
-func (a *Agent) SetSessionWaitingForApproval(sessionID int64, message string) {
-	if a != nil && a.stateManager != nil {
-		a.stateManager.SetWaitingForApproval(sessionID, message)
-	}
-}
-
 // CancelSession cancels any ongoing operation for the session.
 // Returns true if there was an operation to cancel.
 func (a *Agent) CancelSession(sessionID int64) bool {
@@ -163,14 +149,6 @@ func (a *Agent) CancelSession(sessionID int64) bool {
 		return false
 	}
 	return a.sessions.Cancel(sessionID)
-}
-
-func toLLMMessages(msgs []memory.Message) []llm.Message {
-	out := make([]llm.Message, 0, len(msgs))
-	for _, m := range msgs {
-		out = append(out, toLLMMessage(m))
-	}
-	return out
 }
 
 func toLLMMessage(m memory.Message) llm.Message {

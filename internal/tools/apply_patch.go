@@ -122,10 +122,10 @@ func (t *ApplyPatchTool) Execute(ctx context.Context, tc ToolContext, args json.
 }
 
 type PatchOperation struct {
-	Type     string   // "add", "update", "delete"
-	Path     string   // relative or absolute path
-	MoveTo   string   // new path for rename (update only)
-	Lines    []string // file content (add) or diff lines (update)
+	Type   string   // "add", "update", "delete"
+	Path   string   // relative or absolute path
+	MoveTo string   // new path for rename (update only)
+	Lines  []string // file content (add) or diff lines (update)
 }
 
 func parsePatch(patch string) ([]PatchOperation, error) {
@@ -211,7 +211,7 @@ func (t *ApplyPatchTool) applyOperation(ctx context.Context, tc ToolContext, wor
 	// Resolve path
 
 	// Check if path is allowed
-	allowedPath, _, err := t.fs.resolvePathWithApproval(ctx, tc, "apply_patch", workdir, op.Path, true)
+	allowedPath, err := t.fs.resolvePath(workdir, op.Path, true)
 	if err != nil {
 		return "", err
 	}
@@ -243,7 +243,7 @@ func (t *ApplyPatchTool) addFile(ctx context.Context, tc ToolContext, path strin
 	// Write file content
 	content := strings.Join(op.Lines, "\n")
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "apply_patch", path, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "apply_patch", path, err)
 		return "", fmt.Errorf("failed to create file: %w", err)
 	}
 
@@ -262,7 +262,7 @@ func (t *ApplyPatchTool) deleteFile(ctx context.Context, tc ToolContext, path st
 
 	// Delete file
 	if err := os.Remove(path); err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "apply_patch", path, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "apply_patch", path, err)
 		return "", fmt.Errorf("failed to delete file: %w", err)
 	}
 
@@ -307,7 +307,7 @@ func (t *ApplyPatchTool) updateFile(ctx context.Context, tc ToolContext, path st
 
 	// Write updated content
 	if err := os.WriteFile(targetPath, []byte(newContent), 0644); err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "apply_patch", path, true, err)
+		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "apply_patch", path, err)
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -320,8 +320,8 @@ func (t *ApplyPatchTool) updateFile(ctx context.Context, tc ToolContext, path st
 
 	t.fs.auditOK(ctx, tc.SessionID, tc.UserID, "apply_patch", path, map[string]any{
 		"operation": "update",
-		"renamed":    op.MoveTo != "",
-		"new_path":   targetPath,
+		"renamed":   op.MoveTo != "",
+		"new_path":  targetPath,
 	})
 
 	if op.MoveTo != "" {

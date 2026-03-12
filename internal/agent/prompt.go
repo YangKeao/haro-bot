@@ -44,10 +44,6 @@ func (b *DefaultPromptBuilder) Interrupt(ctx context.Context, memories []memory.
 	return buildInterruptPrompt(ctx, b.gl, memories, format)
 }
 
-func (b *DefaultPromptBuilder) Skill(skill skills.Skill) string {
-	return buildSkillPrompt(skill)
-}
-
 func buildPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.MemoryItem, skillsList []skills.Metadata, format string, includeSkills bool) string {
 	var b strings.Builder
 	format = strings.ToLower(strings.TrimSpace(format))
@@ -99,20 +95,6 @@ func buildPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.Mem
 	if len(skillsList) > 0 {
 		b.WriteString("To use a skill, call the tool activate_skill with {name, goal}. Only activate when a skill is necessary.\n")
 	}
-	return b.String()
-}
-
-func buildSkillPrompt(skill skills.Skill) string {
-	var b strings.Builder
-	path := skillLocation(skill.Metadata.Dir)
-	if path == "" {
-		path = filepath.Join(skill.Metadata.Dir, "SKILL.md")
-	}
-	b.WriteString("<skill>\n")
-	b.WriteString(fmt.Sprintf("<name>%s</name>\n", xmlEscape(skill.Metadata.Name)))
-	b.WriteString(fmt.Sprintf("<path>%s</path>\n", xmlEscape(path)))
-	b.WriteString(skill.Instructions)
-	b.WriteString("\n</skill>")
 	return b.String()
 }
 

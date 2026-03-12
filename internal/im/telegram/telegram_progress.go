@@ -31,7 +31,7 @@ const (
 	maxToolRawRunes       = 160
 	// Rate limit for Telegram draft messages: 2 messages per second
 	telegramDraftRateLimit = 2
-	telegramDraftBurst      = 2
+	telegramDraftBurst     = 2
 )
 
 var (
@@ -66,13 +66,21 @@ func newTelegramProgress(b *bot.Bot, chatID int64, threadID int, businessConnect
 	}
 }
 
+func (p *telegramProgress) Name() string {
+	return "telegram_draft"
+}
+
+func (p *telegramProgress) Priority() int {
+	return 300
+}
+
 // getRateLimiter returns the rate limiter for a bot instance.
 // Each bot instance shares the same rate limiter across all sessions.
 func getRateLimiter(b *bot.Bot) *rate.Limiter {
 	if limiter, ok := globalRateLimiters.Load(b); ok {
 		return limiter.(*rate.Limiter)
 	}
-	
+
 	// Create a new rate limiter: 2 messages per second, burst of 2
 	limiter := rate.NewLimiter(rate.Limit(telegramDraftRateLimit), telegramDraftBurst)
 	actual, _ := globalRateLimiters.LoadOrStore(b, limiter)
@@ -97,31 +105,26 @@ func (p *telegramProgress) Stop() {
 	}
 }
 
-func (p *telegramProgress) OnLLMStart(ctx context.Context, _ agent.LLMStartInfo) {
+func (p *telegramProgress) OnLLMStart(ctx context.Context, _ *agent.TurnState, _ agent.LLMStartInfo) error {
 	p.ensureTyping(ctx)
 	p.resetStream()
+	return nil
 }
 
-func (p *telegramProgress) OnLLMStreamDelta(ctx context.Context, delta string) {
-	if p == nil || delta == "" {
-		return
+func (p *telegramProgress) OnLLMDelta(ctx context.Context, _ *agent.TurnState, event llm.StreamEvent) error {
+	if p == nil {
+		return nil
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	p.streamText += delta
-	p.maybeSendDraftLocked(ctx)
-}
-
-func (p *telegramProgress) OnLLMReasoningDelta(ctx context.Context, delta string) {
-	if p == nil || delta == "" {
-		return
+	if event.Delta != "" {
+		p.streamText += event.Delta
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.reasoningText += delta
+	if event.ReasoningDelta != "" {
+		p.reasoningText += event.ReasoningDelta
+	}
 	p.maybeSendDraftLocked(ctx)
+	return nil
 }
 
 // maybeSendDraftLocked sends a draft if enough time or content has accumulated.
@@ -139,18 +142,18 @@ func (p *telegramProgress) maybeSendDraftLocked(ctx context.Context) {
 	if currentBytes <= lastSent {
 		return
 	}
-	
+
 	// Check rate limit - if limited, skip this draft (non-blocking)
 	if !p.allowRateLimit() {
 		p.log.Debug("draft rate limited, skipping")
 		return
 	}
-	
+
 	if err := p.sendDraftOnce(ctx, baseID, text); err != nil {
 		p.log.Debug("send draft failed", zap.Error(err))
 		return
 	}
-	
+
 	p.lastSentBytes = currentBytes
 	p.lastDraftSent = time.Now()
 }
@@ -185,33 +188,39 @@ func escapeMarkdown(text string) string {
 	return result
 }
 
-func (p *telegramProgress) OnToolCalls(ctx context.Context, calls []llm.ToolCall, content string) {
-	if p == nil || len(calls) == 0 {
-		return
+func (p *telegramProgress) OnToolCalls(ctx context.Context, _ *agent.TurnState, msg llm.Message) error {
+	if p == nil || len(msg.ToolCalls) == 0 {
+		return nil
 	}
-	toolText := formatToolCalls(calls)
+	toolText := formatToolCalls(msg.ToolCalls)
 	if toolText == "" {
-		return
+		return nil
 	}
 	// Prepend message content if present
 	text := toolText
-	if content = strings.TrimSpace(content); content != "" {
+	if content := strings.TrimSpace(msg.Content); content != "" {
 		text = content + "\n\n" + toolText
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	baseID := p.currentDraftBaseLocked()
-	
+
 	// Check rate limit - if limited, skip this draft (non-blocking)
 	if !p.allowRateLimit() {
 		p.log.Debug("draft rate limited, skipping")
-		return
+		return nil
 	}
-	
+
 	if err := p.sendDraftOnce(ctx, baseID, text); err != nil {
 		p.log.Debug("send draft failed", zap.Error(err))
 	}
+	return nil
+}
+
+func (p *telegramProgress) OnFinalOutput(ctx context.Context, _ *agent.TurnState, _ string) error {
+	p.ClearDraft(ctx)
+	return nil
 }
 
 // ClearDraft clears the draft message by sending an empty draft with the same draftId.

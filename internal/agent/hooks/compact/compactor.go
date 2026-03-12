@@ -1,4 +1,4 @@
-package agent
+package compact
 
 import (
 	"context"
@@ -12,27 +12,21 @@ import (
 )
 
 const (
-	// compactThreshold is the ratio of context usage that triggers auto-compaction
-	compactThreshold = 0.85
-	// compactMinMessages is the minimum number of messages before compaction is considered
-	compactMinMessages = 6
-	// summaryReserveTokens is the token budget reserved for the summary output
+	compactThreshold     = 0.85
+	compactMinMessages   = 6
 	summaryReserveTokens = 2000
-	// compactRetryScale is the scale factor for trimming before retrying compact
-	compactRetryScale = 0.7
+	compactRetryScale    = 0.7
 )
 
-// Compactor handles automatic context compaction by generating LLM summaries.
-type Compactor struct {
+type compactor struct {
 	store     memory.StoreAPI
 	llm       llm.ChatModel
 	estimator *llm.TokenEstimator
 	model     string
 }
 
-// NewCompactor creates a compactor for automatic context summarization.
-func NewCompactor(store memory.StoreAPI, llmClient llm.ChatModel, estimator *llm.TokenEstimator, model string) *Compactor {
-	return &Compactor{
+func newCompactor(store memory.StoreAPI, llmClient llm.ChatModel, estimator *llm.TokenEstimator, model string) *compactor {
+	return &compactor{
 		store:     store,
 		llm:       llmClient,
 		estimator: estimator,
@@ -40,8 +34,7 @@ func NewCompactor(store memory.StoreAPI, llmClient llm.ChatModel, estimator *llm
 	}
 }
 
-// ShouldCompact returns true if the context usage exceeds the threshold.
-func (c *Compactor) ShouldCompact(messages []llm.Message, budget int) bool {
+func (c *compactor) shouldCompact(messages []llm.Message, budget int) bool {
 	if len(messages) < compactMinMessages || budget <= 0 || c.estimator == nil {
 		return false
 	}
@@ -50,11 +43,7 @@ func (c *Compactor) ShouldCompact(messages []llm.Message, budget int) bool {
 	return ratio >= compactThreshold
 }
 
-// Compact generates a summary of messages and stores it, returning the summary.
-// It preserves system messages and recent user messages while summarizing the conversation.
-// If the summary request exceeds the context window, it will retry with progressively
-// smaller message sets until there are no more user messages to summarize.
-func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm.Message, budget int, cutoffEntryID int64) (*memory.Summary, error) {
+func (c *compactor) compact(ctx context.Context, sessionID int64, messages []llm.Message, budget int, cutoffEntryID int64) (*memory.Summary, error) {
 	log := logging.L().Named("compactor")
 	if c.llm == nil || c.store == nil {
 		return nil, fmt.Errorf("compactor not configured")
@@ -63,7 +52,6 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 		return nil, fmt.Errorf("cutoff entry id required")
 	}
 
-	// Separate system messages and conversation
 	var conversation []llm.Message
 	for _, msg := range messages {
 		if msg.Role != "system" {
@@ -71,7 +59,6 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 		}
 	}
 
-	// Reserve tokens for the summary output
 	availableBudget := budget - summaryReserveTokens
 	if availableBudget < 1000 {
 		availableBudget = 1000
@@ -81,14 +68,12 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 	attempt := 0
 
 	for {
-		// Trim the conversation to fit in budget for the summary request
 		var toSummarize []llm.Message
 		if c.estimator != nil {
 			scaledBudget := int(float64(availableBudget) * scale)
 			if scaledBudget < 500 {
 				scaledBudget = 500
 			}
-			// Estimate prompt template overhead
 			templateOverhead := 200
 			targetTokens := scaledBudget - templateOverhead
 			if targetTokens < 300 {
@@ -99,8 +84,6 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 			toSummarize = conversation
 		}
 
-		// If there are no messages to summarize, create an empty summary
-		// This means all user messages have been cleared, and only system prompt remains
 		if len(toSummarize) == 0 {
 			log.Info("no messages left to summarize, creating empty summary",
 				zap.Int64("session_id", sessionID),
@@ -112,14 +95,10 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 				Phase:     "auto-compact",
 				EntryID:   cutoffEntryID,
 			}
-
-			// Store the summary
-			_, err := c.store.AppendSummary(ctx, sessionID, *summary)
-			if err != nil {
+			if _, err := c.store.AppendSummary(ctx, sessionID, *summary); err != nil {
 				log.Error("failed to store summary", zap.Error(err))
 				return nil, err
 			}
-
 			return summary, nil
 		}
 
@@ -133,7 +112,6 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 			zap.Int("messages", len(toSummarize)),
 		)
 
-		// Call LLM to generate summary
 		resp, err := c.llm.Chat(ctx, llm.ChatRequest{
 			Model:    c.model,
 			Messages: summaryReq,
@@ -152,7 +130,6 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 				attempt++
 				continue
 			}
-			// Other errors (e.g., API error, rate limit) - return immediately
 			log.Error("summary generation failed", zap.Error(err))
 			return nil, err
 		}
@@ -167,10 +144,7 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 			Phase:     "auto-compact",
 			EntryID:   cutoffEntryID,
 		}
-
-		// Store the summary
-		_, err = c.store.AppendSummary(ctx, sessionID, *summary)
-		if err != nil {
+		if _, err := c.store.AppendSummary(ctx, sessionID, *summary); err != nil {
 			log.Error("failed to store summary", zap.Error(err))
 			return nil, err
 		}
@@ -181,12 +155,10 @@ func (c *Compactor) Compact(ctx context.Context, sessionID int64, messages []llm
 			zap.Int("summarized_messages", len(toSummarize)),
 			zap.Int("attempts", attempt+1),
 		)
-
 		return summary, nil
 	}
 }
 
-// buildCompactPrompt creates the summarization prompt for a general-purpose agent.
 func buildCompactPrompt(messages []llm.Message) string {
 	var b strings.Builder
 	b.WriteString("You are performing a CONTEXT CHECKPOINT COMPACTION for a conversation assistant.\n\n")
@@ -234,4 +206,84 @@ func buildCompactPrompt(messages []llm.Message) string {
 	b.WriteString("Summary:")
 
 	return b.String()
+}
+
+func selectLLMMessagesByTokens(messages []llm.Message, estimator *llm.TokenEstimator, budget int) []llm.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	if estimator == nil || budget <= 0 {
+		return messages
+	}
+	requiredToolCalls := map[string]struct{}{}
+	selected := make([]llm.Message, 0, len(messages))
+	used := 0
+	includedAny := false
+	seenTool := false
+	log := logging.L().Named("context_trim")
+
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		mustInclude := false
+		if msg.Role == "tool" && msg.ToolCallID == "" {
+			continue
+		}
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			paired := make([]llm.ToolCall, 0, len(msg.ToolCalls))
+			for _, call := range msg.ToolCalls {
+				if call.ID == "" {
+					continue
+				}
+				if _, ok := requiredToolCalls[call.ID]; ok {
+					paired = append(paired, call)
+					delete(requiredToolCalls, call.ID)
+				}
+			}
+			if len(paired) == 0 && msg.Content == "" {
+				continue
+			}
+			if len(paired) == 0 {
+				msg.ToolCalls = nil
+			} else {
+				msg.ToolCalls = paired
+				mustInclude = true
+			}
+		}
+		firstTool := msg.Role == "tool" && !seenTool
+		if msg.Role == "tool" {
+			seenTool = true
+		}
+		if !includedAny && msg.Role != "tool" {
+			mustInclude = true
+		}
+
+		tokens := estimator.CountMessage(msg)
+		if firstTool && tokens > budget {
+			originalTokens := tokens
+			msg = llm.Message{
+				Role:       "tool",
+				ToolCallID: msg.ToolCallID,
+				Content:    "tool response omitted: output too large for context window",
+			}
+			tokens = estimator.CountMessage(msg)
+			log.Debug("rewrote oversized tool response", zap.String("tool_call_id", msg.ToolCallID), zap.Int("original_tokens", originalTokens), zap.Int("rewritten_tokens", tokens), zap.Int("budget", budget))
+		}
+		if mustInclude || used+tokens <= budget {
+			used += tokens
+			selected = append(selected, msg)
+			includedAny = true
+			if msg.Role == "tool" && msg.ToolCallID != "" {
+				requiredToolCalls[msg.ToolCallID] = struct{}{}
+			}
+			continue
+		}
+		if len(requiredToolCalls) == 0 {
+			break
+		}
+	}
+
+	for i, j := 0, len(selected)-1; i < j; i, j = i+1, j-1 {
+		selected[i], selected[j] = selected[j], selected[i]
+	}
+	return selected
 }

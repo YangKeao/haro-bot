@@ -15,7 +15,6 @@ type ConversationStore = memory.StoreAPI
 type PromptBuilder interface {
 	System(ctx context.Context, memories []memory.MemoryItem, skillsList []skills.Metadata, format string) string
 	Interrupt(ctx context.Context, memories []memory.MemoryItem, format string) string
-	Skill(skill skills.Skill) string
 }
 
 type ToolRunner interface {

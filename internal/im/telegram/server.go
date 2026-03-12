@@ -7,7 +7,6 @@ import (
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
-	"github.com/YangKeao/haro-bot/internal/tools"
 	"github.com/go-telegram/bot"
 )
 
@@ -19,20 +18,15 @@ type Server struct {
 	telegram *bot.Bot
 
 	telegramSessions *telegramSessionRegistry
-	toolApprovals    *toolApprovalManager
-	auditModel       *auditModel
-	memoryEngine     *memory.Engine
 }
 
-func New(cfg config.Config, agent *agent.Agent, store memory.StoreAPI, skillsMgr *skills.Manager, memoryEngine *memory.Engine) *Server {
+func New(cfg config.Config, agent *agent.Agent, store memory.StoreAPI, skillsMgr *skills.Manager) *Server {
 	return &Server{
 		cfg:              cfg,
 		agent:            agent,
 		store:            store,
 		skills:           skillsMgr,
 		telegramSessions: newTelegramSessionRegistry(),
-		toolApprovals:    newToolApprovalManager(),
-		memoryEngine:     memoryEngine,
 	}
 }
 
@@ -44,13 +38,6 @@ func (s *Server) Start(ctx context.Context) {
 }
 
 func (s *Server) SessionMessenger() agent.SessionMessenger {
-	if s == nil {
-		return nil
-	}
-	return s
-}
-
-func (s *Server) Approver() tools.Approver {
 	if s == nil {
 		return nil
 	}

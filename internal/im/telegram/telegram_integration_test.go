@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
+	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/hooks/defaults"
 	"github.com/YangKeao/haro-bot/internal/config"
 	dbmodel "github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
@@ -73,6 +74,7 @@ func TestTelegramHandlerSendsMessage(t *testing.T) {
 	registry := tools.NewRegistry()
 	llmClient, model := testutil.NewLLMClientFromEnv(t)
 	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, t.TempDir(), 4, llmClient, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetHooks(agentdefaults.New(store, nil, llmClient, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	srv := New(config.Config{}, agentSvc, store, skillsMgr, nil)
 

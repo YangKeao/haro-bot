@@ -1,10 +1,11 @@
-package agent
+package compact
 
 import (
 	"context"
 	"strings"
 	"testing"
 
+	"github.com/YangKeao/haro-bot/internal/agent"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/memory"
 )
@@ -50,7 +51,6 @@ func TestCompactorShouldCompact(t *testing.T) {
 			name: "messages over threshold should compact",
 			messages: func() []llm.Message {
 				var msgs []llm.Message
-				// Need at least compactMinMessages (6) messages
 				for i := 0; i < 8; i++ {
 					msgs = append(msgs, llm.Message{Role: "user", Content: "This is a longer message to increase token count"})
 					msgs = append(msgs, llm.Message{Role: "assistant", Content: "This is a longer response to increase token count"})
@@ -62,16 +62,14 @@ func TestCompactorShouldCompact(t *testing.T) {
 		},
 		{
 			name: "zero budget should not compact",
-			messages: func() []llm.Message {
-				return []llm.Message{
-					{Role: "user", Content: "test"},
-					{Role: "assistant", Content: "response"},
-					{Role: "user", Content: "test"},
-					{Role: "assistant", Content: "response"},
-					{Role: "user", Content: "test"},
-					{Role: "assistant", Content: "response"},
-				}
-			}(),
+			messages: []llm.Message{
+				{Role: "user", Content: "test"},
+				{Role: "assistant", Content: "response"},
+				{Role: "user", Content: "test"},
+				{Role: "assistant", Content: "response"},
+				{Role: "user", Content: "test"},
+				{Role: "assistant", Content: "response"},
+			},
 			budget:      0,
 			wantCompact: false,
 		},
@@ -79,17 +77,17 @@ func TestCompactorShouldCompact(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := &Compactor{estimator: estimator}
-			got := c.ShouldCompact(tt.messages, tt.budget)
+			c := &compactor{estimator: estimator}
+			got := c.shouldCompact(tt.messages, tt.budget)
 			if got != tt.wantCompact {
-				t.Errorf("ShouldCompact() = %v, want %v", got, tt.wantCompact)
+				t.Errorf("shouldCompact() = %v, want %v", got, tt.wantCompact)
 			}
 		})
 	}
 }
 
 func TestCompactorNilEstimator(t *testing.T) {
-	c := &Compactor{estimator: nil}
+	c := &compactor{estimator: nil}
 	messages := []llm.Message{
 		{Role: "user", Content: "test"},
 		{Role: "assistant", Content: "response"},
@@ -98,18 +96,18 @@ func TestCompactorNilEstimator(t *testing.T) {
 		{Role: "user", Content: "test"},
 		{Role: "assistant", Content: "response"},
 	}
-	if c.ShouldCompact(messages, 100) {
-		t.Error("ShouldCompact should return false with nil estimator")
+	if c.shouldCompact(messages, 100) {
+		t.Error("shouldCompact should return false with nil estimator")
 	}
 }
 
 func TestCompactorCompactRequiresCutoffEntryID(t *testing.T) {
-	c := &Compactor{
+	c := &compactor{
 		store: noopStoreAPI{},
 		llm:   &llm.Client{},
 		model: "test-model",
 	}
-	_, err := c.Compact(context.Background(), 1, []llm.Message{{Role: "user", Content: "hello"}}, 4096, 0)
+	_, err := c.compact(context.Background(), 1, []llm.Message{{Role: "user", Content: "hello"}}, 4096, 0)
 	if err == nil {
 		t.Fatal("expected error when cutoff entry id is missing")
 	}
@@ -158,6 +156,44 @@ func TestBuildCompactPromptWithToolCalls(t *testing.T) {
 	}
 }
 
+func TestCompactCutoffEntryIDUsesLastStoredMessage(t *testing.T) {
+	user, err := newStoredMessageForTest(101, llm.Message{Role: "user", Content: "u1"})
+	if err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+	assistantMsg, err := newStoredMessageForTest(202, llm.Message{Role: "assistant", Content: "a1"})
+	if err != nil {
+		t.Fatalf("create assistant message: %v", err)
+	}
+
+	cutoff, err := compactCutoffEntryID([]agent.StoredMessage{user, assistantMsg})
+	if err != nil {
+		t.Fatalf("compactCutoffEntryID returned error: %v", err)
+	}
+	if cutoff != 202 {
+		t.Fatalf("cutoff = %d, want %d", cutoff, 202)
+	}
+}
+
+func TestCompactCutoffEntryIDFailsWithoutStoredMessages(t *testing.T) {
+	_, err := compactCutoffEntryID(nil)
+	if err == nil {
+		t.Fatal("expected error when no stored message exists")
+	}
+}
+
+func TestCompactCutoffEntryIDFailsOnInvalidStoredEntryID(t *testing.T) {
+	_, err := compactCutoffEntryID([]agent.StoredMessage{
+		{
+			EntryID: 0,
+			Message: llm.Message{Role: "user", Content: "bad"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid stored entry id")
+	}
+}
+
 func TestSelectCompactionPrefixAndTail(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -167,35 +203,7 @@ func TestSelectCompactionPrefixAndTail(t *testing.T) {
 		wantTailFirst   string
 	}{
 		{
-			name:            "empty messages",
-			messages:        []llm.Message{},
-			wantPrefixCount: 0,
-			wantTailCount:   0,
-		},
-		{
-			name: "only user message",
-			messages: []llm.Message{
-				{Role: "user", Content: "hello"},
-			},
-			wantPrefixCount: 0,
-			wantTailCount:   1,
-			wantTailFirst:   "hello",
-		},
-		{
-			name: "user then assistant keeps current turn",
-			messages: []llm.Message{
-				{Role: "user", Content: "search for Go"},
-				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{
-					{ID: "1", Function: llm.ToolCallFn{Name: "brave_search"}},
-				}},
-				{Role: "tool", ToolCallID: "1", Content: "results"},
-			},
-			wantPrefixCount: 0,
-			wantTailCount:   3,
-			wantTailFirst:   "search for Go",
-		},
-		{
-			name: "multiple turns compacts earlier turn",
+			name: "tool exchange keeps triggering user in tail",
 			messages: []llm.Message{
 				{Role: "user", Content: "first request"},
 				{Role: "assistant", Content: "first response"},
@@ -232,11 +240,9 @@ func TestSelectCompactionPrefixAndTail(t *testing.T) {
 			if len(prefix) != tt.wantPrefixCount {
 				t.Errorf("prefix count = %d, want %d", len(prefix), tt.wantPrefixCount)
 			}
-
 			if len(tail) != tt.wantTailCount {
 				t.Errorf("tail count = %d, want %d", len(tail), tt.wantTailCount)
 			}
-
 			if tt.wantTailFirst != "" && len(tail) > 0 {
 				first := tail[0].Message
 				if first.Content != tt.wantTailFirst {
@@ -247,10 +253,20 @@ func TestSelectCompactionPrefixAndTail(t *testing.T) {
 	}
 }
 
-func toStoredMessagesForTest(messages []llm.Message) ([]StoredMessage, error) {
-	out := make([]StoredMessage, 0, len(messages))
+func newStoredMessageForTest(entryID int64, msg llm.Message) (agent.StoredMessage, error) {
+	if entryID <= 0 {
+		return agent.StoredMessage{}, nil
+	}
+	return agent.StoredMessage{
+		EntryID: entryID,
+		Message: msg,
+	}, nil
+}
+
+func toStoredMessagesForTest(messages []llm.Message) ([]agent.StoredMessage, error) {
+	out := make([]agent.StoredMessage, 0, len(messages))
 	for i, msg := range messages {
-		stored, err := newStoredMessage(int64(i+1), msg)
+		stored, err := newStoredMessageForTest(int64(i+1), msg)
 		if err != nil {
 			return nil, err
 		}

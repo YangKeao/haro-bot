@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
+	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/hooks/defaults"
 	dbmodel "github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
@@ -46,6 +47,7 @@ func TestE2EAgentReadFileToolFlow(t *testing.T) {
 
 	client, model := testutil.NewLLMClientFromEnv(t)
 	agentSvc := agent.New(store, nil, skillsMgr, registry, guidelinesMgr, rootDir, 12, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc.SetHooks(agentdefaults.New(store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9101")
@@ -141,6 +143,7 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
 		llm.ContextConfig{},
 	)
+	agentSvc.SetHooks(agentdefaults.New(store, memEngine, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9102")

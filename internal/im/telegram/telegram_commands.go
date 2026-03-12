@@ -17,9 +17,9 @@ import (
 )
 
 const telegramMessageLimit = 4096
+
 // Reserve some space for message prefix (e.g., "🧵 Goroutines (1/10)\n\n")
 const telegramMessageReserve = 100
-
 
 func (s *Server) handleTelegramCommand(ctx context.Context, b *bot.Bot, update *models.Update, uid int64, sessionID int64) bool {
 	if update.Message == nil || update.Message.Text == "" {
@@ -70,7 +70,7 @@ func (s *Server) handleStatusCommand(ctx context.Context, b *bot.Bot, update *mo
 	}
 
 	status := s.agent.GetSessionStatus(sessionID)
-	
+
 	var statusText string
 	switch status.State {
 	case agent.StateIdle:
@@ -81,9 +81,6 @@ func (s *Server) handleStatusCommand(ctx context.Context, b *bot.Bot, update *mo
 	case agent.StateRunningTools:
 		elapsed := time.Since(status.StartTime)
 		statusText = fmt.Sprintf("🔧 Running tool: %s\n⏱ Elapsed: %s", status.CurrentTool, formatDuration(elapsed))
-	case agent.StateWaitingForApproval:
-		elapsed := time.Since(status.StartTime)
-		statusText = fmt.Sprintf("⏸ Waiting for approval\n📋 %s\n⏱ Elapsed: %s", status.Message, formatDuration(elapsed))
 	default:
 		statusText = fmt.Sprintf("❓ Unknown state: %s", status.State)
 	}
@@ -120,8 +117,7 @@ func (s *Server) handleHelpCommand(ctx context.Context, b *bot.Bot, update *mode
 📊 Status States
 🟢 Idle — Ready to receive input
 🟡 Waiting for LLM — LLM is generating response
-🔧 Running tools — Executing tool operations
-⏸ Waiting for approval — Awaiting user confirmation`
+🔧 Running tools — Executing tool operations`
 
 	params := &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
@@ -154,7 +150,7 @@ func (s *Server) handleGoroutinesCommand(ctx context.Context, b *bot.Bot, update
 	}
 
 	content := buf.String()
-	
+
 	// Send in multiple messages if content exceeds limit
 	chunks := splitMessage(content, telegramMessageLimit-telegramMessageReserve)
 	for i, chunk := range chunks {
