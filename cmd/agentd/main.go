@@ -72,17 +72,8 @@ func main() {
 	auditStore := tools.NewAuditStore(dbConn)
 	fsTools := tools.NewFS(cfg.FSAllowedRoots, auditStore, *unrestricted)
 
-	browserMgr := tools.NewBrowserManager()
 	execMgr := tools.NewExecManager()
 	toolRegistry := tools.NewRegistry(
-		tools.NewBrowserGotoTool(browserMgr),
-		tools.NewBrowserGoBackTool(browserMgr),
-		tools.NewBrowserGetPageStateTool(browserMgr),
-		tools.NewBrowserTakeScreenshotTool(browserMgr),
-		tools.NewBrowserClickTool(browserMgr),
-		tools.NewBrowserFillTextTool(browserMgr),
-		tools.NewBrowserPressKeyTool(browserMgr),
-		tools.NewBrowserScrollTool(browserMgr),
 		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
 		tools.NewSessionSummaryTool(store),
 		tools.NewMemorySearchTool(store),

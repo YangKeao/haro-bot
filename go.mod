@@ -9,7 +9,6 @@ require (
 	github.com/openai/openai-go v1.12.0
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pkoukk/tiktoken-go v0.1.8
-	github.com/playwright-community/playwright-go v0.5700.1
 	go.uber.org/zap v1.27.1
 	golang.org/x/time v0.5.0
 	gopkg.in/yaml.v3 v3.0.1
