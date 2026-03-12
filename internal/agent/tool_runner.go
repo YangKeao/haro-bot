@@ -14,21 +14,23 @@ import (
 )
 
 type DefaultToolRunner struct {
-	registry *tools.Registry
-	store    ConversationStore
-	skills   *skills.Manager
-	prompts  PromptBuilder
+	registry  *tools.Registry
+	store     ConversationStore
+	skills    *skills.Manager
+	prompts   PromptBuilder
+	estimator *llm.TokenEstimator
 }
 
-func NewToolRunner(registry *tools.Registry, store ConversationStore, skillsMgr *skills.Manager, prompts PromptBuilder) *DefaultToolRunner {
+func NewToolRunner(registry *tools.Registry, store ConversationStore, skillsMgr *skills.Manager, prompts PromptBuilder, estimator *llm.TokenEstimator) *DefaultToolRunner {
 	if prompts == nil {
 		prompts = NewDefaultPromptBuilder(nil)
 	}
 	return &DefaultToolRunner{
-		registry: registry,
-		store:    store,
-		skills:   skillsMgr,
-		prompts:  prompts,
+		registry:  registry,
+		store:     store,
+		skills:    skillsMgr,
+		prompts:   prompts,
+		estimator: estimator,
 	}
 }
 
@@ -93,6 +95,16 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 			log.Warn("tool error", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID), zap.Error(err))
 		} else {
 			log.Debug("tool ok", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID))
+		}
+		truncated := truncateToolOutputForModel(r.estimator, output)
+		if truncated != output {
+			log.Debug("tool output truncated",
+				zap.String("tool", call.Function.Name),
+				zap.Int64("session_id", sessionID),
+				zap.Int("original_tokens", r.estimator.CountTokens(output)),
+				zap.Int("truncated_tokens", r.estimator.CountTokens(truncated)),
+			)
+			output = truncated
 		}
 		toolMsg := llm.Message{Role: "tool", ToolCallID: call.ID, Content: output}
 		entryID, err := r.store.AddMessageAndGetID(ctx, sessionID, "tool", output, &memory.MessageMetadata{

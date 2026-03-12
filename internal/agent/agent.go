@@ -39,8 +39,8 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 		maxToolTurns = 1024
 	}
 	promptBuilder := NewDefaultPromptBuilder(guidelinesMgr)
-	toolRunner := NewToolRunner(toolRegistry, store, skills, promptBuilder)
 	estimator, _ := llm.NewTokenEstimator(model)
+	toolRunner := NewToolRunner(toolRegistry, store, skills, promptBuilder, estimator)
 	stateMgr := newSessionStateManager()
 	deps := &sessionDeps{
 		store:          store,
