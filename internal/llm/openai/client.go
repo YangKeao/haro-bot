@@ -22,6 +22,8 @@ type openAIChatModel struct {
 	client  *openaisdk.Client
 }
 
+const maxEmptyResponseAttempts = 3
+
 type clientOptions struct {
 	httpDebug       bool
 	httpDebugMaxBod int64
@@ -113,40 +115,69 @@ func (c *openAIChatModel) Chat(ctx context.Context, req llm.ChatRequest) (llm.Ch
 			IncludeUsage: openaisdk.Bool(true),
 		}
 	}
-	log.Debug("chat completions request",
-		zap.String("base_url", c.baseURL),
-		zap.String("model", req.Model),
-		zap.Int("messages", len(req.Messages)),
-		zap.Int("input_items", len(input)),
-		zap.Int("tools", len(tools)),
-		zap.Bool("stream", forceStream),
-	)
+	for attempt := 1; attempt <= maxEmptyResponseAttempts; attempt++ {
+		log.Debug("chat completions request",
+			zap.String("base_url", c.baseURL),
+			zap.String("model", req.Model),
+			zap.Int("messages", len(req.Messages)),
+			zap.Int("input_items", len(input)),
+			zap.Int("tools", len(tools)),
+			zap.Bool("stream", forceStream),
+			zap.Int("attempt", attempt),
+		)
 
-	result, err := streamChatCompletion(ctx, c.client, params, req.StreamHandler)
-	if err != nil {
-		if norm := normalizeChatCompletionError(err, nil); norm != nil {
+		result, err := streamChatCompletion(ctx, c.client, params, req.StreamHandler)
+		if err != nil {
+			if norm := normalizeChatCompletionError(err, nil); norm != nil {
+				return out, norm
+			}
+			log.Error("chat completions stream error", zap.Duration("latency", time.Since(start)), zap.Int("attempt", attempt), zap.Error(err))
+			return out, err
+		}
+		if norm := normalizeChatCompletionError(nil, result.completion); norm != nil {
 			return out, norm
 		}
-		log.Error("chat completions stream error", zap.Duration("latency", time.Since(start)), zap.Error(err))
-		return out, err
+		out = chatCompletionToChat(result.completion, result.reasoningContent)
+		if !isEmptyChatResponse(out) {
+			log.Debug("chat completions response",
+				zap.Duration("latency", time.Since(start)),
+				zap.Int("attempt", attempt),
+				zap.Int("choices", len(out.Choices)),
+				zap.String("model", out.Model),
+				zap.Int64("prompt_tokens", out.Usage.PromptTokens),
+				zap.Int64("completion_tokens", out.Usage.CompletionTokens),
+				zap.Int64("total_tokens", out.Usage.TotalTokens),
+			)
+			return out, nil
+		}
+		if attempt == maxEmptyResponseAttempts || ctx.Err() != nil {
+			return out, errors.New("empty llm response")
+		}
+		log.Warn("chat completions returned empty response, retrying",
+			zap.Int("attempt", attempt),
+			zap.String("model", req.Model),
+			zap.Int("messages", len(req.Messages)),
+			zap.Int("tools", len(tools)),
+			zap.Int("reasoning_chars", len(result.reasoningContent)),
+			zap.String("finish_reason", firstFinishReason(result.completion)),
+		)
+		timer := time.NewTimer(time.Duration(attempt) * 200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return out, ctx.Err()
+		case <-timer.C:
+		}
 	}
-	if norm := normalizeChatCompletionError(nil, result.completion); norm != nil {
-		return out, norm
-	}
-	out = chatCompletionToChat(result.completion, result.reasoningContent)
-	if len(out.Choices) == 0 || (out.Choices[0].Message.Content == "" && len(out.Choices[0].Message.ToolCalls) == 0) {
-		return out, errors.New("empty llm response")
-	}
+	return out, errors.New("empty llm response")
+}
 
-	log.Debug("chat completions response",
-		zap.Duration("latency", time.Since(start)),
-		zap.Int("choices", len(out.Choices)),
-		zap.String("model", out.Model),
-		zap.Int64("prompt_tokens", out.Usage.PromptTokens),
-		zap.Int64("completion_tokens", out.Usage.CompletionTokens),
-		zap.Int64("total_tokens", out.Usage.TotalTokens),
-	)
-	return out, nil
+func isEmptyChatResponse(resp llm.ChatResponse) bool {
+	if len(resp.Choices) == 0 {
+		return true
+	}
+	msg := resp.Choices[0].Message
+	return strings.TrimSpace(msg.Content) == "" && len(msg.ToolCalls) == 0
 }
 
 func extraBodyForPurpose(purpose llm.RequestPurpose) map[string]any {
