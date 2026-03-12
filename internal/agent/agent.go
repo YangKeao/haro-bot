@@ -23,8 +23,8 @@ func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Regi
 	if maxToolTurns <= 0 {
 		maxToolTurns = 1024
 	}
-	toolRunner := NewToolRunner(toolRegistry, store, skills)
 	estimator, _ := llm.NewTokenEstimator(model)
+	toolRunner := NewToolRunner(toolRegistry, store, skills, estimator)
 	stateMgr := newSessionStateManager()
 	deps := &sessionDeps{
 		store:          store,

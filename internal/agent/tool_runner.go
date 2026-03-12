@@ -13,16 +13,18 @@ import (
 )
 
 type DefaultToolRunner struct {
-	registry *tools.Registry
-	store    memory.StoreAPI
-	skills   *skills.Manager
+	registry  *tools.Registry
+	store     memory.StoreAPI
+	skills    *skills.Manager
+	estimator *llm.TokenEstimator
 }
 
-func NewToolRunner(registry *tools.Registry, store memory.StoreAPI, skillsMgr *skills.Manager) *DefaultToolRunner {
+func NewToolRunner(registry *tools.Registry, store memory.StoreAPI, skillsMgr *skills.Manager, estimator *llm.TokenEstimator) *DefaultToolRunner {
 	return &DefaultToolRunner{
-		registry: registry,
-		store:    store,
-		skills:   skillsMgr,
+		registry:  registry,
+		store:     store,
+		skills:    skillsMgr,
+		estimator: estimator,
 	}
 }
 
@@ -70,6 +72,16 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 			log.Warn("tool error", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID), zap.Error(err))
 		} else {
 			log.Debug("tool ok", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID))
+		}
+		truncated := truncateToolOutputForModel(r.estimator, output)
+		if truncated != output {
+			log.Debug("tool output truncated",
+				zap.String("tool", call.Function.Name),
+				zap.Int64("session_id", sessionID),
+				zap.Int("original_tokens", r.estimator.CountTokens(output)),
+				zap.Int("truncated_tokens", r.estimator.CountTokens(truncated)),
+			)
+			output = truncated
 		}
 		toolMsg := llm.Message{Role: "tool", ToolCallID: call.ID, Content: output}
 		entryID, err := r.store.AddMessageAndGetID(ctx, sessionID, "tool", output, &memory.MessageMetadata{
