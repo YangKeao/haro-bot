@@ -14,7 +14,7 @@ import (
 )
 
 type Agent struct {
-	store          ConversationStore
+	store          memory.StoreAPI
 	skills         *skills.Manager
 	toolRegistry   *tools.Registry
 	toolRunner     ToolRunner
@@ -29,7 +29,7 @@ type Agent struct {
 	messenger      SessionMessenger
 }
 
-func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient llm.ChatModel, model string, promptFormat string, reasoning llm.ReasoningConfig, contextConfig llm.ContextConfig) *Agent {
+func New(store memory.StoreAPI, skills *skills.Manager, toolRegistry *tools.Registry, defaultBaseDir string, maxToolTurns int, llmClient llm.ChatModel, model string, promptFormat string, reasoning llm.ReasoningConfig) *Agent {
 	if maxToolTurns <= 0 {
 		maxToolTurns = 1024
 	}

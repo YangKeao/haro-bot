@@ -27,7 +27,7 @@ func TestAgentStoresAssistantResponse(t *testing.T) {
 	guidelinesMgr := guidelines.NewManager(gdb)
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()

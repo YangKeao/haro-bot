@@ -94,7 +94,7 @@ func main() {
 		tools.NewUpdateGuidelinesTool(guidelinesMgr),
 		tools.NewApplyPatchTool(fsTools),
 	)
-	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
+	llmClient := llm.NewOpenAIChatModel(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
 	contextCfg := llm.ContextConfig{
 		WindowTokens:                  cfg.LLMContextWindow,
 		AutoCompactTokenLimit:         cfg.LLMAutoCompactTokenLimit,
@@ -107,7 +107,6 @@ func main() {
 
 	agentSvc := agent.New(
 		store,
-		memoryEngine,
 		skillsMgr,
 		toolRegistry, fsTools.DefaultBase(),
 		cfg.ToolMaxTurns,
@@ -115,7 +114,6 @@ func main() {
 		cfg.LLMModel,
 		string(cfg.LLMPromptFormat),
 		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
-		contextCfg,
 	)
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memoryEngine, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
 	forkMgr := fork.NewManager(agentSvc, store)

@@ -52,7 +52,7 @@ func TestTelegramHandlerReadFileToolFlow(t *testing.T) {
 		tools.NewReadFileTool(fsTools),
 	)
 	llmClient, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, rootDir, 12, llmClient, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, skillsMgr, registry, rootDir, 12, llmClient, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, llmClient, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 	srv := New(config.Config{}, agentSvc, store, skillsMgr, nil)
 

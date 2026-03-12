@@ -9,16 +9,16 @@ import (
 	"testing"
 )
 
-func TestNewClient(t *testing.T) {
+func TestNewOpenAIChatModel(t *testing.T) {
 	t.Run("creates client with base URL and API key", func(t *testing.T) {
-		client := NewClient("https://api.example.com/v1", "test-key")
+		client := NewOpenAIChatModel("https://api.example.com/v1", "test-key")
 		if client == nil {
 			t.Fatal("expected non-nil client")
 		}
 	})
 
 	t.Run("applies options", func(t *testing.T) {
-		client := NewClient("https://api.example.com/v1", "test-key", WithHTTPDebug(true))
+		client := NewOpenAIChatModel("https://api.example.com/v1", "test-key", WithHTTPDebug(true))
 		if client == nil {
 			t.Fatal("expected non-nil client")
 		}
@@ -124,7 +124,7 @@ func TestChatRespectsCanceledContext(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClient(srv.URL+"/v1", "test-key")
+	client := NewOpenAIChatModel(srv.URL+"/v1", "test-key")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 

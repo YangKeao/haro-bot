@@ -14,11 +14,11 @@ import (
 
 type DefaultToolRunner struct {
 	registry *tools.Registry
-	store    ConversationStore
+	store    memory.StoreAPI
 	skills   *skills.Manager
 }
 
-func NewToolRunner(registry *tools.Registry, store ConversationStore, skillsMgr *skills.Manager) *DefaultToolRunner {
+func NewToolRunner(registry *tools.Registry, store memory.StoreAPI, skillsMgr *skills.Manager) *DefaultToolRunner {
 	return &DefaultToolRunner{
 		registry: registry,
 		store:    store,

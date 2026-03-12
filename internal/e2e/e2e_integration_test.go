@@ -31,7 +31,7 @@ func TestE2ESimpleConversation(t *testing.T) {
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
@@ -74,7 +74,7 @@ func TestE2EToolExecution(t *testing.T) {
 	// Register tools that the agent might use
 	registry.Register(tools.NewMemorySearchTool(store))
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
@@ -119,7 +119,7 @@ func TestE2ESessionInterrupt(t *testing.T) {
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
@@ -165,7 +165,7 @@ func TestE2EMultipleSessions(t *testing.T) {
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
@@ -214,7 +214,7 @@ func TestE2ESessionStatus(t *testing.T) {
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
@@ -272,7 +272,7 @@ func TestE2EContextAutoCompaction(t *testing.T) {
 		AutoCompactTokenLimit:         1000,
 		EffectiveContextWindowPercent: 80,
 	}
-	agentSvc := agent.New(store, nil, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{}, contextCfg)
+	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, contextCfg, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()

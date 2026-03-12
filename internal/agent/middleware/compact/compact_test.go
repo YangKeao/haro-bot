@@ -104,7 +104,7 @@ func TestCompactorNilEstimator(t *testing.T) {
 func TestCompactorCompactRequiresCutoffEntryID(t *testing.T) {
 	c := &compactor{
 		store: noopStoreAPI{},
-		llm:   &llm.Client{},
+		llm:   &llm.OpenAIChatModel{},
 		model: "test-model",
 	}
 	_, err := c.compact(context.Background(), 1, []llm.Message{{Role: "user", Content: "hello"}}, 4096, 0)

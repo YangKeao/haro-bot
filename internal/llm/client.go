@@ -22,9 +22,6 @@ type OpenAIChatModel struct {
 	client  *openai.Client
 }
 
-// Client is kept as a compatibility alias for the default OpenAI-compatible provider.
-type Client = OpenAIChatModel
-
 type clientOptions struct {
 	httpDebug       bool
 	httpDebugMaxBod int64
@@ -77,10 +74,6 @@ func NewOpenAIChatModel(baseURL, apiKey string, opts ...ClientOption) *OpenAICha
 		http:    httpClient,
 		client:  &c,
 	}
-}
-
-func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
-	return NewOpenAIChatModel(baseURL, apiKey, opts...)
 }
 
 func (c *OpenAIChatModel) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {

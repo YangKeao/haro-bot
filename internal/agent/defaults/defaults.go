@@ -12,7 +12,7 @@ import (
 	agentmemory "github.com/YangKeao/haro-bot/internal/memory"
 )
 
-func New(guidelinesMgr *guidelines.Manager, store agent.ConversationStore, memoryEngine *agentmemory.Engine, chatModel llm.ChatModel, contextConfig llm.ContextConfig, statusWriter agent.SessionStatusWriter) agent.MiddlewareSet {
+func New(guidelinesMgr *guidelines.Manager, store agentmemory.StoreAPI, memoryEngine *agentmemory.Engine, chatModel llm.ChatModel, contextConfig llm.ContextConfig, statusWriter agent.SessionStatusWriter) agent.MiddlewareSet {
 	middleware := statusmw.New(statusWriter)
 	middleware.RunMiddleware = append(middleware.RunMiddleware,
 		memorymw.New(memoryEngine),

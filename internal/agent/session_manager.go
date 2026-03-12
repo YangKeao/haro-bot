@@ -4,12 +4,13 @@ import (
 	"sync"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
+	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
 )
 
 type sessionDeps struct {
-	store          ConversationStore
+	store          memory.StoreAPI
 	skills         *skills.Manager
 	toolRegistry   *tools.Registry
 	toolRunner     ToolRunner

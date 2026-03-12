@@ -38,8 +38,8 @@ func LLMSettingsFromEnv(t *testing.T) LLMSettings {
 	}
 }
 
-func NewLLMClientFromEnv(t *testing.T) (*llm.Client, string) {
+func NewLLMClientFromEnv(t *testing.T) (*llm.OpenAIChatModel, string) {
 	t.Helper()
 	settings := LLMSettingsFromEnv(t)
-	return llm.NewClient(settings.BaseURL, settings.APIKey), settings.Model
+	return llm.NewOpenAIChatModel(settings.BaseURL, settings.APIKey), settings.Model
 }

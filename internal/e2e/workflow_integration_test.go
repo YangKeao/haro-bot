@@ -46,7 +46,7 @@ func TestE2EAgentReadFileToolFlow(t *testing.T) {
 	)
 
 	client, model := testutil.NewLLMClientFromEnv(t)
-	agentSvc := agent.New(store, nil, skillsMgr, registry, rootDir, 12, client, model, "openai", llm.ReasoningConfig{}, llm.ContextConfig{})
+	agentSvc := agent.New(store, skillsMgr, registry, rootDir, 12, client, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
@@ -131,7 +131,6 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 	}
 	agentSvc := agent.New(
 		store,
-		memEngine,
 		skillsMgr,
 		registry, t.TempDir(),
 		6,
@@ -139,7 +138,6 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 		model,
 		promptFormat,
 		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
-		llm.ContextConfig{},
 	)
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memEngine, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
