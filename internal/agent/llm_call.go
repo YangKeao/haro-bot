@@ -10,9 +10,6 @@ import (
 
 func (s *Session) callLLM(ctx context.Context, log *zap.Logger, turn *TurnState, hooks HookSet, tools []llm.Tool) (llm.ChatResponse, error) {
 	var out llm.ChatResponse
-	if s == nil || s.deps == nil || turn == nil {
-		return out, errors.New("session not configured")
-	}
 
 	if tools == nil {
 		tools = turn.Tools

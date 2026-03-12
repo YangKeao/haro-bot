@@ -29,9 +29,6 @@ func loadContextSnapshot(ctx context.Context, store memory.StoreAPI, sessionID i
 }
 
 func (s *contextSnapshot) apply(run *RunState) {
-	if s == nil || run == nil {
-		return
-	}
 	run.Summary = s.summary
 	run.Stored = s.stored
 	run.Transient = s.transient

@@ -32,9 +32,7 @@ func withTelegramRetry(ctx context.Context, log *zap.Logger, op string, fn func(
 			if wait > 0 {
 				wait += telegramRetryPadding
 			}
-			if log != nil {
-				log.Debug("telegram rate limited, retrying", zap.String("op", op), zap.Duration("retry_after", wait), zap.Int("attempt", attempt))
-			}
+			log.Debug("telegram rate limited, retrying", zap.String("op", op), zap.Duration("retry_after", wait), zap.Int("attempt", attempt))
 			if !sleepWithContext(ctx, wait) {
 				return lastErr
 			}

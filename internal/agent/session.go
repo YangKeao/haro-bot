@@ -42,9 +42,6 @@ func (s *Session) cancel() bool {
 }
 
 func (s *Session) toolsFor() []llm.Tool {
-	if s == nil || s.deps == nil || s.deps.toolRegistry == nil {
-		return nil
-	}
 	var tools []llm.Tool
 	for _, t := range s.deps.toolRegistry.List() {
 		tools = append(tools, llm.Tool{
@@ -60,9 +57,6 @@ func (s *Session) toolsFor() []llm.Tool {
 }
 
 func (s *Session) estimatorForModel(model string) *llm.TokenEstimator {
-	if s == nil || s.deps == nil {
-		return nil
-	}
 	if model == "" || model == s.deps.model {
 		if s.deps.tokenEstimator != nil {
 			return s.deps.tokenEstimator

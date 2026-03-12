@@ -38,9 +38,6 @@ func newSessionManager(deps *sessionDeps) *sessionManager {
 }
 
 func (m *sessionManager) Get(sessionID int64) *Session {
-	if m == nil || sessionID == 0 {
-		return nil
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	session := m.sessions[sessionID]
@@ -53,9 +50,6 @@ func (m *sessionManager) Get(sessionID int64) *Session {
 }
 
 func (m *sessionManager) Release(sessionID int64) {
-	if m == nil || sessionID == 0 {
-		return
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	session := m.sessions[sessionID]
@@ -71,9 +65,6 @@ func (m *sessionManager) Release(sessionID int64) {
 // Cancel cancels any ongoing operation for the session.
 // It returns true if there was an active operation to cancel.
 func (m *sessionManager) Cancel(sessionID int64) bool {
-	if m == nil || sessionID == 0 {
-		return false
-	}
 	m.mu.Lock()
 	session := m.sessions[sessionID]
 	m.mu.Unlock()

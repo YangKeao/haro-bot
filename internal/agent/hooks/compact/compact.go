@@ -38,9 +38,6 @@ func (h *hook) Priority() int {
 }
 
 func (h *hook) BeforeLLM(ctx context.Context, turn *agent.TurnState, _ *agent.LLMCall) error {
-	if h == nil || turn == nil {
-		return nil
-	}
 	budget := computeTokenBudget(h.contextConfig)
 	if budget.InputBudget <= 0 {
 		return nil
@@ -58,7 +55,7 @@ func (h *hook) BeforeLLM(ctx context.Context, turn *agent.TurnState, _ *agent.LL
 }
 
 func (h *hook) OnLLMError(ctx context.Context, turn *agent.TurnState, _ *agent.LLMCall, err error) (bool, error) {
-	if h == nil || turn == nil || !llm.IsContextWindowExceeded(err) {
+	if !llm.IsContextWindowExceeded(err) {
 		return false, nil
 	}
 	budget := computeTokenBudget(h.contextConfig)
@@ -120,12 +117,10 @@ func reloadTurnContext(ctx context.Context, log *zap.Logger, store memory.StoreA
 	if err := turn.ReloadContext(recent, summary); err != nil {
 		return err
 	}
-	if log != nil {
-		log.Info("context compacted",
-			zap.Int64("session_id", turn.Run.SessionID),
-			zap.Int("new_stored_count", len(turn.Stored)),
-		)
-	}
+	log.Info("context compacted",
+		zap.Int64("session_id", turn.Run.SessionID),
+		zap.Int("new_stored_count", len(turn.Stored)),
+	)
 	return nil
 }
 

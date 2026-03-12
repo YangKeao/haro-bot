@@ -31,15 +31,9 @@ func New(cfg config.Config, agent *agent.Agent, store memory.StoreAPI, skillsMgr
 }
 
 func (s *Server) Start(ctx context.Context) {
-	if s == nil {
-		return
-	}
 	s.StartTelegramPolling(ctx)
 }
 
 func (s *Server) SessionMessenger() agent.SessionMessenger {
-	if s == nil {
-		return nil
-	}
 	return s
 }

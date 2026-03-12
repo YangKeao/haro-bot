@@ -2,16 +2,12 @@ package agent
 
 import (
 	"context"
-	"errors"
 
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"go.uber.org/zap"
 )
 
 func (s *Session) Handle(ctx context.Context, userID int64, channel string, input string, modelOverride string, extraHooks HookSet) (output string, err error) {
-	if s == nil || s.deps == nil {
-		return "", errors.New("session not configured")
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

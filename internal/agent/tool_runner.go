@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
@@ -34,9 +33,6 @@ func NewToolRunner(registry *tools.Registry, store ConversationStore, skillsMgr 
 
 func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, baseDir string, activeSkill *skills.Skill, calls []llm.ToolCall) ([]StoredMessage, *skills.Skill, error) {
 	log := logging.L().Named("tool_runner")
-	if r == nil || r.registry == nil {
-		return nil, activeSkill, errors.New("tool registry not configured")
-	}
 	currentSkill := activeSkill
 	out := make([]StoredMessage, 0, len(calls))
 	for _, call := range calls {

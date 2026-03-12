@@ -12,14 +12,8 @@ import (
 // SendSessionMessage implements agent.SessionMessenger for Telegram sessions.
 // It delivers the message to the latest known Telegram destination for the session.
 func (s *Server) SendSessionMessage(ctx context.Context, sessionID int64, message string) error {
-	if s == nil {
-		return errors.New("telegram server not configured")
-	}
 	if message == "" {
 		return nil
-	}
-	if s.telegram == nil {
-		return errors.New("telegram not configured")
 	}
 	dest, ok := s.telegramSessions.Get(sessionID)
 	if !ok {

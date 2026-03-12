@@ -3,9 +3,6 @@ package agent
 import "github.com/YangKeao/haro-bot/internal/llm"
 
 func newTurnState(run *RunState, index int, model string, estimator *llm.TokenEstimator, tools []llm.Tool) *TurnState {
-	if run == nil {
-		return nil
-	}
 	return &TurnState{
 		Run:       run,
 		Index:     index,

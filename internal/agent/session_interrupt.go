@@ -10,9 +10,6 @@ import (
 )
 
 func (s *Session) Interrupt(ctx context.Context, userID int64, input string, modelOverride string, storeInSession bool, metadata *memory.MessageMetadata, messenger SessionMessenger) (content string, err error) {
-	if s == nil || s.deps == nil {
-		return "", errors.New("session not configured")
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

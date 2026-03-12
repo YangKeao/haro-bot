@@ -111,9 +111,6 @@ func mergeHookSets(base, extra HookSet) HookSet {
 }
 
 func hookPriority(h any) int {
-	if h == nil {
-		return 0
-	}
 	if prioritized, ok := h.(prioritizedHook); ok {
 		return prioritized.Priority()
 	}

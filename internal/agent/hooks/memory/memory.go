@@ -24,7 +24,7 @@ func (h *hook) Priority() int {
 }
 
 func (h *hook) BeforePrompt(ctx context.Context, run *agent.RunState) error {
-	if h == nil || h.engine == nil || !h.engine.Enabled() || run == nil {
+	if h.engine == nil || !h.engine.Enabled() {
 		return nil
 	}
 	items, err := h.engine.Retrieve(ctx, run.UserID, run.SessionID, run.Input, 0)
@@ -36,7 +36,7 @@ func (h *hook) BeforePrompt(ctx context.Context, run *agent.RunState) error {
 }
 
 func (h *hook) AfterRun(_ context.Context, run *agent.RunState) error {
-	if h == nil || h.engine == nil || !h.engine.Enabled() || run == nil || !run.ShouldIngest {
+	if h.engine == nil || !h.engine.Enabled() || !run.ShouldIngest {
 		return nil
 	}
 	h.engine.IngestAsync(run.UserID, run.SessionID)

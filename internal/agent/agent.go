@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 
 	"github.com/YangKeao/haro-bot/internal/guidelines"
@@ -72,24 +71,15 @@ func New(store memory.StoreAPI, memoryEngine *memory.Engine, skills *skills.Mana
 }
 
 func (a *Agent) SetHooks(hooks HookSet) {
-	if a == nil || a.sessions == nil || a.sessions.deps == nil {
-		return
-	}
 	a.sessions.deps.hooks = hooks
 }
 
 func (a *Agent) SessionStatusWriter() SessionStatusWriter {
-	if a == nil {
-		return nil
-	}
 	return a.stateManager
 }
 
 // SetSessionMessenger registers a messenger for out-of-band session notifications (e.g., Telegram).
 func (a *Agent) SetSessionMessenger(messenger SessionMessenger) {
-	if a == nil {
-		return
-	}
 	a.messenger = messenger
 }
 
@@ -112,10 +102,6 @@ func (a *Agent) handleWithHooks(ctx context.Context, userID int64, channel strin
 		log.Error("get session failed", zap.Error(err))
 		return "", err
 	}
-	if a.sessions == nil {
-		log.Error("session manager not configured", zap.Int64("session_id", sessionID))
-		return "", errors.New("session manager not configured")
-	}
 	session := a.sessions.Get(sessionID)
 	defer a.sessions.Release(sessionID)
 	return session.Handle(ctx, userID, channel, input, modelOverride, hooks)
@@ -124,11 +110,6 @@ func (a *Agent) handleWithHooks(ctx context.Context, userID int64, channel strin
 // InterruptSession generates a response from an existing session context without using tools.
 // If storeInSession is true, the interrupt message and response are persisted to the session.
 func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID int64, input string, modelOverride string, storeInSession bool, metadata *memory.MessageMetadata) (string, error) {
-	log := logging.L().Named("agent_interrupt")
-	if a.sessions == nil {
-		log.Error("session manager not configured", zap.Int64("session_id", sessionID))
-		return "", errors.New("session manager not configured")
-	}
 	session := a.sessions.Get(sessionID)
 	defer a.sessions.Release(sessionID)
 	return session.Interrupt(ctx, userID, input, modelOverride, storeInSession, metadata, a.messenger)
@@ -136,18 +117,12 @@ func (a *Agent) InterruptSession(ctx context.Context, sessionID int64, userID in
 
 // GetSessionStatus returns the current status of a session.
 func (a *Agent) GetSessionStatus(sessionID int64) *SessionStatus {
-	if a == nil || a.stateManager == nil {
-		return &SessionStatus{State: StateIdle}
-	}
 	return a.stateManager.GetStatus(sessionID)
 }
 
 // CancelSession cancels any ongoing operation for the session.
 // Returns true if there was an operation to cancel.
 func (a *Agent) CancelSession(sessionID int64) bool {
-	if a == nil || a.sessions == nil {
-		return false
-	}
 	return a.sessions.Cancel(sessionID)
 }
 

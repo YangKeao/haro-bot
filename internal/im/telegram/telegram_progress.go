@@ -112,9 +112,6 @@ func (p *telegramProgress) OnLLMStart(ctx context.Context, _ *agent.TurnState, _
 }
 
 func (p *telegramProgress) OnLLMDelta(ctx context.Context, _ *agent.TurnState, event llm.StreamEvent) error {
-	if p == nil {
-		return nil
-	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if event.Delta != "" {
@@ -189,7 +186,7 @@ func escapeMarkdown(text string) string {
 }
 
 func (p *telegramProgress) OnToolCalls(ctx context.Context, _ *agent.TurnState, msg llm.Message) error {
-	if p == nil || len(msg.ToolCalls) == 0 {
+	if len(msg.ToolCalls) == 0 {
 		return nil
 	}
 	toolText := formatToolCalls(msg.ToolCalls)
@@ -227,9 +224,6 @@ func (p *telegramProgress) OnFinalOutput(ctx context.Context, _ *agent.TurnState
 // This should be called before sending the final message to avoid the draft being displayed
 // simultaneously with the final message.
 func (p *telegramProgress) ClearDraft(ctx context.Context) {
-	if p == nil || p.bot == nil {
-		return
-	}
 	p.mu.Lock()
 	baseID := p.streamBaseID
 	p.mu.Unlock()
@@ -251,9 +245,6 @@ func (p *telegramProgress) ClearDraft(ctx context.Context) {
 }
 
 func (p *telegramProgress) ensureTyping(ctx context.Context) {
-	if p == nil || p.bot == nil {
-		return
-	}
 	p.mu.Lock()
 	if p.typingCancel != nil {
 		p.mu.Unlock()
@@ -279,9 +270,6 @@ func (p *telegramProgress) ensureTyping(ctx context.Context) {
 }
 
 func (p *telegramProgress) sendTyping(ctx context.Context) {
-	if p == nil || p.bot == nil {
-		return
-	}
 	params := &bot.SendChatActionParams{
 		ChatID: p.chatID,
 		Action: models.ChatActionTyping,
@@ -295,7 +283,7 @@ func (p *telegramProgress) sendTyping(ctx context.Context) {
 	if err := withTelegramRetry(ctx, p.log, "sendChatAction", func(ctx context.Context) error {
 		_, err := p.bot.SendChatAction(ctx, params)
 		return err
-	}); err != nil && p.log != nil {
+	}); err != nil {
 		p.log.Debug("telegram sendChatAction failed", zap.Error(err))
 	}
 }
@@ -322,9 +310,6 @@ func (p *telegramProgress) currentDraftBaseLocked() int64 {
 }
 
 func (p *telegramProgress) sendDraftOnce(ctx context.Context, baseID int64, text string) error {
-	if p == nil || p.bot == nil {
-		return nil
-	}
 	if text == "" {
 		return nil
 	}
@@ -382,7 +367,7 @@ func sendTelegramDraftOnce(ctx context.Context, log *zap.Logger, b *bot.Bot, par
 		// Try without parse mode if markdown fails
 		params.ParseMode = ""
 		_, err = b.SendMessageDraft(ctx, params)
-		if err != nil && log != nil {
+		if err != nil {
 			log.Debug("telegram sendMessageDraft failed", zap.Error(err))
 		}
 	}
