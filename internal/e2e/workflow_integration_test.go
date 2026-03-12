@@ -17,6 +17,8 @@ import (
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/memory"
+	memopenai "github.com/YangKeao/haro-bot/internal/memory/embedder/openai"
+	memtidb "github.com/YangKeao/haro-bot/internal/memory/vectorstore/tidb"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/testutil"
 	"github.com/YangKeao/haro-bot/internal/tools"
@@ -120,7 +122,12 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 
-	memEngine, err := memory.NewEngine(gdb, store, client, model, cfg.Memory)
+	embedder, err := memopenai.New(cfg.Memory.Embedder)
+	if err != nil {
+		t.Fatalf("init embedder: %v", err)
+	}
+	vectorStore := memtidb.New(gdb, cfg.Memory.Vector.Distance)
+	memEngine, err := memory.NewEngine(store, client, model, embedder, vectorStore, cfg.Memory)
 	if err != nil {
 		t.Fatalf("init memory engine: %v", err)
 	}
@@ -149,7 +156,7 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 
 	token := fmt.Sprintf("CITY-E2E-%d", time.Now().UnixNano())
 	seedText := fmt.Sprintf("User preference: favorite city keyword is %s.", token)
-	embedder, err := memory.NewOpenAIEmbedder(cfg.Memory.Embedder)
+	embedder, err := memopenai.New(cfg.Memory.Embedder)
 	if err != nil {
 		t.Fatalf("init embedder: %v", err)
 	}
@@ -157,7 +164,7 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("embed seed memory: %v", err)
 	}
-	vectorStore := memory.NewTiDBVectorStore(gdb, cfg.Memory.Vector.Distance)
+	vectorStore := memtidb.New(gdb, cfg.Memory.Vector.Distance)
 	if _, err := vectorStore.Insert(ctx, memory.MemoryItem{
 		UserID:  userID,
 		Type:    "preference",

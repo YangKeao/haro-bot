@@ -1,44 +1,46 @@
-package tools
+package browser
 
 import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/YangKeao/haro-bot/internal/tools"
 )
 
 // Browser tool type definitions
 
-type BrowserGotoTool struct{ mgr *BrowserManager }
-type BrowserGoBackTool struct{ mgr *BrowserManager }
-type BrowserGetPageStateTool struct{ mgr *BrowserManager }
-type BrowserTakeScreenshotTool struct{ mgr *BrowserManager }
-type BrowserClickTool struct{ mgr *BrowserManager }
-type BrowserFillTextTool struct{ mgr *BrowserManager }
-type BrowserPressKeyTool struct{ mgr *BrowserManager }
-type BrowserScrollTool struct{ mgr *BrowserManager }
+type GotoTool struct{ mgr *Manager }
+type GoBackTool struct{ mgr *Manager }
+type GetPageStateTool struct{ mgr *Manager }
+type TakeScreenshotTool struct{ mgr *Manager }
+type ClickTool struct{ mgr *Manager }
+type FillTextTool struct{ mgr *Manager }
+type PressKeyTool struct{ mgr *Manager }
+type ScrollTool struct{ mgr *Manager }
 
-func NewBrowserGotoTool(mgr *BrowserManager) *BrowserGotoTool { return &BrowserGotoTool{mgr: mgr} }
-func NewBrowserGoBackTool(mgr *BrowserManager) *BrowserGoBackTool {
-	return &BrowserGoBackTool{mgr: mgr}
+func NewGotoTool(mgr *Manager) *GotoTool { return &GotoTool{mgr: mgr} }
+func NewGoBackTool(mgr *Manager) *GoBackTool {
+	return &GoBackTool{mgr: mgr}
 }
-func NewBrowserGetPageStateTool(mgr *BrowserManager) *BrowserGetPageStateTool {
-	return &BrowserGetPageStateTool{mgr: mgr}
+func NewGetPageStateTool(mgr *Manager) *GetPageStateTool {
+	return &GetPageStateTool{mgr: mgr}
 }
-func NewBrowserTakeScreenshotTool(mgr *BrowserManager) *BrowserTakeScreenshotTool {
-	return &BrowserTakeScreenshotTool{mgr: mgr}
+func NewTakeScreenshotTool(mgr *Manager) *TakeScreenshotTool {
+	return &TakeScreenshotTool{mgr: mgr}
 }
-func NewBrowserClickTool(mgr *BrowserManager) *BrowserClickTool { return &BrowserClickTool{mgr: mgr} }
-func NewBrowserFillTextTool(mgr *BrowserManager) *BrowserFillTextTool {
-	return &BrowserFillTextTool{mgr: mgr}
+func NewClickTool(mgr *Manager) *ClickTool { return &ClickTool{mgr: mgr} }
+func NewFillTextTool(mgr *Manager) *FillTextTool {
+	return &FillTextTool{mgr: mgr}
 }
-func NewBrowserPressKeyTool(mgr *BrowserManager) *BrowserPressKeyTool {
-	return &BrowserPressKeyTool{mgr: mgr}
+func NewPressKeyTool(mgr *Manager) *PressKeyTool {
+	return &PressKeyTool{mgr: mgr}
 }
-func NewBrowserScrollTool(mgr *BrowserManager) *BrowserScrollTool {
-	return &BrowserScrollTool{mgr: mgr}
+func NewScrollTool(mgr *Manager) *ScrollTool {
+	return &ScrollTool{mgr: mgr}
 }
 
-// BrowserGotoTool
+// GotoTool
 
 type gotoArgs struct {
 	URL       string `json:"url"`
@@ -46,9 +48,9 @@ type gotoArgs struct {
 	TimeoutMS int    `json:"timeout_ms"`
 }
 
-func (t *BrowserGotoTool) Name() string        { return "browser_goto" }
-func (t *BrowserGotoTool) Description() string { return "Navigate to a URL in the browser." }
-func (t *BrowserGotoTool) Parameters() map[string]any {
+func (t *GotoTool) Name() string        { return "browser_goto" }
+func (t *GotoTool) Description() string { return "Navigate to a URL in the browser." }
+func (t *GotoTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -68,7 +70,7 @@ func (t *BrowserGotoTool) Parameters() map[string]any {
 		"required": []string{"url"},
 	}
 }
-func (t *BrowserGotoTool) Execute(ctx context.Context, tc ToolContext, args json.RawMessage) (string, error) {
+func (t *GotoTool) Execute(ctx context.Context, tc tools.ToolContext, args json.RawMessage) (string, error) {
 	var payload gotoArgs
 	if err := json.Unmarshal(args, &payload); err != nil {
 		return "", err
@@ -88,16 +90,16 @@ func (t *BrowserGotoTool) Execute(ctx context.Context, tc ToolContext, args json
 	return string(raw), nil
 }
 
-// BrowserGoBackTool
+// GoBackTool
 
 type goBackArgs struct {
 	WaitMS    int `json:"wait_ms"`
 	TimeoutMS int `json:"timeout_ms"`
 }
 
-func (t *BrowserGoBackTool) Name() string        { return "browser_go_back" }
-func (t *BrowserGoBackTool) Description() string { return "Go back to the previous page." }
-func (t *BrowserGoBackTool) Parameters() map[string]any {
+func (t *GoBackTool) Name() string        { return "browser_go_back" }
+func (t *GoBackTool) Description() string { return "Go back to the previous page." }
+func (t *GoBackTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -112,7 +114,7 @@ func (t *BrowserGoBackTool) Parameters() map[string]any {
 		},
 	}
 }
-func (t *BrowserGoBackTool) Execute(ctx context.Context, tc ToolContext, args json.RawMessage) (string, error) {
+func (t *GoBackTool) Execute(ctx context.Context, tc tools.ToolContext, args json.RawMessage) (string, error) {
 	var payload goBackArgs
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &payload); err != nil {
@@ -134,17 +136,17 @@ func (t *BrowserGoBackTool) Execute(ctx context.Context, tc ToolContext, args js
 	return string(raw), nil
 }
 
-// BrowserGetPageStateTool
+// GetPageStateTool
 
 type getPageStateArgs struct {
 	MaxChars int `json:"max_chars"`
 }
 
-func (t *BrowserGetPageStateTool) Name() string { return "browser_get_page_state" }
-func (t *BrowserGetPageStateTool) Description() string {
+func (t *GetPageStateTool) Name() string { return "browser_get_page_state" }
+func (t *GetPageStateTool) Description() string {
 	return "Extract a simplified page state with interactive element IDs."
 }
-func (t *BrowserGetPageStateTool) Parameters() map[string]any {
+func (t *GetPageStateTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -155,7 +157,7 @@ func (t *BrowserGetPageStateTool) Parameters() map[string]any {
 		},
 	}
 }
-func (t *BrowserGetPageStateTool) Execute(ctx context.Context, tc ToolContext, args json.RawMessage) (string, error) {
+func (t *GetPageStateTool) Execute(ctx context.Context, tc tools.ToolContext, args json.RawMessage) (string, error) {
 	_ = ctx
 	var payload getPageStateArgs
 	if len(args) > 0 {
@@ -174,7 +176,7 @@ func (t *BrowserGetPageStateTool) Execute(ctx context.Context, tc ToolContext, a
 	return string(raw), nil
 }
 
-// BrowserTakeScreenshotTool
+// TakeScreenshotTool
 
 type takeScreenshotArgs struct {
 	FullPage bool `json:"full_page"`
@@ -186,11 +188,11 @@ type takeScreenshotResult struct {
 	State       pageState `json:"state"`
 }
 
-func (t *BrowserTakeScreenshotTool) Name() string { return "browser_take_screenshot" }
-func (t *BrowserTakeScreenshotTool) Description() string {
+func (t *TakeScreenshotTool) Name() string { return "browser_take_screenshot" }
+func (t *TakeScreenshotTool) Description() string {
 	return "Take a screenshot with interactive element IDs annotated."
 }
-func (t *BrowserTakeScreenshotTool) Parameters() map[string]any {
+func (t *TakeScreenshotTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -201,7 +203,7 @@ func (t *BrowserTakeScreenshotTool) Parameters() map[string]any {
 		},
 	}
 }
-func (t *BrowserTakeScreenshotTool) Execute(ctx context.Context, tc ToolContext, args json.RawMessage) (string, error) {
+func (t *TakeScreenshotTool) Execute(ctx context.Context, tc tools.ToolContext, args json.RawMessage) (string, error) {
 	_ = ctx
 	var payload takeScreenshotArgs
 	if len(args) > 0 {
@@ -225,17 +227,17 @@ func (t *BrowserTakeScreenshotTool) Execute(ctx context.Context, tc ToolContext,
 	return string(raw), nil
 }
 
-// BrowserClickTool
+// ClickTool
 
 type clickArgs struct {
 	ElementID int `json:"element_id"`
 }
 
-func (t *BrowserClickTool) Name() string { return "browser_click" }
-func (t *BrowserClickTool) Description() string {
+func (t *ClickTool) Name() string { return "browser_click" }
+func (t *ClickTool) Description() string {
 	return "Click an element by element_id from get_page_state."
 }
-func (t *BrowserClickTool) Parameters() map[string]any {
+func (t *ClickTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -247,7 +249,7 @@ func (t *BrowserClickTool) Parameters() map[string]any {
 		"required": []string{"element_id"},
 	}
 }
-func (t *BrowserClickTool) Execute(ctx context.Context, tc ToolContext, args json.RawMessage) (string, error) {
+func (t *ClickTool) Execute(ctx context.Context, tc tools.ToolContext, args json.RawMessage) (string, error) {
 	_ = ctx
 	var payload clickArgs
 	if err := json.Unmarshal(args, &payload); err != nil {
@@ -259,18 +261,18 @@ func (t *BrowserClickTool) Execute(ctx context.Context, tc ToolContext, args jso
 	return "ok", nil
 }
 
-// BrowserFillTextTool
+// FillTextTool
 
 type fillTextArgs struct {
 	ElementID int    `json:"element_id"`
 	Text      string `json:"text"`
 }
 
-func (t *BrowserFillTextTool) Name() string { return "browser_fill_text" }
-func (t *BrowserFillTextTool) Description() string {
+func (t *FillTextTool) Name() string { return "browser_fill_text" }
+func (t *FillTextTool) Description() string {
 	return "Fill text into an input element by element_id."
 }
-func (t *BrowserFillTextTool) Parameters() map[string]any {
+func (t *FillTextTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -286,7 +288,7 @@ func (t *BrowserFillTextTool) Parameters() map[string]any {
 		"required": []string{"element_id", "text"},
 	}
 }
-func (t *BrowserFillTextTool) Execute(ctx context.Context, tc ToolContext, args json.RawMessage) (string, error) {
+func (t *FillTextTool) Execute(ctx context.Context, tc tools.ToolContext, args json.RawMessage) (string, error) {
 	_ = ctx
 	var payload fillTextArgs
 	if err := json.Unmarshal(args, &payload); err != nil {
@@ -298,15 +300,15 @@ func (t *BrowserFillTextTool) Execute(ctx context.Context, tc ToolContext, args 
 	return "ok", nil
 }
 
-// BrowserPressKeyTool
+// PressKeyTool
 
 type pressKeyArgs struct {
 	Key string `json:"key"`
 }
 
-func (t *BrowserPressKeyTool) Name() string        { return "browser_press_key" }
-func (t *BrowserPressKeyTool) Description() string { return "Press a keyboard key." }
-func (t *BrowserPressKeyTool) Parameters() map[string]any {
+func (t *PressKeyTool) Name() string        { return "browser_press_key" }
+func (t *PressKeyTool) Description() string { return "Press a keyboard key." }
+func (t *PressKeyTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -318,7 +320,7 @@ func (t *BrowserPressKeyTool) Parameters() map[string]any {
 		"required": []string{"key"},
 	}
 }
-func (t *BrowserPressKeyTool) Execute(ctx context.Context, tc ToolContext, args json.RawMessage) (string, error) {
+func (t *PressKeyTool) Execute(ctx context.Context, tc tools.ToolContext, args json.RawMessage) (string, error) {
 	_ = ctx
 	var payload pressKeyArgs
 	if err := json.Unmarshal(args, &payload); err != nil {
@@ -330,18 +332,18 @@ func (t *BrowserPressKeyTool) Execute(ctx context.Context, tc ToolContext, args 
 	return "ok", nil
 }
 
-// BrowserScrollTool
+// ScrollTool
 
 type scrollArgs struct {
 	Direction string `json:"direction"`
 	Amount    int    `json:"amount"`
 }
 
-func (t *BrowserScrollTool) Name() string { return "browser_scroll" }
-func (t *BrowserScrollTool) Description() string {
+func (t *ScrollTool) Name() string { return "browser_scroll" }
+func (t *ScrollTool) Description() string {
 	return "Scroll the page up or down by a pixel amount."
 }
-func (t *BrowserScrollTool) Parameters() map[string]any {
+func (t *ScrollTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -356,7 +358,7 @@ func (t *BrowserScrollTool) Parameters() map[string]any {
 		},
 	}
 }
-func (t *BrowserScrollTool) Execute(ctx context.Context, tc ToolContext, args json.RawMessage) (string, error) {
+func (t *ScrollTool) Execute(ctx context.Context, tc tools.ToolContext, args json.RawMessage) (string, error) {
 	_ = ctx
 	var payload scrollArgs
 	if len(args) > 0 {

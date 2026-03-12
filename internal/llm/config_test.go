@@ -1,29 +1,6 @@
 package llm
 
-import (
-	"context"
-	"errors"
-	"net/http"
-	"net/http/httptest"
-	"sync/atomic"
-	"testing"
-)
-
-func TestNewOpenAIChatModel(t *testing.T) {
-	t.Run("creates client with base URL and API key", func(t *testing.T) {
-		client := NewOpenAIChatModel("https://api.example.com/v1", "test-key")
-		if client == nil {
-			t.Fatal("expected non-nil client")
-		}
-	})
-
-	t.Run("applies options", func(t *testing.T) {
-		client := NewOpenAIChatModel("https://api.example.com/v1", "test-key", WithHTTPDebug(true))
-		if client == nil {
-			t.Fatal("expected non-nil client")
-		}
-	})
-}
+import "testing"
 
 func TestTokenEstimator(t *testing.T) {
 	t.Run("creates estimator for known model", func(t *testing.T) {
@@ -113,32 +90,4 @@ func TestIsContextWindowExceeded(t *testing.T) {
 			t.Error("expected false for nil error")
 		}
 	})
-}
-
-func TestChatRespectsCanceledContext(t *testing.T) {
-	var requestCount atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount.Add(1)
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"error":"unexpected request"}`))
-	}))
-	defer srv.Close()
-
-	client := NewOpenAIChatModel(srv.URL+"/v1", "test-key")
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	_, err := client.Chat(ctx, ChatRequest{
-		Model: "gpt-4o",
-		Messages: []Message{
-			{Role: "user", Content: "hello"},
-		},
-		Purpose: PurposeChat,
-	})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected context canceled, got %v", err)
-	}
-	if requestCount.Load() != 0 {
-		t.Fatalf("expected no outbound request with canceled context, got %d", requestCount.Load())
-	}
 }

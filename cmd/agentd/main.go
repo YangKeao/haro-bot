@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,10 +21,14 @@ import (
 	"github.com/YangKeao/haro-bot/internal/im"
 	imtelegram "github.com/YangKeao/haro-bot/internal/im/telegram"
 	"github.com/YangKeao/haro-bot/internal/llm"
+	llmopenai "github.com/YangKeao/haro-bot/internal/llm/openai"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
+	memopenai "github.com/YangKeao/haro-bot/internal/memory/embedder/openai"
+	memtidb "github.com/YangKeao/haro-bot/internal/memory/vectorstore/tidb"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
+	toolsbrowser "github.com/YangKeao/haro-bot/internal/tools/browser"
 	"go.uber.org/zap"
 )
 
@@ -70,17 +76,17 @@ func main() {
 	auditStore := tools.NewAuditStore(dbConn)
 	fsTools := tools.NewFS(nil, auditStore, true)
 
-	browserMgr := tools.NewBrowserManager()
+	browserMgr := toolsbrowser.NewManager()
 	execMgr := tools.NewExecManager()
 	toolRegistry := tools.NewRegistry(
-		tools.NewBrowserGotoTool(browserMgr),
-		tools.NewBrowserGoBackTool(browserMgr),
-		tools.NewBrowserGetPageStateTool(browserMgr),
-		tools.NewBrowserTakeScreenshotTool(browserMgr),
-		tools.NewBrowserClickTool(browserMgr),
-		tools.NewBrowserFillTextTool(browserMgr),
-		tools.NewBrowserPressKeyTool(browserMgr),
-		tools.NewBrowserScrollTool(browserMgr),
+		toolsbrowser.NewGotoTool(browserMgr),
+		toolsbrowser.NewGoBackTool(browserMgr),
+		toolsbrowser.NewGetPageStateTool(browserMgr),
+		toolsbrowser.NewTakeScreenshotTool(browserMgr),
+		toolsbrowser.NewClickTool(browserMgr),
+		toolsbrowser.NewFillTextTool(browserMgr),
+		toolsbrowser.NewPressKeyTool(browserMgr),
+		toolsbrowser.NewScrollTool(browserMgr),
 		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
 		tools.NewSessionSummaryTool(store),
 		tools.NewMemorySearchTool(store),
@@ -94,13 +100,18 @@ func main() {
 		tools.NewUpdateGuidelinesTool(guidelinesMgr),
 		tools.NewApplyPatchTool(fsTools),
 	)
-	llmClient := llm.NewOpenAIChatModel(cfg.LLMBaseURL, cfg.LLMAPIKey, llm.WithHTTPDebug(cfg.LLMHTTPDebug))
+	llmClient := llmopenai.New(cfg.LLMBaseURL, cfg.LLMAPIKey, llmopenai.WithHTTPDebug(cfg.LLMHTTPDebug))
 	contextCfg := llm.ContextConfig{
 		WindowTokens:                  cfg.LLMContextWindow,
 		AutoCompactTokenLimit:         cfg.LLMAutoCompactTokenLimit,
 		EffectiveContextWindowPercent: cfg.LLMEffectiveContextWindowPercent,
 	}
-	memoryEngine, err := memory.NewEngine(dbConn, store, llmClient, cfg.LLMModel, cfg.Memory)
+	embedder, err := newMemoryEmbedder(cfg)
+	if err != nil {
+		log.Fatal("memory embedder init failed", zap.Error(err))
+	}
+	vectorStore := memtidb.New(dbConn, cfg.Memory.Vector.Distance)
+	memoryEngine, err := memory.NewEngine(store, llmClient, cfg.LLMModel, embedder, vectorStore, cfg.Memory)
 	if err != nil {
 		log.Fatal("memory engine init failed", zap.Error(err))
 	}
@@ -183,5 +194,14 @@ func syncLoop(ctx context.Context, mgr *skills.Manager, interval time.Duration) 
 				log.Warn("skills refresh failed", zap.Error(err))
 			}
 		}
+	}
+}
+
+func newMemoryEmbedder(cfg config.Config) (memory.Embedder, error) {
+	switch strings.ToLower(strings.TrimSpace(cfg.Memory.Embedder.Provider)) {
+	case "openai", "openai_compatible":
+		return memopenai.New(cfg.Memory.Embedder)
+	default:
+		return nil, errors.New("unsupported memory embedder provider: " + cfg.Memory.Embedder.Provider)
 	}
 }

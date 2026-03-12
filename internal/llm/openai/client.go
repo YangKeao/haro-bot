@@ -1,25 +1,25 @@
-package llm
+package openai
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
-	"github.com/openai/openai-go"
+	openaisdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
 	"go.uber.org/zap"
 )
 
-type OpenAIChatModel struct {
+type openAIChatModel struct {
 	baseURL string
-	apiKey  string
-	http    *http.Client
-	client  *openai.Client
+	client  *openaisdk.Client
 }
 
 type clientOptions struct {
@@ -27,9 +27,9 @@ type clientOptions struct {
 	httpDebugMaxBod int64
 }
 
-type ClientOption func(*clientOptions)
+type openAIOption func(*clientOptions)
 
-func WithHTTPDebug(enabled bool) ClientOption {
+func WithHTTPDebug(enabled bool) openAIOption {
 	return func(opts *clientOptions) {
 		if opts != nil {
 			opts.httpDebug = enabled
@@ -37,7 +37,7 @@ func WithHTTPDebug(enabled bool) ClientOption {
 	}
 }
 
-func WithHTTPDebugMaxBody(maxBytes int64) ClientOption {
+func WithHTTPDebugMaxBody(maxBytes int64) openAIOption {
 	return func(opts *clientOptions) {
 		if opts == nil {
 			return
@@ -48,7 +48,7 @@ func WithHTTPDebugMaxBody(maxBytes int64) ClientOption {
 	}
 }
 
-func NewOpenAIChatModel(baseURL, apiKey string, opts ...ClientOption) *OpenAIChatModel {
+func New(baseURL, apiKey string, opts ...openAIOption) llm.ChatModel {
 	options := clientOptions{httpDebugMaxBod: defaultHTTPDebugMaxBody}
 	for _, opt := range opts {
 		if opt != nil {
@@ -67,32 +67,30 @@ func NewOpenAIChatModel(baseURL, apiKey string, opts ...ClientOption) *OpenAICha
 	if apiKey != "" {
 		reqOpts = append(reqOpts, option.WithAPIKey(apiKey))
 	}
-	c := openai.NewClient(reqOpts...)
-	return &OpenAIChatModel{
+	c := openaisdk.NewClient(reqOpts...)
+	return &openAIChatModel{
 		baseURL: baseURL,
-		apiKey:  apiKey,
-		http:    httpClient,
 		client:  &c,
 	}
 }
 
-func (c *OpenAIChatModel) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+func (c *openAIChatModel) Chat(ctx context.Context, req llm.ChatRequest) (llm.ChatResponse, error) {
 	log := logging.L().Named("llm")
 	start := time.Now()
-	var out ChatResponse
+	var out llm.ChatResponse
 	if c == nil || c.client == nil {
 		return out, errors.New("llm client not configured")
 	}
 	input := buildChatMessages(req.Messages)
 	tools := buildChatTools(req.Tools)
-	params := openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel(req.Model),
+	params := openaisdk.ChatCompletionNewParams{
+		Model:    openaisdk.ChatModel(req.Model),
 		Messages: input,
 	}
 	if len(tools) > 0 {
 		params.Tools = tools
-		params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
-			OfAuto: openai.String("auto"),
+		params.ToolChoice = openaisdk.ChatCompletionToolChoiceOptionUnionParam{
+			OfAuto: openaisdk.String("auto"),
 		}
 	}
 	if req.Temperature != 0 {
@@ -111,8 +109,8 @@ func (c *OpenAIChatModel) Chat(ctx context.Context, req ChatRequest) (ChatRespon
 
 	forceStream := true
 	if forceStream {
-		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
-			IncludeUsage: openai.Bool(true),
+		params.StreamOptions = openaisdk.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openaisdk.Bool(true),
 		}
 	}
 	log.Debug("chat completions request",
@@ -150,21 +148,22 @@ func (c *OpenAIChatModel) Chat(ctx context.Context, req ChatRequest) (ChatRespon
 	)
 	return out, nil
 }
-func extraBodyForPurpose(purpose RequestPurpose) map[string]any {
+
+func extraBodyForPurpose(purpose llm.RequestPurpose) map[string]any {
 	switch purpose {
-	case PurposeSecurity:
+	case llm.PurposeSecurity:
 		return map[string]any{
 			"thinking": map[string]any{
 				"type": "disabled",
 			},
 		}
-	case PurposeMemory:
+	case llm.PurposeMemory:
 		return map[string]any{
 			"thinking": map[string]any{
 				"clear_thinking": false,
 			},
 		}
-	case PurposeChat, "":
+	case llm.PurposeChat, "":
 		return map[string]any{
 			"thinking": map[string]any{
 				"clear_thinking": false,
@@ -176,5 +175,65 @@ func extraBodyForPurpose(purpose RequestPurpose) map[string]any {
 				"clear_thinking": false,
 			},
 		}
+	}
+}
+
+func normalizeChatCompletionError(err error, resp *openaisdk.ChatCompletion) error {
+	if err != nil {
+		if isContextWindowError(err) {
+			return fmt.Errorf("%w: %v", llm.ErrContextWindowExceeded, err)
+		}
+		return err
+	}
+	if finishReason := firstFinishReason(resp); isContextWindowFinishReason(finishReason) {
+		return fmt.Errorf("%w: finish_reason=%s", llm.ErrContextWindowExceeded, finishReason)
+	}
+	return nil
+}
+
+func firstFinishReason(resp *openaisdk.ChatCompletion) string {
+	if resp == nil || len(resp.Choices) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(resp.Choices[0].FinishReason)
+}
+
+func isContextWindowFinishReason(reason string) bool {
+	reason = strings.ToLower(strings.TrimSpace(reason))
+	if reason == "" {
+		return false
+	}
+	if strings.Contains(reason, "context_window") {
+		return true
+	}
+	if strings.Contains(reason, "context") && strings.Contains(reason, "exceed") {
+		return true
+	}
+	if strings.Contains(reason, "model_context") {
+		return true
+	}
+	return false
+}
+
+func isContextWindowError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "context_length_exceeded"):
+		return true
+	case strings.Contains(msg, "context window"):
+		return true
+	case strings.Contains(msg, "context_window"):
+		return true
+	case strings.Contains(msg, "model_context_window_exceeded"):
+		return true
+	case strings.Contains(msg, "exceeds") && strings.Contains(msg, "context"):
+		return true
+	case strings.Contains(msg, "maximum context length"):
+		return true
+	default:
+		return false
 	}
 }

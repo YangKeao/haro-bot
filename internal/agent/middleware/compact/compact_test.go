@@ -10,6 +10,12 @@ import (
 	"github.com/YangKeao/haro-bot/internal/memory"
 )
 
+type stubChatModel struct{}
+
+func (stubChatModel) Chat(context.Context, llm.ChatRequest) (llm.ChatResponse, error) {
+	return llm.ChatResponse{}, nil
+}
+
 func TestCompactorShouldCompact(t *testing.T) {
 	estimator, _ := llm.NewTokenEstimator("gpt-4o")
 
@@ -104,7 +110,7 @@ func TestCompactorNilEstimator(t *testing.T) {
 func TestCompactorCompactRequiresCutoffEntryID(t *testing.T) {
 	c := &compactor{
 		store: noopStoreAPI{},
-		llm:   &llm.OpenAIChatModel{},
+		llm:   stubChatModel{},
 		model: "test-model",
 	}
 	_, err := c.compact(context.Background(), 1, []llm.Message{{Role: "user", Content: "hello"}}, 4096, 0)

@@ -1,4 +1,4 @@
-package tools
+package browser
 
 import (
 	"context"
@@ -19,7 +19,7 @@ const (
 	defaultBrowserMaxChars = 20000
 )
 
-type BrowserManager struct {
+type Manager struct {
 	mu       sync.Mutex
 	pw       *playwright.Playwright
 	browser  playwright.Browser
@@ -63,11 +63,11 @@ type elementRect struct {
 	H int `json:"h"`
 }
 
-func NewBrowserManager() *BrowserManager {
-	return &BrowserManager{sessions: make(map[int64]*browserSession)}
+func NewManager() *Manager {
+	return &Manager{sessions: make(map[int64]*browserSession)}
 }
 
-func (m *BrowserManager) Close() {
+func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, sess := range m.sessions {
@@ -85,7 +85,7 @@ func (m *BrowserManager) Close() {
 	}
 }
 
-func (m *BrowserManager) getSession(sessionID int64) (*browserSession, error) {
+func (m *Manager) getSession(sessionID int64) (*browserSession, error) {
 	if sessionID <= 0 {
 		return nil, errors.New("session_id required")
 	}
@@ -117,7 +117,7 @@ func (m *BrowserManager) getSession(sessionID int64) (*browserSession, error) {
 	return sess, nil
 }
 
-func (m *BrowserManager) ensureBrowser() error {
+func (m *Manager) ensureBrowser() error {
 	if m.browser != nil && m.pw != nil {
 		return nil
 	}
@@ -137,7 +137,7 @@ func (m *BrowserManager) ensureBrowser() error {
 	return nil
 }
 
-func (m *BrowserManager) Goto(ctx context.Context, sessionID int64, targetURL string, waitMS int, timeout time.Duration) (pageState, error) {
+func (m *Manager) Goto(ctx context.Context, sessionID int64, targetURL string, waitMS int, timeout time.Duration) (pageState, error) {
 	sess, err := m.getSession(sessionID)
 	if err != nil {
 		return pageState{}, err
@@ -163,7 +163,7 @@ func (m *BrowserManager) Goto(ctx context.Context, sessionID int64, targetURL st
 	return m.GetPageState(sessionID, defaultBrowserMaxChars)
 }
 
-func (m *BrowserManager) GoBack(ctx context.Context, sessionID int64, waitMS int, timeout time.Duration) (pageState, error) {
+func (m *Manager) GoBack(ctx context.Context, sessionID int64, waitMS int, timeout time.Duration) (pageState, error) {
 	sess, err := m.getSession(sessionID)
 	if err != nil {
 		return pageState{}, err
@@ -186,7 +186,7 @@ func (m *BrowserManager) GoBack(ctx context.Context, sessionID int64, waitMS int
 	return m.GetPageState(sessionID, defaultBrowserMaxChars)
 }
 
-func (m *BrowserManager) GetPageState(sessionID int64, maxChars int) (pageState, error) {
+func (m *Manager) GetPageState(sessionID int64, maxChars int) (pageState, error) {
 	sess, err := m.getSession(sessionID)
 	if err != nil {
 		return pageState{}, err
@@ -208,7 +208,7 @@ func (m *BrowserManager) GetPageState(sessionID int64, maxChars int) (pageState,
 	return state, nil
 }
 
-func (m *BrowserManager) TakeScreenshot(sessionID int64, fullPage bool) (string, pageState, error) {
+func (m *Manager) TakeScreenshot(sessionID int64, fullPage bool) (string, pageState, error) {
 	sess, err := m.getSession(sessionID)
 	if err != nil {
 		return "", pageState{}, err
@@ -237,7 +237,7 @@ func (m *BrowserManager) TakeScreenshot(sessionID int64, fullPage bool) (string,
 	return encoded, state, nil
 }
 
-func (m *BrowserManager) Click(sessionID int64, elementID int) error {
+func (m *Manager) Click(sessionID int64, elementID int) error {
 	sess, err := m.getSession(sessionID)
 	if err != nil {
 		return err
@@ -251,7 +251,7 @@ func (m *BrowserManager) Click(sessionID int64, elementID int) error {
 	return sess.page.Locator(selector).Click()
 }
 
-func (m *BrowserManager) FillText(sessionID int64, elementID int, text string) error {
+func (m *Manager) FillText(sessionID int64, elementID int, text string) error {
 	sess, err := m.getSession(sessionID)
 	if err != nil {
 		return err
@@ -265,7 +265,7 @@ func (m *BrowserManager) FillText(sessionID int64, elementID int, text string) e
 	return sess.page.Locator(selector).Fill(text)
 }
 
-func (m *BrowserManager) PressKey(sessionID int64, key string) error {
+func (m *Manager) PressKey(sessionID int64, key string) error {
 	sess, err := m.getSession(sessionID)
 	if err != nil {
 		return err
@@ -279,7 +279,7 @@ func (m *BrowserManager) PressKey(sessionID int64, key string) error {
 	return sess.page.Keyboard().Press(key)
 }
 
-func (m *BrowserManager) Scroll(sessionID int64, direction string, amount int) error {
+func (m *Manager) Scroll(sessionID int64, direction string, amount int) error {
 	sess, err := m.getSession(sessionID)
 	if err != nil {
 		return err

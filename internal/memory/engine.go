@@ -11,7 +11,6 @@ import (
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 type Engine struct {
@@ -25,27 +24,22 @@ type Engine struct {
 	log      *zap.Logger
 }
 
-func NewEngine(db *gorm.DB, store StoreAPI, llmClient llm.ChatModel, model string, cfg config.MemoryConfig) (*Engine, error) {
-	if db == nil {
-		return nil, errors.New("memory db required")
-	}
+func NewEngine(store StoreAPI, llmClient llm.ChatModel, model string, embedder Embedder, vectors VectorStore, cfg config.MemoryConfig) (*Engine, error) {
 	if store == nil {
 		return nil, errors.New("memory store required")
 	}
 	if llmClient == nil {
 		return nil, errors.New("memory llm client required")
 	}
-	if strings.TrimSpace(cfg.Embedder.Provider) == "" {
-		return nil, errors.New("memory embedder provider required")
-	}
 	if strings.TrimSpace(cfg.Embedder.Model) == "" {
 		return nil, errors.New("memory embedder model required")
 	}
-	embedder, err := NewEmbedder(cfg.Embedder)
-	if err != nil {
-		return nil, err
+	if embedder == nil {
+		return nil, errors.New("memory embedder required")
 	}
-	vectors := NewTiDBVectorStore(db, cfg.Vector.Distance)
+	if vectors == nil {
+		return nil, errors.New("memory vector store required")
+	}
 	if err := vectors.EnsureSchema(context.Background(), cfg); err != nil {
 		return nil, err
 	}

@@ -1,26 +1,27 @@
-package llm
+package openai
 
 import (
+	"github.com/YangKeao/haro-bot/internal/llm"
 
-	"github.com/openai/openai-go"
+	openaisdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
 	"github.com/openai/openai-go/shared/constant"
 )
 
-func buildChatMessages(messages []Message) []openai.ChatCompletionMessageParamUnion {
-	out := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
+func buildChatMessages(messages []llm.Message) []openaisdk.ChatCompletionMessageParamUnion {
+	out := make([]openaisdk.ChatCompletionMessageParamUnion, 0, len(messages))
 	for _, msg := range messages {
 		switch msg.Role {
 		case "system":
 			if msg.Content == "" {
 				continue
 			}
-			out = append(out, openai.ChatCompletionMessageParamUnion{
-				OfSystem: &openai.ChatCompletionSystemMessageParam{
+			out = append(out, openaisdk.ChatCompletionMessageParamUnion{
+				OfSystem: &openaisdk.ChatCompletionSystemMessageParam{
 					Role: constant.ValueOf[constant.System](),
-					Content: openai.ChatCompletionSystemMessageParamContentUnion{
-						OfString: openai.String(msg.Content),
+					Content: openaisdk.ChatCompletionSystemMessageParamContentUnion{
+						OfString: openaisdk.String(msg.Content),
 					},
 				},
 			})
@@ -28,21 +29,21 @@ func buildChatMessages(messages []Message) []openai.ChatCompletionMessageParamUn
 			if msg.Content == "" {
 				continue
 			}
-			out = append(out, openai.ChatCompletionMessageParamUnion{
-				OfDeveloper: &openai.ChatCompletionDeveloperMessageParam{
+			out = append(out, openaisdk.ChatCompletionMessageParamUnion{
+				OfDeveloper: &openaisdk.ChatCompletionDeveloperMessageParam{
 					Role: constant.ValueOf[constant.Developer](),
-					Content: openai.ChatCompletionDeveloperMessageParamContentUnion{
-						OfString: openai.String(msg.Content),
+					Content: openaisdk.ChatCompletionDeveloperMessageParamContentUnion{
+						OfString: openaisdk.String(msg.Content),
 					},
 				},
 			})
 		case "assistant":
-			assistant := openai.ChatCompletionAssistantMessageParam{
+			assistant := openaisdk.ChatCompletionAssistantMessageParam{
 				Role: constant.ValueOf[constant.Assistant](),
 			}
 			if msg.Content != "" {
-				assistant.Content = openai.ChatCompletionAssistantMessageParamContentUnion{
-					OfString: openai.String(msg.Content),
+				assistant.Content = openaisdk.ChatCompletionAssistantMessageParamContentUnion{
+					OfString: openaisdk.String(msg.Content),
 				}
 			}
 			if len(msg.ToolCalls) > 0 {
@@ -55,17 +56,17 @@ func buildChatMessages(messages []Message) []openai.ChatCompletionMessageParamUn
 			if msg.Content == "" && len(assistant.ToolCalls) == 0 && msg.ReasoningContent == "" {
 				continue
 			}
-			out = append(out, openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant})
+			out = append(out, openaisdk.ChatCompletionMessageParamUnion{OfAssistant: &assistant})
 		case "tool":
 			if msg.ToolCallID == "" {
 				continue
 			}
-			out = append(out, openai.ChatCompletionMessageParamUnion{
-				OfTool: &openai.ChatCompletionToolMessageParam{
+			out = append(out, openaisdk.ChatCompletionMessageParamUnion{
+				OfTool: &openaisdk.ChatCompletionToolMessageParam{
 					Role:       constant.ValueOf[constant.Tool](),
 					ToolCallID: msg.ToolCallID,
-					Content: openai.ChatCompletionToolMessageParamContentUnion{
-						OfString: openai.String(msg.Content),
+					Content: openaisdk.ChatCompletionToolMessageParamContentUnion{
+						OfString: openaisdk.String(msg.Content),
 					},
 				},
 			})
@@ -73,11 +74,11 @@ func buildChatMessages(messages []Message) []openai.ChatCompletionMessageParamUn
 			if msg.Content == "" {
 				continue
 			}
-			out = append(out, openai.ChatCompletionMessageParamUnion{
-				OfUser: &openai.ChatCompletionUserMessageParam{
+			out = append(out, openaisdk.ChatCompletionMessageParamUnion{
+				OfUser: &openaisdk.ChatCompletionUserMessageParam{
 					Role: constant.ValueOf[constant.User](),
-					Content: openai.ChatCompletionUserMessageParamContentUnion{
-						OfString: openai.String(msg.Content),
+					Content: openaisdk.ChatCompletionUserMessageParamContentUnion{
+						OfString: openaisdk.String(msg.Content),
 					},
 				},
 			})
@@ -86,16 +87,16 @@ func buildChatMessages(messages []Message) []openai.ChatCompletionMessageParamUn
 	return out
 }
 
-func buildChatToolCalls(calls []ToolCall) []openai.ChatCompletionMessageToolCallParam {
-	out := make([]openai.ChatCompletionMessageToolCallParam, 0, len(calls))
+func buildChatToolCalls(calls []llm.ToolCall) []openaisdk.ChatCompletionMessageToolCallParam {
+	out := make([]openaisdk.ChatCompletionMessageToolCallParam, 0, len(calls))
 	for _, call := range calls {
 		if call.ID == "" || call.Function.Name == "" {
 			continue
 		}
-		out = append(out, openai.ChatCompletionMessageToolCallParam{
+		out = append(out, openaisdk.ChatCompletionMessageToolCallParam{
 			ID:   call.ID,
 			Type: constant.ValueOf[constant.Function](),
-			Function: openai.ChatCompletionMessageToolCallFunctionParam{
+			Function: openaisdk.ChatCompletionMessageToolCallFunctionParam{
 				Name:      call.Function.Name,
 				Arguments: call.Function.Arguments,
 			},
@@ -104,11 +105,11 @@ func buildChatToolCalls(calls []ToolCall) []openai.ChatCompletionMessageToolCall
 	return out
 }
 
-func buildChatTools(tools []Tool) []openai.ChatCompletionToolParam {
+func buildChatTools(tools []llm.Tool) []openaisdk.ChatCompletionToolParam {
 	if len(tools) == 0 {
 		return nil
 	}
-	out := make([]openai.ChatCompletionToolParam, 0, len(tools))
+	out := make([]openaisdk.ChatCompletionToolParam, 0, len(tools))
 	for _, t := range tools {
 		if t.Type != "function" {
 			continue
@@ -125,7 +126,7 @@ func buildChatTools(tools []Tool) []openai.ChatCompletionToolParam {
 		if t.Function.Description != "" {
 			fn.Description = param.NewOpt(t.Function.Description)
 		}
-		out = append(out, openai.ChatCompletionToolParam{
+		out = append(out, openaisdk.ChatCompletionToolParam{
 			Type:     constant.ValueOf[constant.Function](),
 			Function: fn,
 		})
@@ -135,24 +136,24 @@ func buildChatTools(tools []Tool) []openai.ChatCompletionToolParam {
 
 // chatCompletionToChat converts openai ChatCompletion to our ChatResponse.
 // reasoningContent is the accumulated reasoning content from streaming (for GLM/DeepSeek).
-func chatCompletionToChat(resp *openai.ChatCompletion, reasoningContent string) ChatResponse {
+func chatCompletionToChat(resp *openaisdk.ChatCompletion, reasoningContent string) llm.ChatResponse {
 	content := ""
-	toolCalls := []ToolCall(nil)
+	toolCalls := []llm.ToolCall(nil)
 	if resp != nil && len(resp.Choices) > 0 {
 		msg := resp.Choices[0].Message
 		content = msg.Content
 		for _, call := range msg.ToolCalls {
-			toolCalls = append(toolCalls, ToolCall{
+			toolCalls = append(toolCalls, llm.ToolCall{
 				ID:   call.ID,
 				Type: "function",
-				Function: ToolCallFn{
+				Function: llm.ToolCallFn{
 					Name:      call.Function.Name,
 					Arguments: call.Function.Arguments,
 				},
 			})
 		}
 	}
-	msg := Message{
+	msg := llm.Message{
 		Role:             "assistant",
 		Content:          content,
 		ReasoningContent: reasoningContent,
@@ -161,22 +162,22 @@ func chatCompletionToChat(resp *openai.ChatCompletion, reasoningContent string) 
 	model := ""
 	created := int64(0)
 	id := ""
-	usage := Usage{}
+	usage := llm.Usage{}
 	if resp != nil {
 		model = resp.Model
 		created = resp.Created
 		id = resp.ID
-		usage = Usage{
+		usage = llm.Usage{
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
 		}
 	}
-	return ChatResponse{
+	return llm.ChatResponse{
 		ID:      id,
 		Created: created,
 		Model:   model,
 		Usage:   usage,
-		Choices: []ChatChoice{{Index: 0, Message: msg}},
+		Choices: []llm.ChatChoice{{Index: 0, Message: msg}},
 	}
 }

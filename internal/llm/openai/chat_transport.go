@@ -1,4 +1,4 @@
-package llm
+package openai
 
 import (
 	"context"
@@ -6,16 +6,17 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/openai/openai-go"
+	"github.com/YangKeao/haro-bot/internal/llm"
+	openaisdk "github.com/openai/openai-go"
 )
 
 // streamResult holds the result of streaming completion
 type streamResult struct {
-	completion       *openai.ChatCompletion
+	completion       *openaisdk.ChatCompletion
 	reasoningContent string // Accumulated reasoning content (for GLM/DeepSeek)
 }
 
-func streamChatCompletion(ctx context.Context, client *openai.Client, params openai.ChatCompletionNewParams, handler StreamHandler) (*streamResult, error) {
+func streamChatCompletion(ctx context.Context, client *openaisdk.Client, params openaisdk.ChatCompletionNewParams, handler llm.StreamHandler) (*streamResult, error) {
 	if client == nil {
 		return nil, errors.New("llm client not configured")
 	}
@@ -25,7 +26,7 @@ func streamChatCompletion(ctx context.Context, client *openai.Client, params ope
 	}
 	defer stream.Close()
 
-	var acc openai.ChatCompletionAccumulator
+	var acc openaisdk.ChatCompletionAccumulator
 
 	// Accumulate reasoning content separately since openai-go's Accumulator doesn't handle ExtraFields
 	var reasoningBuilder strings.Builder
@@ -45,13 +46,13 @@ func streamChatCompletion(ctx context.Context, client *openai.Client, params ope
 							// Accumulate reasoning content
 							reasoningBuilder.WriteString(reasoningContent)
 							// Stream to handler
-							safeCallStreamHandler(handler, StreamEvent{ReasoningDelta: reasoningContent})
+							safeCallStreamHandler(handler, llm.StreamEvent{ReasoningDelta: reasoningContent})
 						}
 					}
 				}
 				// Handle regular content
 				if choice.Delta.Content != "" {
-					safeCallStreamHandler(handler, StreamEvent{Delta: choice.Delta.Content})
+					safeCallStreamHandler(handler, llm.StreamEvent{Delta: choice.Delta.Content})
 				}
 			}
 		}
@@ -71,7 +72,7 @@ func streamChatCompletion(ctx context.Context, client *openai.Client, params ope
 	}, nil
 }
 
-func safeCallStreamHandler(handler StreamHandler, event StreamEvent) {
+func safeCallStreamHandler(handler llm.StreamHandler, event llm.StreamEvent) {
 	defer func() {
 		_ = recover()
 	}()

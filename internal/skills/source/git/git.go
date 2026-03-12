@@ -1,4 +1,4 @@
-package skills
+package git
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func syncRepo(ctx context.Context, repoURL, repoRef, repoDir string) (*git.Repository, string, error) {
+func SyncRepo(ctx context.Context, repoURL, repoRef, repoDir string) (*git.Repository, string, error) {
 	log := logging.L().Named("skills_git")
 	if strings.HasPrefix(repoURL, "file://") {
 		return nil, "", errors.New("file protocol not allowed")
