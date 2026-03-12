@@ -76,7 +76,7 @@ func TestTelegramHandlerSendsMessage(t *testing.T) {
 	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, llmClient, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, llmClient, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
-	srv := New(config.Config{}, agentSvc, store, skillsMgr, nil)
+	srv := New(config.Config{}, agentSvc, store)
 
 	token := "test-token"
 	captureCh := make(chan telegramSendCapture, 1)

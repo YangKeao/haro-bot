@@ -156,7 +156,7 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 
 	token := fmt.Sprintf("CITY-E2E-%d", time.Now().UnixNano())
 	seedText := fmt.Sprintf("User preference: favorite city keyword is %s.", token)
-	embedder, err := memopenai.New(cfg.Memory.Embedder)
+	embedder, err = memopenai.New(cfg.Memory.Embedder)
 	if err != nil {
 		t.Fatalf("init embedder: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("embed seed memory: %v", err)
 	}
-	vectorStore := memtidb.New(gdb, cfg.Memory.Vector.Distance)
+	vectorStore = memtidb.New(gdb, cfg.Memory.Vector.Distance)
 	if _, err := vectorStore.Insert(ctx, memory.MemoryItem{
 		UserID:  userID,
 		Type:    "preference",
