@@ -28,7 +28,7 @@ type migration struct {
 	apply   func(*gorm.DB, config.MemoryConfig) error
 }
 
-const currentSchemaVersion int64 = 10
+const currentSchemaVersion int64 = 11
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -41,6 +41,7 @@ var migrations = []migration{
 	{version: 8, stmts: replaceMemoriesTableSQL},
 	{version: 9, apply: applyMemoryVectorIndex},
 	{version: 10, stmts: addGuidelinessSQL},
+	{version: 11, stmts: addSkillSourceFiltersSQL},
 }
 
 func applyMigrations(db *gorm.DB, memCfg config.MemoryConfig) error {
@@ -162,9 +163,10 @@ var initSchemaSQL = []string{
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   source_type VARCHAR(32) NOT NULL,
   install_method VARCHAR(32) NOT NULL,
-  source_url TEXT NOT NULL,
+ source_url TEXT NOT NULL,
   source_ref VARCHAR(128) DEFAULT '',
   source_subdir VARCHAR(255) DEFAULT '',
+  skill_filters_json JSON,
   status VARCHAR(16) DEFAULT 'active',
   version VARCHAR(64),
   last_sync_at TIMESTAMP NULL,
@@ -208,6 +210,10 @@ var appConfigSQL = []string{
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 )`,
+}
+
+var addSkillSourceFiltersSQL = []string{
+	`ALTER TABLE skill_sources ADD COLUMN IF NOT EXISTS skill_filters_json JSON NULL AFTER source_subdir`,
 }
 
 var dropSkillCallsSQL = []string{

@@ -76,11 +76,14 @@ func main() {
 
 	execMgr := tools.NewExecManager()
 	toolRegistry := tools.NewRegistry(
+		tools.NewListSkillSourcesTool(skillsMgr),
 		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
 		tools.NewSessionSummaryTool(store),
 		tools.NewMemorySearchTool(store),
 		tools.NewInstallSkillTool(skillsMgr),
 		tools.NewActivateSkillTool(skillsMgr),
+		tools.NewRefreshSkillsTool(skillsMgr),
+		tools.NewDeleteSkillSourceTool(skillsMgr),
 		tools.NewGrepFilesTool(fsTools),
 		tools.NewReadFileTool(fsTools),
 		tools.NewListDirTool(fsTools),

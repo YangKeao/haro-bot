@@ -29,9 +29,10 @@ func TestInstallSkillTool(t *testing.T) {
 	tool := tools.NewInstallSkillTool(mgr)
 
 	args, err := json.Marshal(map[string]any{
-		"source_type": "git",
-		"url":         repoDir,
-		"ref":         "master",
+		"source_type":    "git",
+		"url":            repoDir,
+		"ref":            "master",
+		"include_skills": []string{"demo-skill"},
 	})
 	if err != nil {
 		t.Fatalf("marshal args: %v", err)
