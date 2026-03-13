@@ -26,6 +26,7 @@ import (
 	memopenai "github.com/YangKeao/haro-bot/internal/memory/embedder/openai"
 	memtidb "github.com/YangKeao/haro-bot/internal/memory/vectorstore/tidb"
 	"github.com/YangKeao/haro-bot/internal/skills"
+	"github.com/YangKeao/haro-bot/internal/scheduler"
 	"github.com/YangKeao/haro-bot/internal/tools"
 	"go.uber.org/zap"
 )
@@ -122,6 +123,13 @@ func main() {
 	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store)
 
 	imRuntime.Start(ctx)
+
+	// Scheduler
+	toolRegistry.Register(tools.NewSchedulerTasksTool(dbConn))
+	toolRegistry.Register(tools.NewSchedulerTaskTool(dbConn))
+	sched := scheduler.New(agentSvc, agentSvc.GetSessionStatus, store.GetOrCreateSession, dbConn)
+	go sched.Start(ctx)
+	log.Info("scheduler started")
 
 	if err := skillsMgr.RefreshAll(ctx); err != nil {
 		log.Warn("skills refresh failed", zap.Error(err))
