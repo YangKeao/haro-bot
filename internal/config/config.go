@@ -84,6 +84,7 @@ type Config struct {
 	ToolMaxTurns                     int
 	Log                              LogConfig
 	Memory                           MemoryConfig
+	Scheduler                        SchedulerConfig
 }
 
 // fileConfig mirrors the TOML structure for deserialization.
@@ -122,6 +123,7 @@ type fileConfig struct {
 	} `toml:"tool"`
 	Log    LogConfig    `toml:"log"`
 	Memory MemoryConfig `toml:"memory"`
+	Scheduler SchedulerConfig `toml:"scheduler"`
 }
 
 // LoadFromFile reads configuration from a TOML file.
@@ -315,6 +317,7 @@ func (r fileConfig) toConfig() Config {
 		ToolMaxTurns:                     r.Tool.MaxTurns,
 		Log:                              r.Log,
 		Memory:                           r.Memory,
+		Scheduler:                       r.Scheduler,
 	}
 }
 

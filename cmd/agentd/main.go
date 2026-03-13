@@ -27,6 +27,7 @@ import (
 	memtidb "github.com/YangKeao/haro-bot/internal/memory/vectorstore/tidb"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
+	"github.com/YangKeao/haro-bot/internal/scheduler"
 	"go.uber.org/zap"
 )
 
@@ -103,7 +104,8 @@ func main() {
 		log.Fatal("memory embedder init failed", zap.Error(err))
 	}
 	vectorStore := memtidb.New(dbConn, cfg.Memory.Vector.Distance)
-	memoryEngine, err := memory.NewEngine(store, llmClient, cfg.LLMModel, embedder, vectorStore, cfg.Memory)
+	memoryEngine, err := memory.NewEngine(store, llmClient,
+		cfg.LLMModel, embedder, vectorStore, cfg.Memory)
 	if err != nil {
 		log.Fatal("memory engine init failed", zap.Error(err))
 	}
@@ -120,6 +122,26 @@ func main() {
 	)
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memoryEngine, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
 	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store)
+
+	// Initialize and start scheduler if enabled
+	if cfg.Scheduler.Enabled {
+		sched := scheduler.New(
+			agentSvc,
+			agentSvc.GetSessionStatus,
+		store.GetOrCreateSession)
+		for _, taskCfg := range cfg.Scheduler.Tasks {
+			task, err := scheduler.ParseTaskConfig(taskCfg)
+			if err != nil {
+				log.Warn("invalid scheduler task config", zap.String("name", taskCfg.Name), zap.Error(err))
+				continue
+			}
+			sched.AddTask(task)
+			log.Info("scheduled task added", zap.String("name", task.Name), zap.String("cron", task.CronExpr))
+		}
+		go sched.Start(ctx)
+		log.Info("scheduler started", zap.Int("tasks", len(cfg.Scheduler.Tasks)))
+	}
+
 
 	imRuntime.Start(ctx)
 
