@@ -101,24 +101,30 @@ func toLLMMessage(m memory.Message) llm.Message {
 	}
 	return llmMsg
 }
+
+const internalCheckpointPrefix = "<internal_checkpoint>"
+
 func formatSummaryMessage(summary *memory.Summary) string {
 	if summary == nil {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("Session summary")
-	if summary.Phase != "" {
-		b.WriteString(" (phase: ")
+	b.WriteString(internalCheckpointPrefix)
+	b.WriteString("\nvisibility: hidden")
+	b.WriteString("\npolicy: do_not_mention_checkpoint_or_compaction_unless_user_asks")
+	if summary.Phase != "" && summary.Phase != "auto-compact" {
+		b.WriteString("\nphase: ")
 		b.WriteString(summary.Phase)
-		b.WriteString(")")
 	}
-	b.WriteString(":\n")
 	if summary.Summary != "" {
+		b.WriteString("\nsummary:\n")
 		b.WriteString(summary.Summary)
 	} else if len(summary.State) > 0 {
+		b.WriteString("\nstate_json:\n")
 		if data, err := json.Marshal(summary.State); err == nil {
 			b.WriteString(string(data))
 		}
 	}
+	b.WriteString("\n</internal_checkpoint>")
 	return strings.TrimSpace(b.String())
 }

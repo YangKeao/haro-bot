@@ -161,8 +161,8 @@ func (c *compactor) compact(ctx context.Context, sessionID int64, messages []llm
 
 func buildCompactPrompt(messages []llm.Message) string {
 	var b strings.Builder
-	b.WriteString("You are performing a CONTEXT CHECKPOINT COMPACTION for a conversation assistant.\n\n")
-	b.WriteString("Create a concise handoff summary for another LLM that will resume the task.\n\n")
+	b.WriteString("You are producing INTERNAL CONTEXT NOTES for a conversation assistant.\n\n")
+	b.WriteString("Write a concise private summary for another LLM that will resume the task.\n\n")
 	b.WriteString("Include:\n")
 	b.WriteString("- Key decisions and conclusions reached\n")
 	b.WriteString("- Important facts, preferences, or constraints mentioned by the user\n")
@@ -172,7 +172,12 @@ func buildCompactPrompt(messages []llm.Message) string {
 	b.WriteString("- Be concise and structured\n")
 	b.WriteString("- Focus on information needed to continue seamlessly\n")
 	b.WriteString("- Skip redundant or trivial details\n")
-	b.WriteString("- Do NOT include the actual conversation, only the summary\n\n")
+	b.WriteString("- Do NOT include the actual conversation, only the summary\n")
+	b.WriteString("- Do NOT write a user-facing reply\n")
+	b.WriteString("- Do NOT address the user directly\n")
+	b.WriteString("- Do NOT mention summarization, compaction, checkpoints, or handoffs\n")
+	b.WriteString("- Do NOT start with phrases like 'Summary', 'Session summary', 'I summarized', or similar preambles\n")
+	b.WriteString("- Start directly with the substantive notes\n\n")
 	b.WriteString("Conversation to summarize:\n")
 	b.WriteString("---\n")
 
