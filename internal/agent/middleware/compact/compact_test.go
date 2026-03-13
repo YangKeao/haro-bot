@@ -141,6 +141,12 @@ func TestBuildCompactPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "Summary:") {
 		t.Error("prompt should end with Summary:")
 	}
+	if !strings.Contains(prompt, "Do NOT write a user-facing reply") {
+		t.Error("prompt should explicitly forbid user-facing phrasing")
+	}
+	if !strings.Contains(prompt, "Do NOT mention summarization, compaction, checkpoints, or handoffs") {
+		t.Error("prompt should explicitly forbid mentioning compaction")
+	}
 }
 
 func TestBuildCompactPromptWithToolCalls(t *testing.T) {
