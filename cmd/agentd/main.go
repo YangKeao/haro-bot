@@ -28,6 +28,7 @@ import (
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
 	"github.com/YangKeao/haro-bot/internal/scheduler"
+	schedulerstore "github.com/YangKeao/haro-bot/internal/scheduler/store"
 	"go.uber.org/zap"
 )
 
@@ -123,26 +124,24 @@ func main() {
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memoryEngine, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
 	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store)
 
-	// Initialize and start scheduler if enabled
-	if cfg.Scheduler.Enabled {
-		sched := scheduler.New(
-			agentSvc,
-			agentSvc.GetSessionStatus,
-		store.GetOrCreateSession)
-		for _, taskCfg := range cfg.Scheduler.Tasks {
-			task, err := scheduler.ParseTaskConfig(taskCfg)
-			if err != nil {
-				log.Warn("invalid scheduler task config", zap.String("name", taskCfg.Name), zap.Error(err))
-				continue
-			}
-			sched.AddTask(task)
-			log.Info("scheduled task added", zap.String("name", task.Name), zap.String("cron", task.CronExpr))
-		}
-		go sched.Start(ctx)
-		log.Info("scheduler started", zap.Int("tasks", len(cfg.Scheduler.Tasks)))
-	}
 
+	// Initialize scheduler store and tools
+	schedulerStore := schedulerstore.NewStore(dbConn)
+	toolRegistry.Register(tools.NewListSchedulerTasksTool(schedulerStore))
+	toolRegistry.Register(tools.NewCreateSchedulerTaskTool(schedulerStore))
+	toolRegistry.Register(tools.NewUpdateSchedulerTaskTool(schedulerStore))
+	toolRegistry.Register(tools.NewDeleteSchedulerTaskTool(schedulerStore))
+	toolRegistry.Register(tools.NewGetSchedulerTaskTool(schedulerStore))
 
+	// Initialize and start scheduler
+	sched := scheduler.New(
+		agentSvc,
+		agentSvc.GetSessionStatus,
+		store.GetOrCreateSession,
+		dbConn,
+	)
+	go sched.Start(ctx)
+	log.Info("scheduler started")
 	imRuntime.Start(ctx)
 
 	if err := skillsMgr.RefreshAll(ctx); err != nil {
