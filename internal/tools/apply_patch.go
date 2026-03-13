@@ -131,6 +131,7 @@ type PatchOperation struct {
 func parsePatch(patch string) ([]PatchOperation, error) {
 	lines := strings.Split(patch, "\n")
 	var operations []PatchOperation
+	foundEnd := false
 
 	i := 0
 	// Find *** Begin Patch
@@ -147,6 +148,7 @@ func parsePatch(patch string) ([]PatchOperation, error) {
 
 		// End of patch
 		if strings.HasPrefix(line, "*** End Patch") {
+			foundEnd = true
 			break
 		}
 
@@ -204,6 +206,10 @@ func parsePatch(patch string) ([]PatchOperation, error) {
 		}
 	}
 
+	if !foundEnd {
+		return nil, errors.New("patch must end with *** End Patch")
+	}
+
 	return operations, nil
 }
 
@@ -222,7 +228,7 @@ func (t *ApplyPatchTool) applyOperation(ctx context.Context, tc ToolContext, wor
 	case "delete":
 		return t.deleteFile(ctx, tc, allowedPath, op)
 	case "update":
-		return t.updateFile(ctx, tc, allowedPath, op)
+		return t.updateFile(ctx, tc, workdir, allowedPath, op)
 	default:
 		return "", fmt.Errorf("unknown operation type: %s", op.Type)
 	}
@@ -272,7 +278,7 @@ func (t *ApplyPatchTool) deleteFile(ctx context.Context, tc ToolContext, path st
 	return fmt.Sprintf("Deleted file: %s", path), nil
 }
 
-func (t *ApplyPatchTool) updateFile(ctx context.Context, tc ToolContext, path string, op PatchOperation) (string, error) {
+func (t *ApplyPatchTool) updateFile(ctx context.Context, tc ToolContext, workdir, path string, op PatchOperation) (string, error) {
 	// Check if file exists
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return "", fmt.Errorf("file does not exist: %s", path)
@@ -293,10 +299,9 @@ func (t *ApplyPatchTool) updateFile(ctx context.Context, tc ToolContext, path st
 	// Handle rename if specified
 	targetPath := path
 	if op.MoveTo != "" {
-		if filepath.IsAbs(op.MoveTo) {
-			targetPath = op.MoveTo
-		} else {
-			targetPath = filepath.Join(filepath.Dir(path), op.MoveTo)
+		targetPath, err = t.fs.resolvePath(workdir, op.MoveTo, true)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve move target: %w", err)
 		}
 		// Create parent directories if needed
 		dir := filepath.Dir(targetPath)
@@ -334,13 +339,20 @@ func (t *ApplyPatchTool) applyDiff(original string, diffLines []string) (string,
 	originalLines := strings.Split(original, "\n")
 	var result []string
 	origIdx := 0
+	atHunkStart := false
 
 	i := 0
 	for i < len(diffLines) {
 		line := diffLines[i]
+		trimmed := strings.TrimSpace(line)
 
 		// Skip @@ markers and empty lines
-		if strings.HasPrefix(strings.TrimSpace(line), "@@") || strings.TrimSpace(line) == "" {
+		if strings.HasPrefix(trimmed, "@@") {
+			atHunkStart = true
+			i++
+			continue
+		}
+		if trimmed == "" {
 			i++
 			continue
 		}
@@ -360,42 +372,34 @@ func (t *ApplyPatchTool) applyDiff(original string, diffLines []string) (string,
 		case ' ':
 			// Context line - verify it matches
 			if origIdx < len(originalLines) {
-				if originalLines[origIdx] != content {
-					// Try to find matching line
-					found := false
-					for j := origIdx; j < len(originalLines) && j < origIdx+5; j++ {
-						if originalLines[j] == content {
-							// Add skipped lines
-							for k := origIdx; k < j; k++ {
-								result = append(result, originalLines[k])
-							}
-							origIdx = j
-							found = true
-							break
-						}
-					}
-					if !found {
-						return "", fmt.Errorf("context mismatch at line %d: expected %q, got %q", origIdx+1, content, originalLines[origIdx])
-					}
+				nextIdx, ok := locateOriginalLine(originalLines, origIdx, content, atHunkStart)
+				if !ok {
+					return "", fmt.Errorf("context mismatch at line %d: expected %q, got %q", origIdx+1, content, originalLines[origIdx])
 				}
+				result = append(result, originalLines[origIdx:nextIdx]...)
 				result = append(result, content)
-				origIdx++
+				origIdx = nextIdx + 1
 			}
+			atHunkStart = false
 			i++
 
 		case '-':
 			// Remove line - verify it matches
 			if origIdx < len(originalLines) {
-				if originalLines[origIdx] != content {
+				nextIdx, ok := locateOriginalLine(originalLines, origIdx, content, atHunkStart)
+				if !ok {
 					return "", fmt.Errorf("remove mismatch at line %d: expected %q, got %q", origIdx+1, content, originalLines[origIdx])
 				}
-				origIdx++
+				result = append(result, originalLines[origIdx:nextIdx]...)
+				origIdx = nextIdx + 1
 			}
+			atHunkStart = false
 			i++
 
 		case '+':
 			// Add line
 			result = append(result, content)
+			atHunkStart = false
 			i++
 
 		default:
@@ -404,6 +408,7 @@ func (t *ApplyPatchTool) applyDiff(original string, diffLines []string) (string,
 				result = append(result, originalLines[origIdx])
 				origIdx++
 			}
+			atHunkStart = false
 			i++
 		}
 	}
@@ -415,6 +420,26 @@ func (t *ApplyPatchTool) applyDiff(original string, diffLines []string) (string,
 	}
 
 	return strings.Join(result, "\n"), nil
+}
+
+func locateOriginalLine(originalLines []string, start int, content string, wideSearch bool) (int, bool) {
+	if start >= len(originalLines) {
+		return 0, false
+	}
+	if originalLines[start] == content {
+		return start, true
+	}
+
+	end := len(originalLines)
+	if !wideSearch && start+5 < end {
+		end = start + 5
+	}
+	for i := start + 1; i < end; i++ {
+		if originalLines[i] == content {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 // Helper function to read file lines
