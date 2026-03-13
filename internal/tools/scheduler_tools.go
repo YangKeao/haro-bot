@@ -1,167 +1,192 @@
 package tools
 
 import (
+	"strings"
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/db"
-	"github.com/YangKeao/haro-bot/internal/scheduler/store"
+	"github.com/YangKeao/haro-bot/internal/logging"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
-// ListSchedulerTasksTool lists all scheduler tasks.
-type ListSchedulerTasksTool struct {
-	store *store.Store
+// SchedulerTasksTool lists and manages scheduled tasks.
+type SchedulerTasksTool struct {
+	db *gorm.DB
 }
 
-func NewListSchedulerTasksTool(s *store.Store) *ListSchedulerTasksTool {
-	return &ListSchedulerTasksTool{store: s}
+func NewSchedulerTasksTool(db *gorm.DB) *SchedulerTasksTool {
+	return &SchedulerTasksTool{db: db}
 }
 
-func (t *ListSchedulerTasksTool) Name() string {
-	return "list_scheduler_tasks"
+func (t *SchedulerTasksTool) Name() string { return "scheduler_tasks" }
+
+func (t *SchedulerTasksTool) Description() string {
+	return "List all scheduled tasks, or get details of a specific task by name or id."
 }
 
-func (t *ListSchedulerTasksTool) Description() string {
-	return "List all scheduled tasks. Returns task names, schedules, and status."
-}
-
-func (t *ListSchedulerTasksTool) Parameters() map[string]any {
-	return map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-	}
-}
-
-func (t *ListSchedulerTasksTool) Execute(ctx context.Context, _ ToolContext, _ json.RawMessage) (string, error) {
-	tasks, err := t.store.ListTasks(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to list tasks: %w", err)
-	}
-
-	if len(tasks) == 0 {
-		return "No scheduled tasks found.", nil
-	}
-
-	result := fmt.Sprintf("Found %d scheduled tasks:\n\n", len(tasks))
-	for _, task := range tasks {
-		status := "enabled"
-		if !task.Enabled {
-			status = "disabled"
-		}
-		lastRun := "never"
-		if task.LastRunAt != nil {
-			lastRun = task.LastRunAt.Format(time.RFC3339)
-		}
-		nextRun := "not scheduled"
-		if task.NextRunAt != nil {
-			nextRun = task.NextRunAt.Format(time.RFC3339)
-		}
-
-		result += fmt.Sprintf("- **%s** (ID: %d)\n", task.Name, task.ID)
-		result += fmt.Sprintf("  - Schedule: `%s`\n", task.CronExpr)
-		result += fmt.Sprintf("  - Status: %s\n", status)
-		result += fmt.Sprintf("  - Last run: %s (%s)\n", lastRun, task.LastRunStatus)
-		result += fmt.Sprintf("  - Next run: %s\n", nextRun)
-		result += fmt.Sprintf("  - Success/Fail: %d/%d\n\n", task.SuccessfulRuns, task.FailedRuns)
-	}
-
-	return result, nil
-}
-
-// CreateSchedulerTaskTool creates a new scheduler task.
-type CreateSchedulerTaskTool struct {
-	store *store.Store
-}
-
-func NewCreateSchedulerTaskTool(s *store.Store) *CreateSchedulerTaskTool {
-	return &CreateSchedulerTaskTool{store: s}
-}
-
-func (t *CreateSchedulerTaskTool) Name() string {
-	return "create_scheduler_task"
-}
-
-func (t *CreateSchedulerTaskTool) Description() string {
-	return "Create a new scheduled task that triggers an LLM prompt at specified times."
-}
-
-func (t *CreateSchedulerTaskTool) Parameters() map[string]any {
+func (t *SchedulerTasksTool) Parameters() map[string]any {
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
 		"properties": map[string]any{
-			"name": map[string]any{
-				"type":        "string",
-				"description": "Unique name for the task",
-			},
-			"cron_expr": map[string]any{
-				"type":        "string",
-				"description": "Cron expression (e.g., '0 8 * * *' for 8 AM daily)",
-			},
-			"prompt": map[string]any{
-				"type":        "string",
-				"description": "The prompt to send to the LLM",
-			},
-			"user_id": map[string]any{
-				"type":        "integer",
-				"description": "User ID to associate with the task",
-			},
-			"channel": map[string]any{
-				"type":        "string",
-				"description": "Channel to send messages to (e.g., 'telegram')",
-				"default":     "telegram",
-			},
-			"model": map[string]any{
-				"type":        "string",
-				"description": "Optional model override",
-			},
-			"notify": map[string]any{
-				"type":        "boolean",
-				"description": "Whether to notify user of results",
-				"default":     true,
-			},
-			"skip_if_busy": map[string]any{
-				"type":        "boolean",
-				"description": "Skip execution if session is busy",
-				"default":     false,
-			},
-			"max_wait_seconds": map[string]any{
-				"type":        "integer",
-				"description": "Max seconds to wait if session is busy (0 = no wait)",
-				"default":     0,
-			},
+			"name": map[string]any{"type": "string", "description": "Task name to get details (optional, lists all if not provided)"},
+			"id":   map[string]any{"type": "integer", "description": "Task ID to get details (optional)"},
 		},
-		"required": []string{"name", "cron_expr", "prompt", "user_id"},
 	}
 }
 
-type createTaskArgs struct {
-	Name           string `json:"name"`
-	CronExpr       string `json:"cron_expr"`
-	Prompt         string `json:"prompt"`
-	UserID         int64  `json:"user_id"`
-	Channel        string `json:"channel,omitempty"`
-	Model          string `json:"model,omitempty"`
-	Notify         *bool  `json:"notify,omitempty"`
-	SkipIfBusy     *bool  `json:"skip_if_busy,omitempty"`
-	MaxWaitSeconds *int   `json:"max_wait_seconds,omitempty"`
+func (t *SchedulerTasksTool) Execute(ctx context.Context, _ ToolContext, argsJSON json.RawMessage) (string, error) {
+	var args struct {
+		Name string `json:"name,omitempty"`
+		ID   *int64 `json:"id,omitempty"`
+	}
+	json.Unmarshal(argsJSON, &args)
+
+	if args.Name != "" || args.ID != nil {
+		return t.getTask(ctx, args.Name, args.ID)
+	}
+	return t.listTasks(ctx)
 }
 
-func (t *CreateSchedulerTaskTool) Execute(ctx context.Context, _ ToolContext, argsJSON json.RawMessage) (string, error) {
-	var args createTaskArgs
+func (t *SchedulerTasksTool) listTasks(ctx context.Context) (string, error) {
+	var tasks []db.SchedulerTask
+	if err := t.db.WithContext(ctx).Find(&tasks).Error; err != nil {
+		return "", err
+	}
+	if len(tasks) == 0 {
+		return "No scheduled tasks.", nil
+	}
+
+	result := fmt.Sprintf("Scheduled tasks (%d):\n", len(tasks))
+	for _, task := range tasks {
+		status := "✅"
+		if !task.Enabled {
+			status = "⏸️"
+		}
+		lastRun := "never"
+		if task.LastRunAt != nil {
+			lastRun = task.LastRunAt.Format("2006-01-02 15:04")
+		}
+		result += fmt.Sprintf("%s **%s** `%s` (last: %s, %d✓/%d✗)\n",
+			status, task.Name, task.CronExpr, lastRun, task.SuccessfulRuns, task.FailedRuns)
+	}
+	return result, nil
+}
+
+func (t *SchedulerTasksTool) getTask(ctx context.Context, name string, id *int64) (string, error) {
+	var task db.SchedulerTask
+	if id != nil {
+		if err := t.db.First(&task, *id).Error; err != nil {
+			return "", fmt.Errorf("task not found: %w", err)
+		}
+	} else {
+		if err := t.db.Where("name = ?", name).First(&task).Error; err != nil {
+			return "", fmt.Errorf("task not found: %w", err)
+		}
+	}
+
+	result := fmt.Sprintf("**%s** (ID: %d)\n", task.Name, task.ID)
+	result += fmt.Sprintf("- Schedule: `%s`\n", task.CronExpr)
+	result += fmt.Sprintf("- Status: %s\n", map[bool]string{true: "enabled", false: "disabled"}[task.Enabled])
+	result += fmt.Sprintf("- User/Channel: %d/%s\n", task.UserID, task.Channel)
+	result += fmt.Sprintf("- Skip if busy: %v\n", task.SkipIfBusy)
+	result += fmt.Sprintf("- Runs: %d success, %d failed\n", task.SuccessfulRuns, task.FailedRuns)
+	if task.LastRunAt != nil {
+		result += fmt.Sprintf("- Last run: %s (%s)\n", task.LastRunAt.Format(time.RFC3339), task.LastRunStatus)
+	}
+	if task.NextRunAt != nil {
+		result += fmt.Sprintf("- Next run: %s\n", task.NextRunAt.Format(time.RFC3339))
+	}
+	result += fmt.Sprintf("- Prompt:\n```\n%s\n```\n", task.Prompt)
+	return result, nil
+}
+
+// SchedulerTaskTool creates, updates, or deletes a scheduled task.
+type SchedulerTaskTool struct {
+	db *gorm.DB
+}
+
+func NewSchedulerTaskTool(db *gorm.DB) *SchedulerTaskTool {
+	return &SchedulerTaskTool{db: db}
+}
+
+func (t *SchedulerTaskTool) Name() string { return "scheduler_task" }
+
+func (t *SchedulerTaskTool) Description() string {
+	return "Create, update, or delete a scheduled task. Set action='delete' to remove, action='disable' to pause."
+}
+
+func (t *SchedulerTaskTool) Parameters() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"action", "name"},
+		"properties": map[string]any{
+			"action": map[string]any{
+				"type":        "string",
+				"enum":        []string{"create", "update", "delete", "disable", "enable"},
+				"description": "Action to perform",
+			},
+			"name":        map[string]any{"type": "string", "description": "Task name"},
+			"cron_expr":   map[string]any{"type": "string", "description": "Cron expression (e.g., '0 8 * * *')"},
+			"prompt":      map[string]any{"type": "string", "description": "Prompt to send"},
+			"user_id":     map[string]any{"type": "integer", "description": "User ID"},
+			"channel":     map[string]any{"type": "string", "description": "Channel (default: telegram)"},
+			"skip_if_busy": map[string]any{"type": "boolean", "description": "Skip if session busy"},
+		},
+	}
+}
+
+func (t *SchedulerTaskTool) Execute(ctx context.Context, _ ToolContext, argsJSON json.RawMessage) (string, error) {
+	var args struct {
+		Action      string `json:"action"`
+		Name        string `json:"name"`
+		CronExpr    string `json:"cron_expr,omitempty"`
+		Prompt      string `json:"prompt,omitempty"`
+		UserID      int64  `json:"user_id,omitempty"`
+		Channel     string `json:"channel,omitempty"`
+		SkipIfBusy  *bool  `json:"skip_if_busy,omitempty"`
+	}
 	if err := json.Unmarshal(argsJSON, &args); err != nil {
-		return "", fmt.Errorf("invalid arguments: %w", err)
+		return "", fmt.Errorf("invalid args: %w", err)
 	}
 
-	channel := "telegram"
-	if args.Channel != "" {
-		channel = args.Channel
-	}
+	log := logging.L().Named("scheduler_tool")
+	log.Info("executing", zap.String("action", args.Action), zap.String("name", args.Name))
 
-	// Validate
+	switch args.Action {
+	case "create":
+		return t.create(ctx, &args)
+	case "update":
+		return t.update(ctx, &args)
+	case "delete":
+		return t.delete(ctx, args.Name)
+	case "disable":
+		return t.setEnable(ctx, args.Name, false)
+	case "enable":
+		return t.setEnable(ctx, args.Name, true)
+	default:
+		return "", fmt.Errorf("unknown action: %s", args.Action)
+	}
+}
+
+func (t *SchedulerTaskTool) create(ctx context.Context, args *struct {
+	Action     string `json:"action"`
+	Name       string `json:"name"`
+	CronExpr   string `json:"cron_expr,omitempty"`
+	Prompt     string `json:"prompt,omitempty"`
+	UserID     int64  `json:"user_id,omitempty"`
+	Channel    string `json:"channel,omitempty"`
+	SkipIfBusy *bool  `json:"skip_if_busy,omitempty"`
+}) (string, error) {
+	channel := args.Channel
+	if channel == "" {
+		channel = "telegram"
+	}
 	if err := validateTask(args.Name, args.CronExpr, args.Prompt, args.UserID); err != nil {
 		return "", err
 	}
@@ -173,367 +198,95 @@ func (t *CreateSchedulerTaskTool) Execute(ctx context.Context, _ ToolContext, ar
 		UserID:     args.UserID,
 		Channel:    channel,
 		Enabled:    true,
-		Notify:     true,
-		SkipIfBusy: false,
+		SkipIfBusy: args.SkipIfBusy != nil && *args.SkipIfBusy,
 	}
 
-	if args.Model != "" {
-		task.Model = args.Model
+	if err := t.db.Create(task).Error; err != nil {
+		return "", fmt.Errorf("create failed: %w", err)
 	}
-	if args.Notify != nil {
-		task.Notify = *args.Notify
-	}
-	if args.SkipIfBusy != nil {
-		task.SkipIfBusy = *args.SkipIfBusy
-	}
-	if args.MaxWaitSeconds != nil {
-		task.MaxWaitSeconds = *args.MaxWaitSeconds
-	}
-
-	if err := t.store.CreateTask(ctx, task); err != nil {
-		return "", fmt.Errorf("failed to create task: %w", err)
-	}
-
-	return fmt.Sprintf("Created scheduled task '%s' (ID: %d) with schedule `%s`", task.Name, task.ID, task.CronExpr), nil
+	return fmt.Sprintf("Created task '%s' (ID: %d) with schedule `%s`", task.Name, task.ID, task.CronExpr), nil
 }
 
-// UpdateSchedulerTaskTool updates an existing scheduler task.
-type UpdateSchedulerTaskTool struct {
-	store *store.Store
-}
-
-func NewUpdateSchedulerTaskTool(s *store.Store) *UpdateSchedulerTaskTool {
-	return &UpdateSchedulerTaskTool{store: s}
-}
-
-func (t *UpdateSchedulerTaskTool) Name() string {
-	return "update_scheduler_task"
-}
-
-func (t *UpdateSchedulerTaskTool) Description() string {
-	return "Update an existing scheduled task. Provide task ID or name to identify the task."
-}
-
-func (t *UpdateSchedulerTaskTool) Parameters() map[string]any {
-	return map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"properties": map[string]any{
-			"id": map[string]any{
-				"type":        "integer",
-				"description": "Task ID to update",
-			},
-			"name": map[string]any{
-				"type":        "string",
-				"description": "Task name (alternative to ID)",
-			},
-			"cron_expr": map[string]any{
-				"type":        "string",
-				"description": "New cron expression",
-			},
-			"prompt": map[string]any{
-				"type":        "string",
-				"description": "New prompt",
-			},
-			"enabled": map[string]any{
-				"type":        "boolean",
-				"description": "Enable or disable the task",
-			},
-			"model": map[string]any{
-				"type":        "string",
-				"description": "Model override (empty string to clear)",
-			},
-			"skip_if_busy": map[string]any{
-				"type":        "boolean",
-				"description": "Skip execution if session is busy",
-			},
-			"max_wait_seconds": map[string]any{
-				"type":        "integer",
-				"description": "Max seconds to wait if session is busy",
-			},
-		},
-	}
-}
-
-type updateTaskArgs struct {
-	ID             *int64  `json:"id,omitempty"`
-	Name           *string `json:"name,omitempty"`
-	CronExpr       *string `json:"cron_expr,omitempty"`
-	Prompt         *string `json:"prompt,omitempty"`
-	Enabled        *bool   `json:"enabled,omitempty"`
-	Model          *string `json:"model,omitempty"`
-	SkipIfBusy     *bool   `json:"skip_if_busy,omitempty"`
-	MaxWaitSeconds *int    `json:"max_wait_seconds,omitempty"`
-}
-
-func (t *UpdateSchedulerTaskTool) Execute(ctx context.Context, _ ToolContext, argsJSON json.RawMessage) (string, error) {
-	var args updateTaskArgs
-	if err := json.Unmarshal(argsJSON, &args); err != nil {
-		return "", fmt.Errorf("invalid arguments: %w", err)
-	}
-
-	var task *db.SchedulerTask
-	var err error
-
-	// Find task by ID or name
-	if args.ID != nil {
-		task, err = t.store.GetTask(ctx, *args.ID)
-	} else if args.Name != nil {
-		task, err = t.store.GetTaskByName(ctx, *args.Name)
-	} else {
-		return "", fmt.Errorf("either 'id' or 'name' is required")
-	}
-
-	if err != nil {
+func (t *SchedulerTaskTool) update(ctx context.Context, args *struct {
+	Action     string `json:"action"`
+	Name       string `json:"name"`
+	CronExpr   string `json:"cron_expr,omitempty"`
+	Prompt     string `json:"prompt,omitempty"`
+	UserID     int64  `json:"user_id,omitempty"`
+	Channel    string `json:"channel,omitempty"`
+	SkipIfBusy *bool  `json:"skip_if_busy,omitempty"`
+}) (string, error) {
+	var task db.SchedulerTask
+	if err := t.db.Where("name = ?", args.Name).First(&task).Error; err != nil {
 		return "", fmt.Errorf("task not found: %w", err)
 	}
 
-	// Update fields
-	if args.CronExpr != nil {
-		if err := validateCron(*args.CronExpr); err != nil {
+	if args.CronExpr != "" {
+		if err := validateTask(args.Name, args.CronExpr, task.Prompt, task.UserID); err != nil {
 			return "", err
 		}
-		task.CronExpr = *args.CronExpr
+		task.CronExpr = args.CronExpr
 	}
-	if args.Prompt != nil {
-		task.Prompt = *args.Prompt
+	if args.Prompt != "" {
+		task.Prompt = args.Prompt
 	}
-	if args.Enabled != nil {
-		task.Enabled = *args.Enabled
+	if args.UserID != 0 {
+		task.UserID = args.UserID
 	}
-	if args.Model != nil {
-		task.Model = *args.Model
+	if args.Channel != "" {
+		task.Channel = args.Channel
 	}
 	if args.SkipIfBusy != nil {
 		task.SkipIfBusy = *args.SkipIfBusy
 	}
-	if args.MaxWaitSeconds != nil {
-		task.MaxWaitSeconds = *args.MaxWaitSeconds
-	}
 
-	if err := t.store.UpdateTask(ctx, task); err != nil {
-		return "", fmt.Errorf("failed to update task: %w", err)
+	if err := t.db.Save(&task).Error; err != nil {
+		return "", fmt.Errorf("update failed: %w", err)
 	}
-
-	return fmt.Sprintf("Updated task '%s' (ID: %d)", task.Name, task.ID), nil
+	return fmt.Sprintf("Updated task '%s'", task.Name), nil
 }
 
-// DeleteSchedulerTaskTool deletes a scheduler task.
-type DeleteSchedulerTaskTool struct {
-	store *store.Store
+func (t *SchedulerTaskTool) delete(ctx context.Context, name string) (string, error) {
+	result := t.db.Where("name = ?", name).Delete(&db.SchedulerTask{})
+	if result.Error != nil {
+		return "", result.Error
+	}
+	if result.RowsAffected == 0 {
+		return "", fmt.Errorf("task not found: %s", name)
+	}
+	return fmt.Sprintf("Deleted task '%s'", name), nil
 }
 
-func NewDeleteSchedulerTaskTool(s *store.Store) *DeleteSchedulerTaskTool {
-	return &DeleteSchedulerTaskTool{store: s}
+func (t *SchedulerTaskTool) setEnable(ctx context.Context, name string, enabled bool) (string, error) {
+	result := t.db.Model(&db.SchedulerTask{}).Where("name = ?", name).Update("enabled", enabled)
+	if result.Error != nil {
+		return "", result.Error
+	}
+	if result.RowsAffected == 0 {
+		return "", fmt.Errorf("task not found: %s", name)
+	}
+	action := "Enabled"
+	if !enabled {
+		action = "Disabled"
+	}
+	return fmt.Sprintf("%s task '%s'", action, name), nil
 }
-
-func (t *DeleteSchedulerTaskTool) Name() string {
-	return "delete_scheduler_task"
-}
-
-func (t *DeleteSchedulerTaskTool) Description() string {
-	return "Delete a scheduled task. Provide task ID or name."
-}
-
-func (t *DeleteSchedulerTaskTool) Parameters() map[string]any {
-	return map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"properties": map[string]any{
-			"id": map[string]any{
-				"type":        "integer",
-				"description": "Task ID to delete",
-			},
-			"name": map[string]any{
-				"type":        "string",
-				"description": "Task name to delete (alternative to ID)",
-			},
-		},
-	}
-}
-
-type deleteTaskArgs struct {
-	ID   *int64  `json:"id,omitempty"`
-	Name *string `json:"name,omitempty"`
-}
-
-func (t *DeleteSchedulerTaskTool) Execute(ctx context.Context, _ ToolContext, argsJSON json.RawMessage) (string, error) {
-	var args deleteTaskArgs
-	if err := json.Unmarshal(argsJSON, &args); err != nil {
-		return "", fmt.Errorf("invalid arguments: %w", err)
-	}
-
-	var id int64
-
-	if args.ID != nil {
-		id = *args.ID
-	} else if args.Name != nil {
-		task, err := t.store.GetTaskByName(ctx, *args.Name)
-		if err != nil {
-			return "", fmt.Errorf("task not found: %w", err)
-		}
-		id = task.ID
-	} else {
-		return "", fmt.Errorf("either 'id' or 'name' is required")
-	}
-
-	// Get task name before deletion for response
-	task, err := t.store.GetTask(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("task not found: %w", err)
-	}
-
-	if err := t.store.DeleteTask(ctx, id); err != nil {
-		return "", fmt.Errorf("failed to delete task: %w", err)
-	}
-
-	return fmt.Sprintf("Deleted task '%s' (ID: %d)", task.Name, id), nil
-}
-
-// GetSchedulerTaskTool gets details of a specific task.
-type GetSchedulerTaskTool struct {
-	store *store.Store
-}
-
-func NewGetSchedulerTaskTool(s *store.Store) *GetSchedulerTaskTool {
-	return &GetSchedulerTaskTool{store: s}
-}
-
-func (t *GetSchedulerTaskTool) Name() string {
-	return "get_scheduler_task"
-}
-
-func (t *GetSchedulerTaskTool) Description() string {
-	return "Get details of a specific scheduled task, including recent execution history."
-}
-
-func (t *GetSchedulerTaskTool) Parameters() map[string]any {
-	return map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"properties": map[string]any{
-			"id": map[string]any{
-				"type":        "integer",
-				"description": "Task ID",
-			},
-			"name": map[string]any{
-				"type":        "string",
-				"description": "Task name (alternative to ID)",
-			},
-			"include_history": map[string]any{
-				"type":        "boolean",
-				"description": "Include recent execution history",
-				"default":     true,
-			},
-		},
-	}
-}
-
-type getTaskArgs struct {
-	ID             *int64 `json:"id,omitempty"`
-	Name           *string `json:"name,omitempty"`
-	IncludeHistory *bool  `json:"include_history,omitempty"`
-}
-
-func (t *GetSchedulerTaskTool) Execute(ctx context.Context, _ ToolContext, argsJSON json.RawMessage) (string, error) {
-	var args getTaskArgs
-	if err := json.Unmarshal(argsJSON, &args); err != nil {
-		return "", fmt.Errorf("invalid arguments: %w", err)
-	}
-
-	var task *db.SchedulerTask
-	var err error
-
-	if args.ID != nil {
-		task, err = t.store.GetTask(ctx, *args.ID)
-	} else if args.Name != nil {
-		task, err = t.store.GetTaskByName(ctx, *args.Name)
-	} else {
-		return "", fmt.Errorf("either 'id' or 'name' is required")
-	}
-
-	if err != nil {
-		return "", fmt.Errorf("task not found: %w", err)
-	}
-
-	status := "enabled"
-	if !task.Enabled {
-		status = "disabled"
-	}
-
-	result := fmt.Sprintf("**Task: %s** (ID: %d)\n", task.Name, task.ID)
-	result += fmt.Sprintf("- Schedule: `%s`\n", task.CronExpr)
-	result += fmt.Sprintf("- Status: %s\n", status)
-	result += fmt.Sprintf("- User ID: %d\n", task.UserID)
-	result += fmt.Sprintf("- Channel: %s\n", task.Channel)
-	if task.Model != "" {
-		result += fmt.Sprintf("- Model: %s\n", task.Model)
-	}
-	result += fmt.Sprintf("- Notify: %v\n", task.Notify)
-	result += fmt.Sprintf("- Skip if busy: %v\n", task.SkipIfBusy)
-	if task.MaxWaitSeconds > 0 {
-		result += fmt.Sprintf("- Max wait: %d seconds\n", task.MaxWaitSeconds)
-	}
-	result += fmt.Sprintf("- Prompt:\n```\n%s\n```\n\n", task.Prompt)
-
-	lastRun := "never"
-	if task.LastRunAt != nil {
-		lastRun = task.LastRunAt.Format(time.RFC3339)
-	}
-	nextRun := "not scheduled"
-	if task.NextRunAt != nil {
-		nextRun = task.NextRunAt.Format(time.RFC3339)
-	}
-
-	result += fmt.Sprintf("- Last run: %s (%s)\n", lastRun, task.LastRunStatus)
-	result += fmt.Sprintf("- Next run: %s\n", nextRun)
-	result += fmt.Sprintf("- Success/Fail: %d/%d\n", task.SuccessfulRuns, task.FailedRuns)
-
-	// Include history if requested
-	includeHistory := true
-	if args.IncludeHistory != nil {
-		includeHistory = *args.IncludeHistory
-	}
-
-	if includeHistory {
-		executions, err := t.store.ListExecutions(ctx, task.ID, 5)
-		if err == nil && len(executions) > 0 {
-			result += "\n**Recent Executions:**\n"
-			for _, exec := range executions {
-				result += fmt.Sprintf("- %s: %s", exec.StartedAt.Format(time.RFC3339), exec.Status)
-				if exec.ErrorMessage != "" {
-					result += fmt.Sprintf(" (%s)", exec.ErrorMessage)
-				}
-				result += "\n"
-			}
-		}
-	}
-
-	return result, nil
-}
-
-// Helper functions
 
 func validateTask(name, cronExpr, prompt string, userID int64) error {
 	if name == "" {
-		return fmt.Errorf("task name is required")
+		return fmt.Errorf("name required")
 	}
 	if cronExpr == "" {
-		return fmt.Errorf("cron expression is required")
+		return fmt.Errorf("cron_expr required")
+	}
+	if len(strings.Fields(cronExpr)) != 5 {
+		return fmt.Errorf("cron must have 5 fields")
 	}
 	if prompt == "" {
-		return fmt.Errorf("prompt is required")
+		return fmt.Errorf("prompt required")
 	}
 	if userID == 0 {
-		return fmt.Errorf("user ID is required")
-	}
-	return validateCron(cronExpr)
-}
-
-func validateCron(expr string) error {
-	fields := strings.Fields(expr)
-	if len(fields) != 5 {
-		return fmt.Errorf("cron expression must have 5 fields (minute hour day-of-month month day-of-week)")
+		return fmt.Errorf("user_id required")
 	}
 	return nil
 }

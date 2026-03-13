@@ -3,28 +3,26 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/agent"
 	"github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/logging"
-	"github.com/YangKeao/haro-bot/internal/scheduler/store"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
-// Scheduler manages scheduled tasks that trigger LLM interactions.
+// Scheduler manages scheduled tasks.
 type Scheduler struct {
 	agent      *agent.Agent
 	statusFunc func(sessionID int64) *agent.SessionStatus
 	getSession func(ctx context.Context, userID int64, channel string) (int64, error)
-	store      *store.Store
 	db         *gorm.DB
 
-	mu      sync.RWMutex
-	tasks   map[int64]*runningTask
-	running bool
+	mu    sync.RWMutex
+	tasks map[int64]*runningTask
 }
 
 type runningTask struct {
@@ -44,7 +42,6 @@ func New(
 		agent:      ag,
 		statusFunc: statusFunc,
 		getSession: getSession,
-		store:      store.NewStore(database),
 		db:         database,
 		tasks:      make(map[int64]*runningTask),
 	}
@@ -54,11 +51,8 @@ func New(
 func (s *Scheduler) Start(ctx context.Context) {
 	log := logging.L().Named("scheduler")
 	log.Info("scheduler starting")
-
-	// Load enabled tasks from database
 	s.loadTasks(ctx)
 
-	// Start ticker to check for task updates
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -75,12 +69,11 @@ func (s *Scheduler) Start(ctx context.Context) {
 }
 
 func (s *Scheduler) loadTasks(ctx context.Context) {
-	tasks, err := s.store.ListEnabledTasks(ctx)
-	if err != nil {
+	var tasks []db.SchedulerTask
+	if err := s.db.WithContext(ctx).Where("enabled = ?", true).Find(&tasks).Error; err != nil {
 		logging.L().Named("scheduler").Error("failed to load tasks", zap.Error(err))
 		return
 	}
-
 	for _, task := range tasks {
 		s.startTask(&task)
 	}
@@ -88,8 +81,8 @@ func (s *Scheduler) loadTasks(ctx context.Context) {
 
 func (s *Scheduler) syncTasks(ctx context.Context) {
 	log := logging.L().Named("scheduler")
-	tasks, err := s.store.ListEnabledTasks(ctx)
-	if err != nil {
+	var tasks []db.SchedulerTask
+	if err := s.db.WithContext(ctx).Where("enabled = ?", true).Find(&tasks).Error; err != nil {
 		log.Error("failed to sync tasks", zap.Error(err))
 		return
 	}
@@ -97,22 +90,19 @@ func (s *Scheduler) syncTasks(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Build map of current tasks
 	currentTasks := make(map[int64]bool)
 	for _, task := range tasks {
 		currentTasks[task.ID] = true
 	}
 
-	// Stop tasks that are no longer enabled or updated
+	// Stop removed/updated tasks
 	for id, rt := range s.tasks {
 		if !currentTasks[id] {
-			log.Info("stopping removed/disabled task", zap.String("name", rt.task.Name))
+			log.Info("stopping task", zap.String("name", rt.task.Name))
 			rt.cancel()
 			delete(s.tasks, id)
 			continue
 		}
-
-		// Check if task was updated
 		var dbTask db.SchedulerTask
 		if err := s.db.First(&dbTask, id).Error; err == nil {
 			if dbTask.UpdatedAt.After(rt.task.UpdatedAt) {
@@ -159,7 +149,6 @@ func (s *Scheduler) startTask(task *db.SchedulerTask) {
 func (s *Scheduler) stopAllTasks() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	for _, rt := range s.tasks {
 		rt.cancel()
 	}
@@ -167,22 +156,15 @@ func (s *Scheduler) stopAllTasks() {
 }
 
 func (s *Scheduler) runTaskLoop(ctx context.Context, rt *runningTask) {
-	// Calculate next run time
-	now := time.Now()
-	nextRun := rt.schedule.Next(now)
-
-	// Update next_run_at in database
-	s.store.UpdateTaskRunStatus(ctx, rt.task.ID, rt.task.LastRunStatus, rt.task.LastRunError, &nextRun)
+	nextRun := rt.schedule.Next(time.Now())
+	s.updateNextRun(ctx, rt.task.ID, &nextRun)
 
 	for {
-		// Calculate wait duration
 		waitDuration := time.Until(nextRun)
-
 		if waitDuration <= 0 {
-			// Time to run
 			s.executeTask(ctx, rt)
 			nextRun = rt.schedule.Next(time.Now())
-			s.store.UpdateTaskRunStatus(ctx, rt.task.ID, rt.task.LastRunStatus, rt.task.LastRunError, &nextRun)
+			s.updateNextRun(ctx, rt.task.ID, &nextRun)
 			continue
 		}
 
@@ -192,73 +174,46 @@ func (s *Scheduler) runTaskLoop(ctx context.Context, rt *runningTask) {
 		case <-time.After(waitDuration):
 			s.executeTask(ctx, rt)
 			nextRun = rt.schedule.Next(time.Now())
-			s.store.UpdateTaskRunStatus(ctx, rt.task.ID, rt.task.LastRunStatus, rt.task.LastRunError, &nextRun)
+			s.updateNextRun(ctx, rt.task.ID, &nextRun)
 		}
 	}
 }
 
 func (s *Scheduler) executeTask(ctx context.Context, rt *runningTask) {
 	log := logging.L().Named("scheduler").With(zap.String("task", rt.task.Name))
-	log.Info("executing scheduled task")
+	log.Info("executing task")
 
-	// Create execution record
-	exec := &db.SchedulerTaskExecution{
-		TaskID:    rt.task.ID,
-		StartedAt: time.Now(),
-		Status:    "running",
-	}
-	if err := s.store.CreateExecution(ctx, exec); err != nil {
-		log.Error("failed to create execution record", zap.Error(err))
-	}
-
-	// Check if session is busy
 	sessionID, err := s.getSession(ctx, rt.task.UserID, rt.task.Channel)
 	if err != nil {
 		log.Error("failed to get session", zap.Error(err))
-		s.recordExecutionResult(ctx, exec, "failed", "", "failed to get session: "+err.Error())
-		s.store.UpdateTaskRunStatus(ctx, rt.task.ID, "failed", "failed to get session", nil)
+		s.recordResult(ctx, rt.task.ID, "failed", nil)
 		return
 	}
 
 	status := s.statusFunc(sessionID)
 	if status != nil && status.State != "idle" {
 		if rt.task.SkipIfBusy {
-			log.Info("skipping task - session is busy")
-			s.recordExecutionResult(ctx, exec, "skipped", "session busy", "")
-			s.store.UpdateTaskRunStatus(ctx, rt.task.ID, "skipped", "", nil)
+			log.Info("skipping - session busy")
+			s.recordResult(ctx, rt.task.ID, "skipped", nil)
 			return
 		}
-
-		// Wait for session to become idle
-		maxWait := time.Duration(rt.task.MaxWaitSeconds) * time.Second
-		if maxWait > 0 {
-			if !s.waitForIdle(ctx, sessionID, maxWait) {
-				log.Warn("session still busy after max wait, skipping")
-				s.recordExecutionResult(ctx, exec, "skipped", "session busy after wait", "")
-				s.store.UpdateTaskRunStatus(ctx, rt.task.ID, "skipped", "session busy", nil)
-				return
-			}
+		// Wait up to 30 seconds for idle
+		if !s.waitForIdle(ctx, sessionID, 30*time.Second) {
+			log.Warn("session still busy, skipping")
+			s.recordResult(ctx, rt.task.ID, "skipped", nil)
+			return
 		}
 	}
 
-	// Execute the prompt
-	var modelOverride string
-	if rt.task.Model != "" {
-		modelOverride = rt.task.Model
-	}
-
-	// Use empty middleware set for scheduled tasks
-	result, err := s.agent.HandleWithMiddleware(ctx, rt.task.UserID, rt.task.Channel, rt.task.Prompt, modelOverride, agent.MiddlewareSet{})
+	result, err := s.agent.HandleWithMiddleware(ctx, rt.task.UserID, rt.task.Channel, rt.task.Prompt, "", agent.MiddlewareSet{})
 	if err != nil {
-		log.Error("task execution failed", zap.Error(err))
-		s.recordExecutionResult(ctx, exec, "failed", "", err.Error())
-		s.store.UpdateTaskRunStatus(ctx, rt.task.ID, "failed", err.Error(), nil)
+		log.Error("task failed", zap.Error(err))
+		s.recordResult(ctx, rt.task.ID, "failed", nil)
 		return
 	}
 
-	log.Info("task executed successfully", zap.Int("result_len", len(result)))
-	s.recordExecutionResult(ctx, exec, "success", result, "")
-	s.store.UpdateTaskRunStatus(ctx, rt.task.ID, "success", "", nil)
+	log.Info("task success", zap.Int("result_len", len(result)))
+	s.recordResult(ctx, rt.task.ID, "success", nil)
 }
 
 func (s *Scheduler) waitForIdle(ctx context.Context, sessionID int64, maxWait time.Duration) bool {
@@ -282,33 +237,43 @@ func (s *Scheduler) waitForIdle(ctx context.Context, sessionID int64, maxWait ti
 	}
 }
 
-func (s *Scheduler) recordExecutionResult(ctx context.Context, exec *db.SchedulerTaskExecution, status, result, errMsg string) {
+func (s *Scheduler) recordResult(ctx context.Context, taskID int64, status string, nextRun *time.Time) {
 	now := time.Now()
-	exec.CompletedAt = &now
-	exec.Status = status
-	exec.Result = result
-	exec.ErrorMessage = errMsg
-	if err := s.store.UpdateExecution(ctx, exec); err != nil {
-		logging.L().Named("scheduler").Error("failed to update execution record", zap.Error(err))
+	updates := map[string]interface{}{
+		"last_run_at":     now,
+		"last_run_status": status,
 	}
+	if nextRun != nil {
+		updates["next_run_at"] = nextRun
+	}
+	if status == "success" {
+		updates["successful_runs"] = gorm.Expr("successful_runs + 1")
+	} else if status == "failed" {
+		updates["failed_runs"] = gorm.Expr("failed_runs + 1")
+	}
+	s.db.WithContext(ctx).Model(&db.SchedulerTask{}).Where("id = ?", taskID).Updates(updates)
 }
 
-// ValidateTask validates a scheduler task configuration.
+func (s *Scheduler) updateNextRun(ctx context.Context, taskID int64, nextRun *time.Time) {
+	s.db.WithContext(ctx).Model(&db.SchedulerTask{}).Where("id = ?", taskID).Update("next_run_at", nextRun)
+}
+
+// ValidateTask validates a scheduler task.
 func ValidateTask(name, cronExpr, prompt string, userID int64) error {
 	if name == "" {
-		return fmt.Errorf("task name is required")
+		return fmt.Errorf("name required")
 	}
 	if cronExpr == "" {
-		return fmt.Errorf("cron expression is required")
+		return fmt.Errorf("cron_expr required")
 	}
-	if _, err := ParseCron(cronExpr); err != nil {
-		return fmt.Errorf("invalid cron expression: %w", err)
+	if len(strings.Fields(cronExpr)) != 5 {
+		return fmt.Errorf("cron must have 5 fields")
 	}
 	if prompt == "" {
-		return fmt.Errorf("prompt is required")
+		return fmt.Errorf("prompt required")
 	}
 	if userID == 0 {
-		return fmt.Errorf("user ID is required")
+		return fmt.Errorf("user_id required")
 	}
 	return nil
 }

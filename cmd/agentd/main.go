@@ -26,9 +26,8 @@ import (
 	memopenai "github.com/YangKeao/haro-bot/internal/memory/embedder/openai"
 	memtidb "github.com/YangKeao/haro-bot/internal/memory/vectorstore/tidb"
 	"github.com/YangKeao/haro-bot/internal/skills"
-	"github.com/YangKeao/haro-bot/internal/tools"
 	"github.com/YangKeao/haro-bot/internal/scheduler"
-	schedulerstore "github.com/YangKeao/haro-bot/internal/scheduler/store"
+	"github.com/YangKeao/haro-bot/internal/tools"
 	"go.uber.org/zap"
 )
 
@@ -105,8 +104,7 @@ func main() {
 		log.Fatal("memory embedder init failed", zap.Error(err))
 	}
 	vectorStore := memtidb.New(dbConn, cfg.Memory.Vector.Distance)
-	memoryEngine, err := memory.NewEngine(store, llmClient,
-		cfg.LLMModel, embedder, vectorStore, cfg.Memory)
+	memoryEngine, err := memory.NewEngine(store, llmClient, cfg.LLMModel, embedder, vectorStore, cfg.Memory)
 	if err != nil {
 		log.Fatal("memory engine init failed", zap.Error(err))
 	}
@@ -124,25 +122,14 @@ func main() {
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memoryEngine, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
 	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store)
 
+	imRuntime.Start(ctx)
 
-	// Initialize scheduler store and tools
-	schedulerStore := schedulerstore.NewStore(dbConn)
-	toolRegistry.Register(tools.NewListSchedulerTasksTool(schedulerStore))
-	toolRegistry.Register(tools.NewCreateSchedulerTaskTool(schedulerStore))
-	toolRegistry.Register(tools.NewUpdateSchedulerTaskTool(schedulerStore))
-	toolRegistry.Register(tools.NewDeleteSchedulerTaskTool(schedulerStore))
-	toolRegistry.Register(tools.NewGetSchedulerTaskTool(schedulerStore))
-
-	// Initialize and start scheduler
-	sched := scheduler.New(
-		agentSvc,
-		agentSvc.GetSessionStatus,
-		store.GetOrCreateSession,
-		dbConn,
-	)
+	// Scheduler
+	toolRegistry.Register(tools.NewSchedulerTasksTool(dbConn))
+	toolRegistry.Register(tools.NewSchedulerTaskTool(dbConn))
+	sched := scheduler.New(agentSvc, agentSvc.GetSessionStatus, store.GetOrCreateSession, dbConn)
 	go sched.Start(ctx)
 	log.Info("scheduler started")
-	imRuntime.Start(ctx)
 
 	if err := skillsMgr.RefreshAll(ctx); err != nil {
 		log.Warn("skills refresh failed", zap.Error(err))

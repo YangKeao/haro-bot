@@ -124,41 +124,24 @@ type Guidelines struct {
 
 func (Guidelines) TableName() string { return "constitutions" }
 
-// SchedulerTask represents a scheduled task (similar to k8s CronJob).
+
+// SchedulerTask represents a scheduled task.
 type SchedulerTask struct {
-	ID              int64      `gorm:"primaryKey;autoIncrement"`
-	Name            string     `gorm:"column:name;size:255;uniqueIndex"`
-	CronExpr        string     `gorm:"column:cron_expr;size:64"`
-	Prompt          string     `gorm:"column:prompt;type:text"`
-	UserID          int64      `gorm:"column:user_id;index"`
-	Channel         string     `gorm:"column:channel;size:64"`
-	Model           string     `gorm:"column:model;size:128"`
-	Notify          bool       `gorm:"column:notify;default:true"`
-	MaxWaitSeconds  int        `gorm:"column:max_wait_seconds;default:0"`
-	SkipIfBusy      bool       `gorm:"column:skip_if_busy;default:false"`
-	Enabled         bool       `gorm:"column:enabled;default:true;index"`
-	LastRunAt       *time.Time `gorm:"column:last_run_at"`
-	LastRunStatus   string     `gorm:"column:last_run_status;size:32"`
-	LastRunError    string     `gorm:"column:last_run_error;type:text"`
-	NextRunAt       *time.Time `gorm:"column:next_run_at"`
-	SuccessfulRuns  int        `gorm:"column:successful_runs;default:0"`
-	FailedRuns      int        `gorm:"column:failed_runs;default:0"`
-	CreatedAt       time.Time  `gorm:"column:created_at"`
-	UpdatedAt       time.Time  `gorm:"column:updated_at"`
+	ID             int64      `gorm:"primaryKey;autoIncrement"`
+	Name           string     `gorm:"column:name;size:255;uniqueIndex"`
+	CronExpr       string     `gorm:"column:cron_expr;size:64"`
+	Prompt         string     `gorm:"column:prompt;type:text"`
+	UserID         int64      `gorm:"column:user_id;index"`
+	Channel        string     `gorm:"column:channel;size:64"`
+	SkipIfBusy     bool       `gorm:"column:skip_if_busy;default:false"`
+	Enabled        bool       `gorm:"column:enabled;default:true;index"`
+	LastRunAt      *time.Time `gorm:"column:last_run_at"`
+	LastRunStatus  string     `gorm:"column:last_run_status;size:32"`
+	NextRunAt      *time.Time `gorm:"column:next_run_at"`
+	SuccessfulRuns int        `gorm:"column:successful_runs;default:0"`
+	FailedRuns     int        `gorm:"column:failed_runs;default:0"`
+	CreatedAt      time.Time  `gorm:"column:created_at"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at"`
 }
 
 func (SchedulerTask) TableName() string { return "scheduler_tasks" }
-
-// SchedulerTaskExecution records the execution history of a scheduled task.
-type SchedulerTaskExecution struct {
-	ID           int64      `gorm:"primaryKey;autoIncrement"`
-	TaskID       int64      `gorm:"column:task_id;index"`
-	StartedAt    time.Time  `gorm:"column:started_at"`
-	CompletedAt  *time.Time `gorm:"column:completed_at"`
-	Status       string     `gorm:"column:status;size:32"` // "running", "success", "failed", "skipped"
-	Result       string     `gorm:"column:result;type:text"`
-	ErrorMessage string     `gorm:"column:error_message;type:text"`
-	CreatedAt    time.Time  `gorm:"column:created_at"`
-}
-
-func (SchedulerTaskExecution) TableName() string { return "scheduler_task_executions" }

@@ -43,6 +43,7 @@ var migrations = []migration{
 	{version: 10, stmts: addGuidelinessSQL},
 	{version: 11, stmts: addSkillSourceFiltersSQL},
 	{version: 12, stmts: addSchedulerTasksSQL},
+	{version: 12, stmts: addSchedulerTasksSQL},
 }
 
 func applyMigrations(db *gorm.DB, memCfg config.MemoryConfig) error {
@@ -374,6 +375,7 @@ var addGuidelinessSQL = []string{
 )`,
 }
 
+
 var addSchedulerTasksSQL = []string{
 	`CREATE TABLE IF NOT EXISTS scheduler_tasks (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -382,14 +384,10 @@ var addSchedulerTasksSQL = []string{
   prompt TEXT NOT NULL,
   user_id BIGINT NOT NULL,
   channel VARCHAR(64) NOT NULL,
-  model VARCHAR(128),
-  notify TINYINT(1) DEFAULT 1,
-  max_wait_seconds INT DEFAULT 0,
   skip_if_busy TINYINT(1) DEFAULT 0,
   enabled TINYINT(1) DEFAULT 1,
   last_run_at TIMESTAMP NULL,
   last_run_status VARCHAR(32),
-  last_run_error TEXT,
   next_run_at TIMESTAMP NULL,
   successful_runs INT DEFAULT 0,
   failed_runs INT DEFAULT 0,
@@ -398,18 +396,5 @@ var addSchedulerTasksSQL = []string{
   UNIQUE INDEX idx_scheduler_tasks_name (name),
   INDEX idx_scheduler_tasks_enabled (enabled),
   INDEX idx_scheduler_tasks_user (user_id)
-)`,
-	`CREATE TABLE IF NOT EXISTS scheduler_task_executions (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  task_id BIGINT NOT NULL,
-  started_at TIMESTAMP NOT NULL,
-  completed_at TIMESTAMP NULL,
-  status VARCHAR(32) NOT NULL,
-  result TEXT,
-  error_message TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_scheduler_executions_task (task_id),
-  INDEX idx_scheduler_executions_status (status),
-  FOREIGN KEY (task_id) REFERENCES scheduler_tasks(id)
 )`,
 }
