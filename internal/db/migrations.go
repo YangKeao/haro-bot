@@ -28,7 +28,7 @@ type migration struct {
 	apply   func(*gorm.DB, config.MemoryConfig) error
 }
 
-const currentSchemaVersion int64 = 11
+const currentSchemaVersion int64 = 12
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -42,6 +42,7 @@ var migrations = []migration{
 	{version: 9, apply: applyMemoryVectorIndex},
 	{version: 10, stmts: addGuidelinessSQL},
 	{version: 11, stmts: addSkillSourceFiltersSQL},
+	{version: 12, stmts: addSchedulerTasksSQL},
 }
 
 func applyMigrations(db *gorm.DB, memCfg config.MemoryConfig) error {
@@ -370,5 +371,29 @@ var addGuidelinessSQL = []string{
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_constitutions_version (version),
   INDEX idx_constitutions_active (is_active)
+)`,
+}
+
+var addSchedulerTasksSQL = []string{
+	`CREATE TABLE IF NOT EXISTS scheduler_tasks (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(255) NOT NULL,
+  cron_expr VARCHAR(64) NOT NULL,
+  prompt TEXT NOT NULL,
+  user_id BIGINT NOT NULL,
+  channel VARCHAR(64) NOT NULL,
+  skip_if_busy BOOLEAN DEFAULT TRUE,
+  enabled BOOLEAN DEFAULT TRUE,
+  last_run_at TIMESTAMP NULL,
+  last_run_status VARCHAR(32),
+  last_run_error TEXT,
+  next_run_at TIMESTAMP NULL,
+  successful_runs INT DEFAULT 0,
+  failed_runs INT DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE INDEX idx_scheduler_tasks_name (name),
+  INDEX idx_scheduler_user_channel (user_id, channel),
+  INDEX idx_scheduler_enabled (enabled)
 )`,
 }
