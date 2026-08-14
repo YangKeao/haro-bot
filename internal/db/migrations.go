@@ -3,11 +3,9 @@ package db
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -25,26 +23,28 @@ func (schemaMigration) TableName() string { return "schema_migrations" }
 type migration struct {
 	version int64
 	stmts   []string
-	apply   func(*gorm.DB, config.MemoryConfig) error
 }
 
-const currentSchemaVersion int64 = 11
+const currentSchemaVersion int64 = 14
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
-	{version: 2, stmts: appConfigSQL},
+	{version: 2},
 	{version: 3, stmts: dropSkillCallsSQL},
 	{version: 4, stmts: addMessageSoftDeleteSQL},
 	{version: 5, stmts: addSessionSummariesSQL},
 	{version: 6, stmts: renameSessionSummariesSQL},
 	{version: 7, stmts: renameSessionSummaryIndexesSQL},
-	{version: 8, stmts: replaceMemoriesTableSQL},
-	{version: 9, apply: applyMemoryVectorIndex},
+	{version: 8, stmts: dropLegacyMemoryTablesSQL},
+	{version: 9},
 	{version: 10, stmts: addGuidelinessSQL},
 	{version: 11, stmts: addSkillSourceFiltersSQL},
+	{version: 12, stmts: dropToolAuditSQL},
+	{version: 13, stmts: dropLegacyMemoryTablesSQL},
+	{version: 14, stmts: dropDeadSchemaSQL},
 }
 
-func applyMigrations(db *gorm.DB, memCfg config.MemoryConfig) error {
+func applyMigrations(db *gorm.DB) error {
 	log := logging.L().Named("migrations")
 	if db == nil {
 		return errors.New("db required")
@@ -81,12 +81,6 @@ func applyMigrations(db *gorm.DB, memCfg config.MemoryConfig) error {
 		}); err != nil {
 			return fmt.Errorf("apply migration v%d: %w", m.version, err)
 		}
-		if m.apply != nil {
-			if err := m.apply(db, memCfg); err != nil {
-				log.Error("migration hook failed", zap.Int64("version", m.version), zap.Error(err))
-				return fmt.Errorf("apply migration v%d: %w", m.version, err)
-			}
-		}
 		if err := setSchemaVersion(db, m.version); err != nil {
 			return fmt.Errorf("apply migration v%d: %w", m.version, err)
 		}
@@ -122,7 +116,6 @@ var initSchemaSQL = []string{
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   telegram_id BIGINT UNIQUE,
   external_id VARCHAR(255) UNIQUE,
-  profile_json JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 )`,
@@ -130,8 +123,6 @@ var initSchemaSQL = []string{
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT NOT NULL,
   channel VARCHAR(32) NOT NULL,
-  status VARCHAR(16) NOT NULL DEFAULT 'active',
-  summary TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uniq_user_channel (user_id, channel),
@@ -146,18 +137,6 @@ var initSchemaSQL = []string{
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_session_created (session_id, created_at),
   FOREIGN KEY (session_id) REFERENCES sessions(id)
-)`,
-	`CREATE TABLE IF NOT EXISTS memories (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  user_id BIGINT NOT NULL,
-  type VARCHAR(32) NOT NULL,
-  content TEXT NOT NULL,
-  importance INT DEFAULT 0,
-  embedding BLOB,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_user_created (user_id, created_at),
-  FOREIGN KEY (user_id) REFERENCES users(id)
 )`,
 	`CREATE TABLE IF NOT EXISTS skill_sources (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -189,27 +168,6 @@ var initSchemaSQL = []string{
   UNIQUE KEY uniq_source_name (source_id, name),
   FOREIGN KEY (source_id) REFERENCES skill_sources(id)
 )`,
-	`CREATE TABLE IF NOT EXISTS tool_audit (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  session_id BIGINT NULL,
-  user_id BIGINT NULL,
-  tool VARCHAR(32) NOT NULL,
-  path TEXT,
-  allowed TINYINT(1) NOT NULL,
-  status VARCHAR(16) NOT NULL,
-  reason TEXT,
-  metadata_json JSON,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)`,
-}
-
-var appConfigSQL = []string{
-	`CREATE TABLE IF NOT EXISTS app_config (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  config_json JSON NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-)`,
 }
 
 var addSkillSourceFiltersSQL = []string{
@@ -220,22 +178,21 @@ var dropSkillCallsSQL = []string{
 	`DROP TABLE IF EXISTS skill_calls`,
 }
 
-var replaceMemoriesTableSQL = []string{
+var dropToolAuditSQL = []string{
+	`DROP TABLE IF EXISTS tool_audit`,
+}
+
+var dropLegacyMemoryTablesSQL = []string{
 	`DROP TABLE IF EXISTS memory_items`,
 	`DROP TABLE IF EXISTS memories`,
-	`CREATE TABLE IF NOT EXISTS memories (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  user_id BIGINT NOT NULL,
-  session_id BIGINT NULL,
-  type VARCHAR(32) NOT NULL,
-  content TEXT NOT NULL,
-  metadata_json JSON,
-  embedding VECTOR,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_user_created (user_id, created_at),
-  INDEX idx_session_created (session_id, created_at)
-)`,
+}
+
+var dropDeadSchemaSQL = []string{
+	`DROP TABLE IF EXISTS app_config`,
+	`ALTER TABLE users DROP COLUMN IF EXISTS profile_json`,
+	`ALTER TABLE sessions DROP COLUMN IF EXISTS summary`,
+	`ALTER TABLE sessions DROP COLUMN IF EXISTS status`,
+	`ALTER TABLE session_summaries DROP COLUMN IF EXISTS source_entry_ids`,
 }
 
 var addMessageSoftDeleteSQL = []string{
@@ -251,7 +208,6 @@ var addSessionSummariesSQL = []string{
   phase VARCHAR(64) DEFAULT '',
   summary TEXT,
   state_json JSON,
-  source_entry_ids JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_session_anchors_session (session_id, id),
   INDEX idx_session_anchors_entry (session_id, entry_id),
@@ -266,98 +222,6 @@ var renameSessionSummariesSQL = []string{
 var renameSessionSummaryIndexesSQL = []string{
 	`ALTER TABLE session_summaries RENAME INDEX idx_session_anchors_session TO idx_session_summaries_session`,
 	`ALTER TABLE session_summaries RENAME INDEX idx_session_anchors_entry TO idx_session_summaries_entry`,
-}
-
-func applyMemoryVectorIndex(db *gorm.DB, cfg config.MemoryConfig) error {
-	if cfg.Embedder.Dimensions <= 0 {
-		return errors.New("memory embedder dimensions required for vector index")
-	}
-	if err := ensureMemoryEmbeddingDimensions(db, cfg.Embedder.Dimensions); err != nil {
-		return err
-	}
-	if err := ensureMemoryTiFlashReplica(db); err != nil {
-		return err
-	}
-	return ensureMemoryVectorIndex(db, cfg.Vector.Distance)
-}
-
-func ensureMemoryEmbeddingDimensions(db *gorm.DB, dims int) error {
-	var columnType string
-	err := db.
-		Raw(`SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'memories' AND COLUMN_NAME = 'embedding'`).
-		Scan(&columnType).Error
-	if err != nil {
-		return err
-	}
-	columnType = strings.ToLower(strings.TrimSpace(columnType))
-	if columnType == "" {
-		return errors.New("embedding column not found")
-	}
-	if strings.HasPrefix(columnType, "vector(") {
-		start := strings.Index(columnType, "(")
-		end := strings.Index(columnType, ")")
-		if start > 0 && end > start+1 {
-			if parsed, err := strconv.Atoi(columnType[start+1 : end]); err == nil && parsed != dims {
-				return fmt.Errorf("embedding dimensions mismatch: column=%d config=%d", parsed, dims)
-			}
-			return nil
-		}
-	}
-	if columnType == "vector" {
-		alter := fmt.Sprintf("ALTER TABLE memories MODIFY COLUMN embedding VECTOR(%d)", dims)
-		return db.Exec(alter).Error
-	}
-	return fmt.Errorf("unexpected embedding column type: %s", columnType)
-}
-
-func ensureMemoryTiFlashReplica(db *gorm.DB) error {
-	setSQL := "ALTER TABLE memories SET TIFLASH REPLICA 1"
-	if err := db.Exec(setSQL).Error; err != nil {
-		return err
-	}
-	for i := 0; i < 60; i++ {
-		var row struct {
-			Available int     `gorm:"column:AVAILABLE"`
-			Progress  float64 `gorm:"column:PROGRESS"`
-		}
-		err := db.
-			Raw("SELECT AVAILABLE, PROGRESS FROM information_schema.tiflash_replica WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'memories'").
-			Scan(&row).Error
-		if err != nil {
-			return err
-		}
-		if row.Available == 1 {
-			return nil
-		}
-		time.Sleep(1 * time.Second)
-	}
-	return errors.New("tiflash replica not ready")
-}
-
-func ensureMemoryVectorIndex(db *gorm.DB, distance string) error {
-	distance = strings.ToLower(strings.TrimSpace(distance))
-	funcName := "VEC_COSINE_DISTANCE"
-	if distance == "l2" || distance == "euclidean" {
-		funcName = "VEC_L2_DISTANCE"
-	}
-	indexName := "idx_memories_embedding"
-	var count int
-	if err := db.
-		Raw(`SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'memories' AND index_name = ?`, indexName).
-		Scan(&count).Error; err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
-	indexSQL := fmt.Sprintf("ALTER TABLE memories ADD VECTOR INDEX %s ((%s(embedding)))", indexName, funcName)
-	if err := db.Exec(indexSQL).Error; err != nil {
-		if strings.Contains(err.Error(), "Duplicate key name") {
-			return nil
-		}
-		return err
-	}
-	return nil
 }
 
 var addGuidelinessSQL = []string{

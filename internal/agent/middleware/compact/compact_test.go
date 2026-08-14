@@ -316,7 +316,3 @@ func (noopStoreAPI) LoadLatestSummary(context.Context, int64) (*memory.Summary, 
 func (noopStoreAPI) LoadViewMessages(context.Context, int64, int) ([]memory.Message, *memory.Summary, error) {
 	return nil, nil, nil
 }
-
-func (noopStoreAPI) SearchMessages(context.Context, int64, string, int, bool) ([]memory.Message, error) {
-	return nil, nil
-}

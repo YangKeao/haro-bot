@@ -28,7 +28,7 @@ func NewToolRunner(registry *tools.Registry, store memory.StoreAPI, skillsMgr *s
 	}
 }
 
-func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, baseDir string, activeSkill *skills.Skill, calls []llm.ToolCall) ([]StoredMessage, *skills.Skill, error) {
+func (r *DefaultToolRunner) Run(ctx context.Context, sessionID int64, baseDir string, activeSkill *skills.Skill, calls []llm.ToolCall) ([]StoredMessage, *skills.Skill, error) {
 	log := logging.L().Named("tool_runner")
 	currentSkill := activeSkill
 	out := make([]StoredMessage, 0, len(calls))
@@ -54,7 +54,6 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID, userID int64, ba
 		log.Debug("tool start", zap.String("tool", call.Function.Name), zap.Int64("session_id", sessionID))
 		tc := tools.ToolContext{
 			SessionID: sessionID,
-			UserID:    userID,
 			BaseDir:   baseDir,
 		}
 		if currentSkill != nil {

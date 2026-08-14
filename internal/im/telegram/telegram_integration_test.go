@@ -74,7 +74,7 @@ func TestTelegramHandlerSendsMessage(t *testing.T) {
 	registry := tools.NewRegistry()
 	llmClient, model := testutil.NewLLMClientFromEnv(t)
 	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, llmClient, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, llmClient, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, llmClient, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	srv := New(config.Config{}, agentSvc, store)
 

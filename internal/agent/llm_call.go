@@ -7,10 +7,7 @@ import (
 )
 
 func (s *Session) callLLM(ctx context.Context, turn *TurnState, hooks MiddlewareSet) (llm.ChatResponse, error) {
-	call := &LLMCall{
-		Model: turn.Model,
-		Tools: turn.Tools,
-	}
+	call := &LLMCall{Tools: turn.Tools}
 	return executeLLMMiddleware(ctx, hooks.LLMMiddleware, turn, call, func(ctx context.Context, turn *TurnState, call *LLMCall) (llm.ChatResponse, error) {
 		handler := func(event llm.StreamEvent) {
 			executeLLMDeltaListeners(ctx, hooks.LLMDeltaListeners, turn, event)
@@ -22,7 +19,6 @@ func (s *Session) callLLM(ctx context.Context, turn *TurnState, hooks Middleware
 			ReasoningEnabled: s.deps.reasoning.Enabled,
 			ReasoningEffort:  s.deps.reasoning.Effort,
 			StreamHandler:    handler,
-			Purpose:          llm.PurposeChat,
 		})
 	})
 }

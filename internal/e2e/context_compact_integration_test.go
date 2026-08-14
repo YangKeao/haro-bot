@@ -159,7 +159,7 @@ func newCompactTestRig(t *testing.T, telegramID int64) (memory.StoreAPI, *gorm.D
 		EffectiveContextWindowPercent: 80,
 	}
 	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 6, client, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, contextCfg, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, client, contextCfg, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", fmt.Sprint(telegramID))

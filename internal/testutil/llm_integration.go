@@ -26,9 +26,6 @@ func LLMSettingsFromEnv(t *testing.T) LLMSettings {
 	if baseURL == "" {
 		t.Fatalf("LLM_BASE_URL required for integration tests")
 	}
-	if apiKey == "" {
-		t.Fatalf("LLM_API_KEY required for integration tests")
-	}
 	if model == "" {
 		t.Fatalf("LLM_MODEL required for integration tests")
 	}

@@ -2,8 +2,8 @@ package memory
 
 import "context"
 
-// StoreAPI defines the persistence contract for session memory, summaries, and long-term memories.
-// It is implemented by the memory store and is used by higher-level components (agent/tools)
+// StoreAPI defines the persistence contract for sessions, messages, and summaries.
+// It is implemented by the conversation store and is used by higher-level components (agent/tools)
 // to avoid depending on concrete storage details.
 type StoreAPI interface {
 	// GetOrCreateUserByExternalID returns the internal user ID for an external IM user.
@@ -31,10 +31,6 @@ type StoreAPI interface {
 	// This is the canonical "current view" for LLM context. If limit <= 0, all messages
 	// after the summary are returned. Invalid tool call/output pairs may be soft-deleted.
 	LoadViewMessages(ctx context.Context, sessionID int64, limit int) ([]Message, *Summary, error)
-
-	// SearchMessages searches session messages by content substring.
-	// Results are ordered by most recent first. If limit <= 0, a default limit is used.
-	SearchMessages(ctx context.Context, sessionID int64, query string, limit int, includeTool bool) ([]Message, error)
 }
 
 // Ensure the store implementation satisfies StoreAPI.

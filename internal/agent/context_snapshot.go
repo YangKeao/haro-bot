@@ -7,12 +7,11 @@ import (
 )
 
 type contextSnapshot struct {
-	summary   *memory.Summary
 	stored    []StoredMessage
 	transient TransientContext
 }
 
-func loadContextSnapshot(ctx context.Context, store memory.StoreAPI, sessionID int64, systemPrompt, pendingUserInput string) (*contextSnapshot, error) {
+func loadContextSnapshot(ctx context.Context, store memory.StoreAPI, sessionID int64, systemPrompt string) (*contextSnapshot, error) {
 	recent, summary, err := store.LoadViewMessages(ctx, sessionID, 0)
 	if err != nil {
 		return nil, err
@@ -22,14 +21,12 @@ func loadContextSnapshot(ctx context.Context, store memory.StoreAPI, sessionID i
 		return nil, err
 	}
 	return &contextSnapshot{
-		summary:   summary,
 		stored:    stored,
-		transient: buildTransientContext(systemPrompt, summary, recent, pendingUserInput),
+		transient: buildTransientContext(systemPrompt, summary, recent),
 	}, nil
 }
 
 func (s *contextSnapshot) apply(run *RunState) {
-	run.Summary = s.summary
 	run.Stored = s.stored
 	run.Transient = s.transient
 }

@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// store provides persistence for sessions, messages, summaries, and long-term memory.
+// store provides persistence for sessions, messages, and summaries.
 type store struct {
 	db *gorm.DB
 }
@@ -47,14 +47,13 @@ type MessageMetadata struct {
 
 // Summary is a session summary snapshot used to compact the view window.
 type Summary struct {
-	ID             int64
-	SessionID      int64
-	EntryID        int64
-	Phase          string
-	Summary        string
-	State          map[string]any
-	SourceEntryIDs []int64
-	CreatedAt      time.Time
+	ID        int64
+	SessionID int64
+	EntryID   int64
+	Phase     string
+	Summary   string
+	State     map[string]any
+	CreatedAt time.Time
 }
 
 // GetOrCreateUserByExternalID returns the internal user ID for an external IM user,
@@ -122,7 +121,7 @@ func (s *store) GetOrCreateSession(ctx context.Context, userID int64, channel st
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, err
 	}
-	session = dbmodel.Session{UserID: userID, Channel: channel, Status: "active"}
+	session = dbmodel.Session{UserID: userID, Channel: channel}
 	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&session).Error; err != nil {
 		return 0, err
 	}
@@ -182,17 +181,12 @@ func (s *store) AppendSummary(ctx context.Context, sessionID int64, summary Summ
 	if err != nil {
 		return 0, err
 	}
-	sourceJSON, err := json.Marshal(summary.SourceEntryIDs)
-	if err != nil {
-		return 0, err
-	}
 	record := dbmodel.SessionSummary{
-		SessionID:      sessionID,
-		EntryID:        entryID,
-		Phase:          summary.Phase,
-		Summary:        summary.Summary,
-		StateJSON:      datatypes.JSON(stateJSON),
-		SourceEntryIDs: datatypes.JSON(sourceJSON),
+		SessionID: sessionID,
+		EntryID:   entryID,
+		Phase:     summary.Phase,
+		Summary:   summary.Summary,
+		StateJSON: datatypes.JSON(stateJSON),
 	}
 	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
 		return 0, err
@@ -222,21 +216,14 @@ func (s *store) LoadLatestSummary(ctx context.Context, sessionID int64) (*Summar
 			return nil, err
 		}
 	}
-	var sourceIDs []int64
-	if len(record.SourceEntryIDs) > 0 {
-		if err := json.Unmarshal(record.SourceEntryIDs, &sourceIDs); err != nil {
-			return nil, err
-		}
-	}
 	return &Summary{
-		ID:             record.ID,
-		SessionID:      record.SessionID,
-		EntryID:        record.EntryID,
-		Phase:          record.Phase,
-		Summary:        record.Summary,
-		State:          state,
-		SourceEntryIDs: sourceIDs,
-		CreatedAt:      record.CreatedAt,
+		ID:        record.ID,
+		SessionID: record.SessionID,
+		EntryID:   record.EntryID,
+		Phase:     record.Phase,
+		Summary:   record.Summary,
+		State:     state,
+		CreatedAt: record.CreatedAt,
 	}, nil
 }
 
@@ -263,52 +250,6 @@ func (s *store) LoadViewMessages(ctx context.Context, sessionID int64, limit int
 		}
 	}
 	return filtered, summary, nil
-}
-
-// SearchMessages searches session messages by content substring.
-// Results are ordered by most recent first. If limit <= 0, a default limit is used.
-func (s *store) SearchMessages(ctx context.Context, sessionID int64, query string, limit int, includeTool bool) ([]Message, error) {
-	query = strings.TrimSpace(query)
-	if query == "" {
-		return nil, errors.New("query required")
-	}
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 50 {
-		limit = 50
-	}
-	like := "%" + escapeLike(strings.ToLower(query)) + "%"
-	tx := s.db.WithContext(ctx).
-		Where("session_id = ? AND deleted_at IS NULL", sessionID).
-		Where("LOWER(content) LIKE ? ESCAPE '\\\\'", like)
-	if !includeTool {
-		tx = tx.Where("role <> ?", "tool")
-	}
-	var records []dbmodel.Message
-	if err := tx.Order("id DESC").Limit(limit).Find(&records).Error; err != nil {
-		return nil, err
-	}
-	msgs := make([]Message, 0, len(records))
-	for _, r := range records {
-		var meta *MessageMetadata
-		if len(r.Metadata) > 0 {
-			var parsed MessageMetadata
-			if err := json.Unmarshal(r.Metadata, &parsed); err != nil {
-				return nil, err
-			}
-			meta = &parsed
-		}
-		msgs = append(msgs, Message{
-			ID:        r.ID,
-			SessionID: r.SessionID,
-			Role:      r.Role,
-			Content:   r.Content,
-			Metadata:  meta,
-			CreatedAt: r.CreatedAt,
-		})
-	}
-	return msgs, nil
 }
 
 func reverseMessages(in []Message) []Message {
@@ -480,11 +421,6 @@ func (s *store) latestMessageID(ctx context.Context, sessionID int64) (int64, er
 		return 0, err
 	}
 	return record.ID, nil
-}
-
-func escapeLike(value string) string {
-	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return replacer.Replace(value)
 }
 
 func providerScopedExternalID(provider, externalID string) string {

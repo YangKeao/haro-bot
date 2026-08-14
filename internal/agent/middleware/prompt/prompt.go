@@ -9,7 +9,6 @@ import (
 
 	"github.com/YangKeao/haro-bot/internal/agent"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
-	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
 )
 
@@ -38,30 +37,22 @@ func (m *middleware) Priority() int {
 }
 
 func (m *middleware) HandleRun(ctx context.Context, run *agent.RunState, next agent.RunHandler) (string, error) {
-	run.Prompt = buildPrompt(ctx, m.gl, run.Memories, run.AvailableSkills, run.PromptFormat, run.PromptMode == agent.PromptModeHandle)
+	run.Prompt = buildPrompt(ctx, m.gl, run.AvailableSkills, run.PromptFormat)
 	return next(ctx, run)
 }
 
-func buildSystemPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.MemoryItem, skillsList []skills.Metadata, format string) string {
-	return buildPrompt(ctx, gl, memories, skillsList, format, true)
-}
-
-func buildInterruptPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.MemoryItem, format string) string {
-	return buildPrompt(ctx, gl, memories, nil, format, false)
-}
-
-func buildPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.MemoryItem, skillsList []skills.Metadata, format string, includeSkills bool) string {
+func buildPrompt(ctx context.Context, gl GuidelinesLoader, skillsList []skills.Metadata, format string) string {
 	var b strings.Builder
 	format = strings.ToLower(strings.TrimSpace(format))
 	skillsXML := ""
-	if includeSkills && isClaudeFormat(format) {
+	if isClaudeFormat(format) {
 		skillsXML = buildSkillsXML(skillsList)
 		if skillsXML != "" {
 			b.WriteString(skillsXML)
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString("You are an assistant. Use the provided long-term memory when relevant.\n")
+	b.WriteString("You are an assistant.\n")
 	b.WriteString("When the conversation gets long or you need a clean handoff, create a session summary using the session_summary tool with a concise summary and optional state.\n")
 
 	if gl != nil {
@@ -72,24 +63,6 @@ func buildPrompt(ctx context.Context, gl GuidelinesLoader, memories []memory.Mem
 		}
 	}
 
-	if len(memories) > 0 {
-		b.WriteString("Long-term memory:\n")
-		for _, m := range memories {
-			label := strings.TrimSpace(m.Type)
-			if label == "" {
-				label = "memory"
-			}
-			if m.Score != 0 {
-				b.WriteString(fmt.Sprintf("- [%s score=%.2f] %s\n", label, m.Score, m.Content))
-				continue
-			}
-			b.WriteString(fmt.Sprintf("- [%s] %s\n", label, m.Content))
-		}
-	}
-	if !includeSkills {
-		b.WriteString("Do not use tools or skills. Respond directly.\n")
-		return b.String()
-	}
 	if len(skillsList) > 0 && !isClaudeFormat(format) {
 		section := renderSkillsSection(skillsList)
 		if section != "" {

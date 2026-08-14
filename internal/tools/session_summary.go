@@ -14,11 +14,10 @@ type SessionSummaryTool struct {
 }
 
 type sessionSummaryArgs struct {
-	Phase          string         `json:"phase"`
-	Summary        string         `json:"summary"`
-	State          map[string]any `json:"state"`
-	SourceEntryIDs []int64        `json:"source_entry_ids"`
-	EntryID        int64          `json:"entry_id"`
+	Phase   string         `json:"phase"`
+	Summary string         `json:"summary"`
+	State   map[string]any `json:"state"`
+	EntryID int64          `json:"entry_id"`
 }
 
 func NewSessionSummaryTool(store memory.StoreAPI) *SessionSummaryTool {
@@ -47,13 +46,6 @@ func (t *SessionSummaryTool) Parameters() map[string]any {
 				"type":        "object",
 				"description": "Structured state payload to persist.",
 			},
-			"source_entry_ids": map[string]any{
-				"type":        "array",
-				"description": "Optional message IDs used to build this summary.",
-				"items": map[string]any{
-					"type": "integer",
-				},
-			},
 			"entry_id": map[string]any{
 				"type":        "integer",
 				"description": "Optional message ID to summarize from (defaults to latest message).",
@@ -77,12 +69,11 @@ func (t *SessionSummaryTool) Execute(ctx context.Context, tc ToolContext, args j
 		return "", errors.New("summary, state, or phase required")
 	}
 	summary := memory.Summary{
-		SessionID:      tc.SessionID,
-		EntryID:        a.EntryID,
-		Phase:          a.Phase,
-		Summary:        a.Summary,
-		State:          a.State,
-		SourceEntryIDs: a.SourceEntryIDs,
+		SessionID: tc.SessionID,
+		EntryID:   a.EntryID,
+		Phase:     a.Phase,
+		Summary:   a.Summary,
+		State:     a.State,
 	}
 	id, err := t.store.AppendSummary(ctx, tc.SessionID, summary)
 	if err != nil {

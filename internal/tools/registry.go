@@ -16,7 +16,6 @@ type Tool interface {
 
 type ToolContext struct {
 	SessionID int64
-	UserID    int64
 	BaseDir   string
 }
 

@@ -65,7 +65,6 @@ jobs:
             --db 1 \
             --pd 1 \
             --kv 1 \
-            --tiflash 1 \
             --tiproxy 1 \
             --without-monitor \
             --tag gha-ci > "${RUNNER_TEMP}/tiup-playground.log" 2>&1 &
@@ -77,12 +76,10 @@ jobs:
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
-          MEMORY_EMBEDDER_MODEL: ${{ secrets.MEMORY_EMBEDDER_MODEL }}
-          MEMORY_EMBEDDER_DIMENSIONS: ${{ secrets.MEMORY_EMBEDDER_DIMENSIONS }}
         run: |
           set -euo pipefail
           missing=0
-          for key in LLM_BASE_URL LLM_API_KEY LLM_MODEL MEMORY_EMBEDDER_MODEL MEMORY_EMBEDDER_DIMENSIONS; do
+          for key in LLM_BASE_URL LLM_MODEL; do
             if [ -z "${!key:-}" ]; then
               echo "::error::Missing required secret: ${key}"
               missing=1
@@ -91,12 +88,8 @@ jobs:
           if [ "${missing}" -ne 0 ]; then
             exit 1
           fi
-          if ! [[ "${MEMORY_EMBEDDER_DIMENSIONS}" =~ ^[0-9]+$ ]]; then
-            echo "::error::MEMORY_EMBEDDER_DIMENSIONS must be an integer"
-            exit 1
-          fi
 
-      - name: Wait for TiDB and TiFlash readiness
+      - name: Wait for TiDB readiness
         shell: bash
         run: |
           set -euo pipefail
@@ -114,22 +107,11 @@ jobs:
 
       - name: Generate integration config
         shell: bash
-        env:
-          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          MEMORY_EMBEDDER_MODEL: ${{ secrets.MEMORY_EMBEDDER_MODEL }}
-          MEMORY_EMBEDDER_DIMENSIONS: ${{ secrets.MEMORY_EMBEDDER_DIMENSIONS }}
         run: |
           set -euo pipefail
           {
             printf "[db]\n"
             printf "tidb_dsn = \"root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true\"\n\n"
-            printf "[memory.embedder]\n"
-            printf "provider = \"openai\"\n"
-            printf "base_url = \"%s\"\n" "${LLM_BASE_URL}"
-            printf "api_key = \"%s\"\n" "${LLM_API_KEY}"
-            printf "model = \"%s\"\n" "${MEMORY_EMBEDDER_MODEL}"
-            printf "dimensions = %s\n" "${MEMORY_EMBEDDER_DIMENSIONS}"
           } > "${RUNNER_TEMP}/integration.toml"
           echo "HARO_CONFIG_PATH=${RUNNER_TEMP}/integration.toml" >> "${GITHUB_ENV}"
 

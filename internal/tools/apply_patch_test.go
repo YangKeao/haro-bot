@@ -17,7 +17,7 @@ func TestApplyPatch_AddFile(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	fs := NewFS(nil)
+	fs := NewFS()
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch
@@ -60,7 +60,7 @@ func TestApplyPatch_DeleteFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := NewFS(nil)
+	fs := NewFS()
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch
@@ -96,7 +96,7 @@ func TestApplyPatch_UpdateFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := NewFS(nil)
+	fs := NewFS()
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch
@@ -142,7 +142,7 @@ func TestApplyPatch_RenameFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := NewFS(nil)
+	fs := NewFS()
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch
@@ -191,7 +191,7 @@ func TestApplyPatch_RenameFile_MoveTargetResolvesFromWorkdir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := NewFS(nil)
+	fs := NewFS()
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch
@@ -235,7 +235,7 @@ func TestApplyPatch_MultipleOperations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := NewFS(nil)
+	fs := NewFS()
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch
@@ -297,7 +297,7 @@ func TestApplyPatch_UpdateFileWithMultipleDistantHunks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := NewFS(nil)
+	fs := NewFS()
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch
@@ -354,7 +354,7 @@ func TestApplyPatch_UpdateFileWithEndOfFileMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs := NewFS(nil)
+	fs := NewFS()
 	tool := NewApplyPatchTool(fs)
 
 	patch := `*** Begin Patch

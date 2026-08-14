@@ -23,7 +23,6 @@ type TransientMessage struct {
 // Prefix is prepended before stored history; Suffix is appended after stored history.
 type TransientContext struct {
 	Prefix []TransientMessage
-	Suffix []TransientMessage
 }
 
 func newTransientMessage(msg llm.Message) TransientMessage {
@@ -57,10 +56,9 @@ func transientMessagesToLLM(messages []TransientMessage) []llm.Message {
 }
 
 func composeLLMMessages(stored []StoredMessage, transient TransientContext) []llm.Message {
-	out := make([]llm.Message, 0, len(transient.Prefix)+len(stored)+len(transient.Suffix))
+	out := make([]llm.Message, 0, len(transient.Prefix)+len(stored))
 	out = append(out, transientMessagesToLLM(transient.Prefix)...)
 	out = append(out, storedMessagesToLLM(stored)...)
-	out = append(out, transientMessagesToLLM(transient.Suffix)...)
 	return out
 }
 
@@ -76,7 +74,7 @@ func toStoredMessages(msgs []memory.Message) ([]StoredMessage, error) {
 	return out, nil
 }
 
-func buildTransientContext(systemPrompt string, summary *memory.Summary, recent []memory.Message, pendingUserInput string) TransientContext {
+func buildTransientContext(systemPrompt string, summary *memory.Summary, recent []memory.Message) TransientContext {
 	prefix := []TransientMessage{newTransientMessage(llm.Message{Role: "system", Content: systemPrompt})}
 	if summaryMsg := formatSummaryMessage(summary); summaryMsg != "" {
 		prefix = append(prefix, newTransientMessage(llm.Message{Role: "system", Content: summaryMsg}))
@@ -84,14 +82,7 @@ func buildTransientContext(systemPrompt string, summary *memory.Summary, recent 
 	if hint := summaryHint(recent); hint != "" {
 		prefix = append(prefix, newTransientMessage(llm.Message{Role: "system", Content: hint}))
 	}
-	var suffix []TransientMessage
-	if strings.TrimSpace(pendingUserInput) != "" {
-		suffix = append(suffix, newTransientMessage(llm.Message{Role: "user", Content: pendingUserInput}))
-	}
-	return TransientContext{
-		Prefix: prefix,
-		Suffix: suffix,
-	}
+	return TransientContext{Prefix: prefix}
 }
 
 func refreshTransientContext(base TransientContext, summary *memory.Summary, recent []memory.Message) TransientContext {
@@ -111,7 +102,6 @@ func refreshTransientContext(base TransientContext, summary *memory.Summary, rec
 	}
 	return TransientContext{
 		Prefix: prefix,
-		Suffix: append([]TransientMessage(nil), base.Suffix...),
 	}
 }
 

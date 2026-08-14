@@ -48,10 +48,6 @@ func (s *toolRunnerStore) LoadViewMessages(context.Context, int64, int) ([]memor
 	return nil, nil, nil
 }
 
-func (s *toolRunnerStore) SearchMessages(context.Context, int64, string, int, bool) ([]memory.Message, error) {
-	return nil, nil
-}
-
 type staticTool struct {
 	name   string
 	output string
@@ -83,7 +79,7 @@ func TestToolRunnerTruncatesLargeToolOutput(t *testing.T) {
 	registry := tools.NewRegistry(&staticTool{name: "big_tool", output: output})
 	runner := NewToolRunner(registry, store, nil, estimator)
 
-	msgs, _, err := runner.Run(context.Background(), 1, 2, "", nil, []llm.ToolCall{{
+	msgs, _, err := runner.Run(context.Background(), 1, "", nil, []llm.ToolCall{{
 		ID:   "call-1",
 		Type: "function",
 		Function: llm.ToolCallFn{
@@ -124,7 +120,7 @@ func TestToolRunnerKeepsSmallToolOutput(t *testing.T) {
 	registry := tools.NewRegistry(&staticTool{name: "small_tool", output: "short output"})
 	runner := NewToolRunner(registry, store, nil, estimator)
 
-	msgs, _, err := runner.Run(context.Background(), 1, 2, "", nil, []llm.ToolCall{{
+	msgs, _, err := runner.Run(context.Background(), 1, "", nil, []llm.ToolCall{{
 		ID:   "call-1",
 		Type: "function",
 		Function: llm.ToolCallFn{

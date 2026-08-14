@@ -7,12 +7,11 @@ import (
 )
 
 type User struct {
-	ID          int64          `gorm:"primaryKey;autoIncrement"`
-	TelegramID  *int64         `gorm:"column:telegram_id"`
-	ExternalID  *string        `gorm:"column:external_id"`
-	ProfileJSON datatypes.JSON `gorm:"column:profile_json;type:json"`
-	CreatedAt   time.Time      `gorm:"column:created_at"`
-	UpdatedAt   time.Time      `gorm:"column:updated_at"`
+	ID         int64     `gorm:"primaryKey;autoIncrement"`
+	TelegramID *int64    `gorm:"column:telegram_id"`
+	ExternalID *string   `gorm:"column:external_id"`
+	CreatedAt  time.Time `gorm:"column:created_at"`
+	UpdatedAt  time.Time `gorm:"column:updated_at"`
 }
 
 func (User) TableName() string { return "users" }
@@ -21,8 +20,6 @@ type Session struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement"`
 	UserID    int64     `gorm:"column:user_id"`
 	Channel   string    `gorm:"column:channel;size:32"`
-	Status    string    `gorm:"column:status;size:16"`
-	Summary   string    `gorm:"column:summary;type:text"`
 	CreatedAt time.Time `gorm:"column:created_at"`
 	UpdatedAt time.Time `gorm:"column:updated_at"`
 }
@@ -42,14 +39,13 @@ type Message struct {
 func (Message) TableName() string { return "messages" }
 
 type SessionSummary struct {
-	ID             int64          `gorm:"primaryKey;autoIncrement"`
-	SessionID      int64          `gorm:"column:session_id"`
-	EntryID        int64          `gorm:"column:entry_id"`
-	Phase          string         `gorm:"column:phase;size:64"`
-	Summary        string         `gorm:"column:summary;type:text"`
-	StateJSON      datatypes.JSON `gorm:"column:state_json;type:json"`
-	SourceEntryIDs datatypes.JSON `gorm:"column:source_entry_ids;type:json"`
-	CreatedAt      time.Time      `gorm:"column:created_at"`
+	ID        int64          `gorm:"primaryKey;autoIncrement"`
+	SessionID int64          `gorm:"column:session_id"`
+	EntryID   int64          `gorm:"column:entry_id"`
+	Phase     string         `gorm:"column:phase;size:64"`
+	Summary   string         `gorm:"column:summary;type:text"`
+	StateJSON datatypes.JSON `gorm:"column:state_json;type:json"`
+	CreatedAt time.Time      `gorm:"column:created_at"`
 }
 
 func (SessionSummary) TableName() string { return "session_summaries" }
@@ -86,30 +82,6 @@ type SkillRegistry struct {
 }
 
 func (SkillRegistry) TableName() string { return "skills_registry" }
-
-type ToolAudit struct {
-	ID        int64          `gorm:"primaryKey;autoIncrement"`
-	SessionID *int64         `gorm:"column:session_id"`
-	UserID    *int64         `gorm:"column:user_id"`
-	Tool      string         `gorm:"column:tool;size:32"`
-	Path      string         `gorm:"column:path;type:text"`
-	Allowed   bool           `gorm:"column:allowed"`
-	Status    string         `gorm:"column:status;size:16"`
-	Reason    string         `gorm:"column:reason;type:text"`
-	Metadata  datatypes.JSON `gorm:"column:metadata_json;type:json"`
-	CreatedAt time.Time      `gorm:"column:created_at"`
-}
-
-func (ToolAudit) TableName() string { return "tool_audit" }
-
-type AppConfig struct {
-	ID         int64          `gorm:"primaryKey;autoIncrement"`
-	ConfigJSON datatypes.JSON `gorm:"column:config_json;type:json"`
-	CreatedAt  time.Time      `gorm:"column:created_at"`
-	UpdatedAt  time.Time      `gorm:"column:updated_at"`
-}
-
-func (AppConfig) TableName() string { return "app_config" }
 
 // Guidelines stores the bot's behavioral guidelines and principles.
 // The database table is named "constitutions" for backward compatibility.

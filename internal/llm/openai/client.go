@@ -105,9 +105,11 @@ func (c *openAIChatModel) Chat(ctx context.Context, req llm.ChatRequest) (llm.Ch
 			params.ReasoningEffort = shared.ReasoningEffortMedium
 		}
 	}
-	if extra := extraBodyForPurpose(req.Purpose); len(extra) > 0 {
-		params.SetExtraFields(extra)
-	}
+	params.SetExtraFields(map[string]any{
+		"thinking": map[string]any{
+			"clear_thinking": false,
+		},
+	})
 
 	forceStream := true
 	if forceStream {
@@ -178,35 +180,6 @@ func isEmptyChatResponse(resp llm.ChatResponse) bool {
 	}
 	msg := resp.Choices[0].Message
 	return strings.TrimSpace(msg.Content) == "" && len(msg.ToolCalls) == 0
-}
-
-func extraBodyForPurpose(purpose llm.RequestPurpose) map[string]any {
-	switch purpose {
-	case llm.PurposeSecurity:
-		return map[string]any{
-			"thinking": map[string]any{
-				"type": "disabled",
-			},
-		}
-	case llm.PurposeMemory:
-		return map[string]any{
-			"thinking": map[string]any{
-				"clear_thinking": false,
-			},
-		}
-	case llm.PurposeChat, "":
-		return map[string]any{
-			"thinking": map[string]any{
-				"clear_thinking": false,
-			},
-		}
-	default:
-		return map[string]any{
-			"thinking": map[string]any{
-				"clear_thinking": false,
-			},
-		}
-	}
 }
 
 func normalizeChatCompletionError(err error, resp *openaisdk.ChatCompletion) error {

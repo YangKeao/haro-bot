@@ -1,11 +1,10 @@
 # Haro Bot
 
-An AI agent with Telegram integration, long-term memory, and tool execution capabilities.
+An AI agent with Telegram integration and tool execution capabilities.
 
 ## Features
 
 - **Telegram Integration**: Real-time message streaming with draft previews
-- **Long-term Memory**: Vector-based memory storage and retrieval using TiDB
 - **Skill System**: Extensible skills synced from Git repositories
 - **Tool Execution**: Filesystem operations and command execution
 - **Session Management**: Fork sessions for parallel task execution
@@ -23,7 +22,7 @@ An AI agent with Telegram integration, long-term memory, and tool execution capa
 ### Command-line Flags
 
 - `-config <path>`: Path to config file (default: `config.toml`)
-- `-unrestricted`: Skip path restrictions and symlink checks (audit logging still enabled)
+- `-unrestricted`: Skip path restrictions and symlink checks
 
 ## Configuration
 
@@ -56,15 +55,14 @@ Configuration is primarily stored in `config.toml`. See `config.example.toml` fo
 ### Search Tools
 - `brave_search`: Web search (requires `BRAVE_SEARCH_API_KEY`)
 
-### Memory Tools
-- `memory_search`: Search long-term memory
+### Session Tools
 - `session_summary`: Create session checkpoint/handoff
 
 ### Skill Tools
 - `install_skill`: Install skills from Git repos
 - `activate_skill`: Activate an installed skill
 
-### Session Tools
+### Session Control Tools
 - `session_fork`: Start a child session for parallel tasks
 - `session_interrupt`: Interrupt a child session
 - `session_status`: Check child session status
@@ -76,13 +74,11 @@ Configuration is primarily stored in `config.toml`. See `config.example.toml` fo
 - Filesystem access restricted to `fs.allowed_roots`
 - Symlink traversal blocked
 - Telegram approval for out-of-bounds access
-- Command execution audited
 
 ### Unrestricted Mode (`--unrestricted`)
 - Path restrictions disabled
 - Symlink checks disabled
 - Approval requests disabled
-- **Audit logging still enabled**
 
 ## HTTP Endpoints
 

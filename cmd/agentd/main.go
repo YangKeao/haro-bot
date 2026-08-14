@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -23,8 +21,6 @@ import (
 	llmopenai "github.com/YangKeao/haro-bot/internal/llm/openai"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
-	memopenai "github.com/YangKeao/haro-bot/internal/memory/embedder/openai"
-	memtidb "github.com/YangKeao/haro-bot/internal/memory/vectorstore/tidb"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
 	"go.uber.org/zap"
@@ -57,7 +53,7 @@ func main() {
 	if err != nil {
 		log.Fatal("db open failed", zap.Error(err))
 	}
-	if err := db.ApplyMigrations(dbConn, cfg.Memory); err != nil {
+	if err := db.ApplyMigrations(dbConn); err != nil {
 		log.Fatal("db migrations failed", zap.Error(err))
 	}
 
@@ -71,15 +67,13 @@ func main() {
 	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
 	guidelinesMgr := guidelines.NewManager(dbConn)
 
-	auditStore := tools.NewAuditStore(dbConn)
-	fsTools := tools.NewFS(auditStore)
+	fsTools := tools.NewFS()
 
 	execMgr := tools.NewExecManager()
 	toolRegistry := tools.NewRegistry(
 		tools.NewListSkillSourcesTool(skillsMgr),
 		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
 		tools.NewSessionSummaryTool(store),
-		tools.NewMemorySearchTool(store),
 		tools.NewInstallSkillTool(skillsMgr),
 		tools.NewActivateSkillTool(skillsMgr),
 		tools.NewRefreshSkillsTool(skillsMgr),
@@ -98,16 +92,6 @@ func main() {
 		AutoCompactTokenLimit:         cfg.LLMAutoCompactTokenLimit,
 		EffectiveContextWindowPercent: cfg.LLMEffectiveContextWindowPercent,
 	}
-	embedder, err := newMemoryEmbedder(cfg)
-	if err != nil {
-		log.Fatal("memory embedder init failed", zap.Error(err))
-	}
-	vectorStore := memtidb.New(dbConn, cfg.Memory.Vector.Distance)
-	memoryEngine, err := memory.NewEngine(store, llmClient, cfg.LLMModel, embedder, vectorStore, cfg.Memory)
-	if err != nil {
-		log.Fatal("memory engine init failed", zap.Error(err))
-	}
-
 	agentSvc := agent.New(
 		store,
 		skillsMgr,
@@ -118,7 +102,7 @@ func main() {
 		string(cfg.LLMPromptFormat),
 		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
 	)
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memoryEngine, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
 	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store)
 
 	imRuntime.Start(ctx)
@@ -178,14 +162,5 @@ func syncLoop(ctx context.Context, mgr *skills.Manager, interval time.Duration) 
 				log.Warn("skills refresh failed", zap.Error(err))
 			}
 		}
-	}
-}
-
-func newMemoryEmbedder(cfg config.Config) (memory.Embedder, error) {
-	switch strings.ToLower(strings.TrimSpace(cfg.Memory.Embedder.Provider)) {
-	case "openai", "openai_compatible":
-		return memopenai.New(cfg.Memory.Embedder)
-	default:
-		return nil, errors.New("unsupported memory embedder provider: " + cfg.Memory.Embedder.Provider)
 	}
 }

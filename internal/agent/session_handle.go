@@ -33,16 +33,12 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 	middleware := mergeMiddlewareSets(s.deps.middleware, extraHooks)
 	run := &RunState{
 		SessionID:       s.id,
-		UserID:          userID,
 		Model:           model,
-		Input:           input,
-		PromptMode:      PromptModeHandle,
 		PromptFormat:    s.deps.promptFormat,
-		ShouldIngest:    true,
 		AvailableSkills: s.deps.skills.List(),
 	}
 	output, err = executeRunMiddleware(ctx, middleware.RunMiddleware, run, func(ctx context.Context, run *RunState) (string, error) {
-		snapshot, err := loadContextSnapshot(ctx, s.deps.store, s.id, run.Prompt, run.PendingInput)
+		snapshot, err := loadContextSnapshot(ctx, s.deps.store, s.id, run.Prompt)
 		if err != nil {
 			return "", err
 		}
@@ -51,7 +47,6 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 		if err != nil {
 			return "", err
 		}
-		run.Output = output
 		return output, nil
 	})
 	if err != nil {

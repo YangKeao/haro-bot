@@ -28,7 +28,7 @@ func TestAgentStoresAssistantResponse(t *testing.T) {
 	registry := tools.NewRegistry()
 	client, model := testutil.NewLLMClientFromEnv(t)
 	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "3001")

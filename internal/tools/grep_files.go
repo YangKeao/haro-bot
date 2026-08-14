@@ -100,12 +100,10 @@ func (t *GrepFilesTool) Execute(ctx context.Context, tc ToolContext, args json.R
 
 	abs, err := t.fs.resolvePath(tc.BaseDir, path, false)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "grep_files", path, err)
 		return "", err
 	}
 
 	if _, err := os.Stat(abs); err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "grep_files", abs, err)
 		return "", err
 	}
 
@@ -121,14 +119,11 @@ func (t *GrepFilesTool) Execute(ctx context.Context, tc ToolContext, args json.R
 
 	results, err := runGrepFiles(ctx, pattern, include, abs, cwd, limit)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "grep_files", abs, err)
 		return "", err
 	}
 	if len(results) == 0 {
-		t.fs.auditOK(ctx, tc.SessionID, tc.UserID, "grep_files", abs, map[string]any{"count": 0})
 		return "No matches found.", nil
 	}
-	t.fs.auditOK(ctx, tc.SessionID, tc.UserID, "grep_files", abs, map[string]any{"count": len(results)})
 	return strings.Join(results, "\n"), nil
 }
 

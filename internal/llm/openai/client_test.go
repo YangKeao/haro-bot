@@ -46,7 +46,6 @@ func TestChatRespectsCanceledContext(t *testing.T) {
 		Messages: []llm.Message{
 			{Role: "user", Content: "hello"},
 		},
-		Purpose: llm.PurposeChat,
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context canceled, got %v", err)
@@ -82,7 +81,6 @@ func TestChatRetriesEmptyResponses(t *testing.T) {
 		Messages: []llm.Message{
 			{Role: "user", Content: "hello"},
 		},
-		Purpose: llm.PurposeChat,
 	})
 	if err != nil {
 		t.Fatalf("expected retry to succeed, got %v", err)

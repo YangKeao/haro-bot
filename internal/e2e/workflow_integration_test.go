@@ -13,12 +13,9 @@ import (
 
 	"github.com/YangKeao/haro-bot/internal/agent"
 	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
-	dbmodel "github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/memory"
-	memopenai "github.com/YangKeao/haro-bot/internal/memory/embedder/openai"
-	memtidb "github.com/YangKeao/haro-bot/internal/memory/vectorstore/tidb"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/testutil"
 	"github.com/YangKeao/haro-bot/internal/tools"
@@ -40,8 +37,7 @@ func TestE2EAgentReadFileToolFlow(t *testing.T) {
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	guidelinesMgr := guidelines.NewManager(gdb)
-	auditStore := tools.NewAuditStore(gdb)
-	fsTools := tools.NewFS(auditStore)
+	fsTools := tools.NewFS()
 	registry := tools.NewRegistry(
 		tools.NewListDirTool(fsTools),
 		tools.NewReadFileTool(fsTools),
@@ -49,7 +45,7 @@ func TestE2EAgentReadFileToolFlow(t *testing.T) {
 
 	client, model := testutil.NewLLMClientFromEnv(t)
 	agentSvc := agent.New(store, skillsMgr, registry, rootDir, 12, client, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9101")
@@ -88,13 +84,6 @@ func TestE2EAgentReadFileToolFlow(t *testing.T) {
 		t.Fatalf("expected tool output to contain token %q", token)
 	}
 
-	var audits []dbmodel.ToolAudit
-	if err := gdb.Where("session_id = ? AND tool = ? AND status = ?", sessionID, "read_file", "ok").Find(&audits).Error; err != nil {
-		t.Fatalf("query tool audit: %v", err)
-	}
-	if len(audits) == 0 {
-		t.Fatalf("expected read_file audit records for session %d", sessionID)
-	}
 }
 
 func TestE2EAgentApplyPatchToolFlow(t *testing.T) {
@@ -114,8 +103,7 @@ func TestE2EAgentApplyPatchToolFlow(t *testing.T) {
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	guidelinesMgr := guidelines.NewManager(gdb)
-	auditStore := tools.NewAuditStore(gdb)
-	fsTools := tools.NewFS(auditStore)
+	fsTools := tools.NewFS()
 	registry := tools.NewRegistry(
 		tools.NewReadFileTool(fsTools),
 		tools.NewApplyPatchTool(fsTools),
@@ -123,7 +111,7 @@ func TestE2EAgentApplyPatchToolFlow(t *testing.T) {
 
 	client, model := testutil.NewLLMClientFromEnv(t)
 	agentSvc := agent.New(store, skillsMgr, registry, rootDir, 12, client, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9103")
@@ -173,13 +161,6 @@ func TestE2EAgentApplyPatchToolFlow(t *testing.T) {
 		t.Fatalf("expected tool output to include apply_patch success message")
 	}
 
-	var audits []dbmodel.ToolAudit
-	if err := gdb.Where("session_id = ? AND tool = ? AND status = ?", sessionID, "apply_patch", "ok").Find(&audits).Error; err != nil {
-		t.Fatalf("query tool audit: %v", err)
-	}
-	if len(audits) == 0 {
-		t.Fatalf("expected apply_patch audit records for session %d", sessionID)
-	}
 }
 
 func TestE2EAgentApplyPatchToolFlowComplexFile(t *testing.T) {
@@ -254,8 +235,7 @@ func TestE2EAgentApplyPatchToolFlowComplexFile(t *testing.T) {
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	guidelinesMgr := guidelines.NewManager(gdb)
-	auditStore := tools.NewAuditStore(gdb)
-	fsTools := tools.NewFS(auditStore)
+	fsTools := tools.NewFS()
 	registry := tools.NewRegistry(
 		tools.NewReadFileTool(fsTools),
 		tools.NewApplyPatchTool(fsTools),
@@ -263,7 +243,7 @@ func TestE2EAgentApplyPatchToolFlowComplexFile(t *testing.T) {
 
 	client, model := testutil.NewLLMClientFromEnv(t)
 	agentSvc := agent.New(store, skillsMgr, registry, rootDir, 16, client, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9104")
@@ -346,99 +326,6 @@ func TestE2EAgentApplyPatchToolFlowComplexFile(t *testing.T) {
 		t.Fatalf("expected tool output to include update/create/delete messages for complex scenario")
 	}
 
-	var audits []dbmodel.ToolAudit
-	if err := gdb.Where("session_id = ? AND tool = ? AND status = ?", sessionID, "apply_patch", "ok").Find(&audits).Error; err != nil {
-		t.Fatalf("query tool audit: %v", err)
-	}
-	if len(audits) < 4 {
-		t.Fatalf("expected at least 4 apply_patch audit records for session %d, got %d", sessionID, len(audits))
-	}
-}
-
-func TestE2EMemoryEngineCrossSessionRecall(t *testing.T) {
-	cfg := testutil.EnsureIntegrationEnv(t)
-	if strings.TrimSpace(cfg.Memory.Embedder.Model) == "" || cfg.Memory.Embedder.Dimensions <= 0 {
-		t.Skip("memory embedder config is required in config.toml for this e2e test")
-	}
-	if strings.TrimSpace(cfg.Memory.Embedder.BaseURL) == "" {
-		cfg.Memory.Embedder.BaseURL = os.Getenv("LLM_BASE_URL")
-	}
-	if strings.TrimSpace(cfg.Memory.Embedder.APIKey) == "" {
-		cfg.Memory.Embedder.APIKey = os.Getenv("LLM_API_KEY")
-	}
-	if strings.TrimSpace(cfg.Memory.Embedder.APIKey) == "" {
-		t.Skip("memory embedder api key missing in config and environment")
-	}
-
-	gdb, cleanup := testutil.NewTestDBWithMigrationsConfig(t, cfg.Memory)
-	t.Cleanup(cleanup)
-
-	store := memory.NewStore(gdb)
-	skillsStore := skills.NewStore(gdb)
-	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
-	guidelinesMgr := guidelines.NewManager(gdb)
-	registry := tools.NewRegistry()
-	client, model := testutil.NewLLMClientFromEnv(t)
-
-	embedder, err := memopenai.New(cfg.Memory.Embedder)
-	if err != nil {
-		t.Fatalf("init embedder: %v", err)
-	}
-	vectorStore := memtidb.New(gdb, cfg.Memory.Vector.Distance)
-	memEngine, err := memory.NewEngine(store, client, model, embedder, vectorStore, cfg.Memory)
-	if err != nil {
-		t.Fatalf("init memory engine: %v", err)
-	}
-
-	promptFormat := "openai"
-	if v := strings.TrimSpace(string(cfg.LLMPromptFormat)); v != "" {
-		promptFormat = v
-	}
-	agentSvc := agent.New(
-		store,
-		skillsMgr,
-		registry, t.TempDir(),
-		6,
-		client,
-		model,
-		promptFormat,
-		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
-	)
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, memEngine, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
-
-	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9102")
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-
-	token := fmt.Sprintf("CITY-E2E-%d", time.Now().UnixNano())
-	seedText := fmt.Sprintf("User preference: favorite city keyword is %s.", token)
-	embedder, err = memopenai.New(cfg.Memory.Embedder)
-	if err != nil {
-		t.Fatalf("init embedder: %v", err)
-	}
-	vector, err := embedder.Embed(ctx, seedText)
-	if err != nil {
-		t.Fatalf("embed seed memory: %v", err)
-	}
-	vectorStore = memtidb.New(gdb, cfg.Memory.Vector.Distance)
-	if _, err := vectorStore.Insert(ctx, memory.MemoryItem{
-		UserID:  userID,
-		Type:    "preference",
-		Content: seedText,
-	}, vector); err != nil {
-		t.Fatalf("insert seed memory: %v", err)
-	}
-
-	recallPrompt := "What is my favorite city keyword? Reply with the exact keyword."
-	resp, err := agentSvc.Handle(ctx, userID, "e2e-memory-recall", recallPrompt)
-	if err != nil {
-		t.Fatalf("recall conversation: %v", err)
-	}
-	if !containsFold(resp, token) {
-		t.Fatalf("expected recall response to contain %q, got: %s", token, resp)
-	}
 }
 
 func containsFold(s, sub string) bool {

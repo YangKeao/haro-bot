@@ -125,7 +125,6 @@ func (t *ReadFileTool) Execute(ctx context.Context, tc ToolContext, args json.Ra
 
 	abs, err := t.fs.resolvePath("", a.FilePath, false)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "read_file", a.FilePath, err)
 		return "", err
 	}
 
@@ -137,10 +136,8 @@ func (t *ReadFileTool) Execute(ctx context.Context, tc ToolContext, args json.Ra
 		lines, err = readFileIndentation(abs, offset, limit, a.AnchorLine, a.MaxLevels, a.MaxLines)
 	}
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "read_file", abs, err)
 		return "", err
 	}
-	t.fs.auditOK(ctx, tc.SessionID, tc.UserID, "read_file", abs, map[string]any{"lines": len(lines)})
 	return strings.Join(lines, "\n"), nil
 }
 

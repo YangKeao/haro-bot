@@ -119,7 +119,6 @@ func (t *ExecCommandTool) Execute(ctx context.Context, tc ToolContext, args json
 	}
 	resolvedWorkdir, err := t.fs.resolvePath(tc.BaseDir, workdir, false)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", workdir, err)
 		return "", err
 	}
 	info, err := os.Stat(resolvedWorkdir)
@@ -127,7 +126,6 @@ func (t *ExecCommandTool) Execute(ctx context.Context, tc ToolContext, args json
 		if err == nil {
 			err = errors.New("workdir is not a directory")
 		}
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", resolvedWorkdir, err)
 		return "", err
 	}
 
@@ -143,7 +141,6 @@ func (t *ExecCommandTool) Execute(ctx context.Context, tc ToolContext, args json
 
 	command, err := buildShellCommand(ctx, cmdText, a.Shell, useLogin, resolvedWorkdir)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", resolvedWorkdir, err)
 		return "", err
 	}
 
@@ -164,7 +161,6 @@ func (t *ExecCommandTool) Execute(ctx context.Context, tc ToolContext, args json
 
 	start := time.Now()
 	if err := command.Start(); err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "exec_command", resolvedWorkdir, err)
 		return "", err
 	}
 
@@ -178,7 +174,6 @@ func (t *ExecCommandTool) Execute(ctx context.Context, tc ToolContext, args json
 		t.manager.remove(procID)
 	}
 
-	t.fs.auditOK(ctx, tc.SessionID, tc.UserID, "exec_command", resolvedWorkdir, nil)
 	resp := execResponse{
 		WallTime:      time.Since(start),
 		ExitCode:      proc.exitCode(),

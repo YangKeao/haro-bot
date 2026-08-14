@@ -6,21 +6,6 @@ import (
 	"github.com/YangKeao/haro-bot/internal/llm"
 )
 
-func TestMemoryItem(t *testing.T) {
-	item := MemoryItem{
-		Type:    "fact",
-		Content: "User likes Go programming",
-		Score:   0.85,
-	}
-
-	if item.Type != "fact" {
-		t.Errorf("expected type 'fact', got %s", item.Type)
-	}
-	if item.Score != 0.85 {
-		t.Errorf("expected score 0.85, got %f", item.Score)
-	}
-}
-
 func TestMessageMetadata(t *testing.T) {
 	t.Run("empty metadata", func(t *testing.T) {
 		var meta MessageMetadata

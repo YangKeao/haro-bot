@@ -16,52 +16,6 @@ type LogConfig struct {
 	Encoding    string `toml:"encoding"`
 }
 
-// MemoryEmbedderConfig configures the embedding provider.
-type MemoryEmbedderConfig struct {
-	Provider   string `toml:"provider"`
-	BaseURL    string `toml:"base_url"`
-	APIKey     string `toml:"api_key"`
-	Model      string `toml:"model"`
-	Dimensions int    `toml:"dimensions"`
-}
-
-// MemoryVectorConfig configures vector search.
-type MemoryVectorConfig struct {
-	Distance string `toml:"distance"`
-}
-
-// MemoryIngestConfig configures memory ingestion.
-type MemoryIngestConfig struct {
-	RecentWindow    int     `toml:"recent_window"`
-	MaxCandidates   int     `toml:"max_candidates"`
-	MinConfidence   float64 `toml:"min_confidence"`
-	MinImportance   int     `toml:"min_importance"`
-	MatchTopK       int     `toml:"match_top_k"`
-	UpdateThreshold float64 `toml:"update_threshold"`
-	NoopThreshold   float64 `toml:"noop_threshold"`
-}
-
-// MemoryRetrieveConfig configures memory retrieval.
-type MemoryRetrieveConfig struct {
-	TopK     int     `toml:"top_k"`
-	MinScore float64 `toml:"min_score"`
-}
-
-// MemoryGraphConfig configures graph-based memory.
-type MemoryGraphConfig struct {
-	Enabled  bool   `toml:"enabled"`
-	Provider string `toml:"provider"`
-}
-
-// MemoryConfig holds all memory subsystem configuration.
-type MemoryConfig struct {
-	Embedder MemoryEmbedderConfig `toml:"embedder"`
-	Vector   MemoryVectorConfig   `toml:"vector"`
-	Ingest   MemoryIngestConfig   `toml:"ingest"`
-	Retrieve MemoryRetrieveConfig `toml:"retrieve"`
-	Graph    MemoryGraphConfig    `toml:"graph"`
-}
-
 // Config is the runtime configuration loaded from file.
 type Config struct {
 	ServerAddr                       string
@@ -83,7 +37,6 @@ type Config struct {
 	BraveSearchAPIKey                string
 	ToolMaxTurns                     int
 	Log                              LogConfig
-	Memory                           MemoryConfig
 }
 
 // fileConfig mirrors the TOML structure for deserialization.
@@ -120,8 +73,7 @@ type fileConfig struct {
 	Tool struct {
 		MaxTurns int `toml:"max_turns"`
 	} `toml:"tool"`
-	Log    LogConfig    `toml:"log"`
-	Memory MemoryConfig `toml:"memory"`
+	Log LogConfig `toml:"log"`
 }
 
 // LoadFromFile reads configuration from a TOML file.
@@ -186,33 +138,6 @@ func defaultFileConfig() fileConfig {
 			Level:    "info",
 			Encoding: "json",
 		},
-		Memory: MemoryConfig{
-			Embedder: MemoryEmbedderConfig{
-				Provider:   "openai",
-				BaseURL:    "https://api.openai.com/v1",
-				Model:      "text-embedding-3-small",
-				Dimensions: 1536,
-			},
-			Vector: MemoryVectorConfig{
-				Distance: "cosine",
-			},
-			Ingest: MemoryIngestConfig{
-				RecentWindow:    20,
-				MaxCandidates:   8,
-				MinConfidence:   0.6,
-				MinImportance:   1,
-				MatchTopK:       5,
-				UpdateThreshold: 0.85,
-				NoopThreshold:   0.92,
-			},
-			Retrieve: MemoryRetrieveConfig{
-				TopK:     8,
-				MinScore: 0.2,
-			},
-			Graph: MemoryGraphConfig{
-				Enabled: false,
-			},
-		},
 	}
 }
 
@@ -232,14 +157,6 @@ func intDefault(v, def int) int {
 	return v
 }
 
-// floatDefault returns def if v <= 0.
-func floatDefault(v, def float64) float64 {
-	if v <= 0 {
-		return def
-	}
-	return v
-}
-
 func (r fileConfig) withDefaults() fileConfig {
 	def := defaultFileConfig()
 	r.Server.Addr = strDefault(r.Server.Addr, def.Server.Addr)
@@ -253,22 +170,6 @@ func (r fileConfig) withDefaults() fileConfig {
 	r.Tool.MaxTurns = intDefault(r.Tool.MaxTurns, def.Tool.MaxTurns)
 	r.Log.Level = strDefault(r.Log.Level, def.Log.Level)
 	r.Log.Encoding = strDefault(r.Log.Encoding, def.Log.Encoding)
-	r.Memory.Embedder.Provider = strDefault(r.Memory.Embedder.Provider, def.Memory.Embedder.Provider)
-	r.Memory.Embedder.BaseURL = strDefault(r.Memory.Embedder.BaseURL, def.Memory.Embedder.BaseURL)
-	r.Memory.Embedder.Model = strDefault(r.Memory.Embedder.Model, def.Memory.Embedder.Model)
-	r.Memory.Embedder.Dimensions = intDefault(r.Memory.Embedder.Dimensions, def.Memory.Embedder.Dimensions)
-	r.Memory.Vector.Distance = strDefault(r.Memory.Vector.Distance, def.Memory.Vector.Distance)
-	r.Memory.Ingest.RecentWindow = intDefault(r.Memory.Ingest.RecentWindow, def.Memory.Ingest.RecentWindow)
-	r.Memory.Ingest.MaxCandidates = intDefault(r.Memory.Ingest.MaxCandidates, def.Memory.Ingest.MaxCandidates)
-	r.Memory.Ingest.MinConfidence = floatDefault(r.Memory.Ingest.MinConfidence, def.Memory.Ingest.MinConfidence)
-	r.Memory.Ingest.MinImportance = intDefault(r.Memory.Ingest.MinImportance, def.Memory.Ingest.MinImportance)
-	r.Memory.Ingest.MatchTopK = intDefault(r.Memory.Ingest.MatchTopK, def.Memory.Ingest.MatchTopK)
-	r.Memory.Ingest.UpdateThreshold = floatDefault(r.Memory.Ingest.UpdateThreshold, def.Memory.Ingest.UpdateThreshold)
-	r.Memory.Ingest.NoopThreshold = floatDefault(r.Memory.Ingest.NoopThreshold, def.Memory.Ingest.NoopThreshold)
-	r.Memory.Retrieve.TopK = intDefault(r.Memory.Retrieve.TopK, def.Memory.Retrieve.TopK)
-	if r.Memory.Retrieve.MinScore < 0 {
-		r.Memory.Retrieve.MinScore = def.Memory.Retrieve.MinScore
-	}
 	return r
 }
 
@@ -280,14 +181,6 @@ func (r *fileConfig) normalize() {
 	}
 	if r.LLM.EffectiveContextWindowPercent > 100 {
 		r.LLM.EffectiveContextWindowPercent = 100
-	}
-	r.Memory.Embedder.Provider = strings.ToLower(strings.TrimSpace(r.Memory.Embedder.Provider))
-	if r.Memory.Embedder.Provider == "" {
-		r.Memory.Embedder.Provider = "openai"
-	}
-	r.Memory.Vector.Distance = strings.ToLower(strings.TrimSpace(r.Memory.Vector.Distance))
-	if r.Memory.Vector.Distance == "" {
-		r.Memory.Vector.Distance = "cosine"
 	}
 }
 
@@ -314,7 +207,6 @@ func (r fileConfig) toConfig() Config {
 		BraveSearchAPIKey:                r.Brave.SearchAPIKey,
 		ToolMaxTurns:                     r.Tool.MaxTurns,
 		Log:                              r.Log,
-		Memory:                           r.Memory,
 	}
 }
 

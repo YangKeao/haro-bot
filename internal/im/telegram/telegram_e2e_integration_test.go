@@ -18,7 +18,6 @@ import (
 	"github.com/YangKeao/haro-bot/internal/agent"
 	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
 	"github.com/YangKeao/haro-bot/internal/config"
-	dbmodel "github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/memory"
@@ -45,15 +44,14 @@ func TestTelegramHandlerReadFileToolFlow(t *testing.T) {
 	skillsStore := skills.NewStore(gdb)
 	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
 	guidelinesMgr := guidelines.NewManager(gdb)
-	auditStore := tools.NewAuditStore(gdb)
-	fsTools := tools.NewFS(auditStore)
+	fsTools := tools.NewFS()
 	registry := tools.NewRegistry(
 		tools.NewListDirTool(fsTools),
 		tools.NewReadFileTool(fsTools),
 	)
 	llmClient, model := testutil.NewLLMClientFromEnv(t)
 	agentSvc := agent.New(store, skillsMgr, registry, rootDir, 12, llmClient, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, llmClient, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, llmClient, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 	srv := New(config.Config{}, agentSvc, store)
 
 	tgToken := "test-token"
@@ -130,11 +128,4 @@ func TestTelegramHandlerReadFileToolFlow(t *testing.T) {
 		t.Fatalf("timeout waiting for telegram sendMessage")
 	}
 
-	var audits []dbmodel.ToolAudit
-	if err := gdb.Where("tool = ? AND status = ?", "read_file", "ok").Find(&audits).Error; err != nil {
-		t.Fatalf("query tool audit: %v", err)
-	}
-	if len(audits) == 0 {
-		t.Fatalf("expected read_file audit record")
-	}
 }

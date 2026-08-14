@@ -16,11 +16,6 @@ context_window = 0
 auto_compact_token_limit = 0
 effective_context_window_percent = 95
 
-[security_audit]
-base_url = "https://api.openai.com/v1"
-api_key = "sk-..."
-model = "gpt-4o-mini"
-
 [telegram]
 token = ""
 
@@ -42,32 +37,3 @@ max_turns = 1024
 level = "info"
 development = false
 encoding = "json"
-
-[memory]
-
-[memory.embedder]
-provider = "openai"
-base_url = "https://api.openai.com/v1"
-api_key = ""
-model = "text-embedding-3-small"
-dimensions = 1536
-
-[memory.vector]
-distance = "cosine"
-
-[memory.ingest]
-recent_window = 20
-max_candidates = 8
-min_confidence = 0.6
-min_importance = 1
-match_top_k = 5
-update_threshold = 0.85
-noop_threshold = 0.92
-
-[memory.retrieve]
-top_k = 8
-min_score = 0.2
-
-[memory.graph]
-enabled = false
-provider = ""

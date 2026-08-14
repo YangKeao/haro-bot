@@ -8,5 +8,5 @@ import (
 )
 
 type ToolRunner interface {
-	Run(ctx context.Context, sessionID, userID int64, baseDir string, activeSkill *skills.Skill, calls []llm.ToolCall) ([]StoredMessage, *skills.Skill, error)
+	Run(ctx context.Context, sessionID int64, baseDir string, activeSkill *skills.Skill, calls []llm.ToolCall) ([]StoredMessage, *skills.Skill, error)
 }

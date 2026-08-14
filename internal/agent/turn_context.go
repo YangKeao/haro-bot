@@ -18,6 +18,5 @@ func (t *TurnState) ReloadContext(recent []memory.Message, summary *memory.Summa
 	t.Transient = refreshTransientContext(t.Transient, summary, recent)
 	t.Run.Stored = reloadedStored
 	t.Run.Transient = t.Transient
-	t.Run.Summary = summary
 	return nil
 }

@@ -115,7 +115,6 @@ func (c *compactor) compact(ctx context.Context, sessionID int64, messages []llm
 		resp, err := c.llm.Chat(ctx, llm.ChatRequest{
 			Model:    c.model,
 			Messages: summaryReq,
-			Purpose:  llm.PurposeSummary,
 		})
 		if err != nil {
 			if llm.IsContextWindowExceeded(err) {

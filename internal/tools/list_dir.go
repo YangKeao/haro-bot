@@ -105,30 +105,25 @@ func (t *ListDirTool) Execute(ctx context.Context, tc ToolContext, args json.Raw
 
 	abs, err := t.fs.resolvePath("", a.DirPath, false)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", a.DirPath, err)
 		return "", err
 	}
 
 	info, err := os.Stat(abs)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", abs, err)
 		return "", err
 	}
 	if !info.IsDir() {
 		err := errors.New("dir_path is not a directory")
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", abs, err)
 		return "", err
 	}
 
 	entries, err := listDirSlice(abs, offset, limit, depth)
 	if err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "list_dir", abs, err)
 		return "", err
 	}
 	out := make([]string, 0, len(entries)+1)
 	out = append(out, fmt.Sprintf("Absolute path: %s", abs))
 	out = append(out, entries...)
-	t.fs.auditOK(ctx, tc.SessionID, tc.UserID, "list_dir", abs, map[string]any{"entries": len(entries)})
 	return strings.Join(out, "\n"), nil
 }
 

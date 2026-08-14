@@ -32,7 +32,7 @@ func TestE2ESimpleConversation(t *testing.T) {
 	client, model := testutil.NewLLMClientFromEnv(t)
 
 	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9001")
@@ -59,54 +59,6 @@ func TestE2ESimpleConversation(t *testing.T) {
 	}
 }
 
-// TestE2EToolExecution tests tool calling flow
-func TestE2EToolExecution(t *testing.T) {
-	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
-	t.Cleanup(cleanup)
-
-	store := memory.NewStore(gdb)
-	skillsStore := skills.NewStore(gdb)
-	skillsMgr := skills.NewManager(skillsStore, t.TempDir(), nil)
-	guidelinesMgr := guidelines.NewManager(gdb)
-	registry := tools.NewRegistry()
-	client, model := testutil.NewLLMClientFromEnv(t)
-
-	// Register tools that the agent might use
-	registry.Register(tools.NewMemorySearchTool(store))
-
-	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 8, client, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
-
-	ctx := context.Background()
-	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9002")
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-
-	// Create a session with some messages
-	sessionID, err := store.GetOrCreateSession(ctx, userID, "e2e-tool")
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	err = store.AddMessage(ctx, sessionID, "user", "My favorite color is blue.", nil)
-	if err != nil {
-		t.Fatalf("add message: %v", err)
-	}
-	err = store.AddMessage(ctx, sessionID, "assistant", "I'll remember that your favorite color is blue.", nil)
-	if err != nil {
-		t.Fatalf("add message: %v", err)
-	}
-
-	// Ask about the stored information - this might trigger memory search
-	resp, err := agentSvc.Handle(ctx, userID, "e2e-tool", "What is my favorite color? Use memory search if needed.")
-	if err != nil {
-		t.Fatalf("handle: %v", err)
-	}
-	if resp == "" {
-		t.Fatal("empty response")
-	}
-}
-
 // TestE2EMultipleSessions tests handling multiple sessions for the same user
 func TestE2EMultipleSessions(t *testing.T) {
 	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
@@ -120,7 +72,7 @@ func TestE2EMultipleSessions(t *testing.T) {
 	client, model := testutil.NewLLMClientFromEnv(t)
 
 	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9004")
@@ -169,7 +121,7 @@ func TestE2ESessionStatus(t *testing.T) {
 	client, model := testutil.NewLLMClientFromEnv(t)
 
 	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, client, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9005")
@@ -227,7 +179,7 @@ func TestE2EContextAutoCompaction(t *testing.T) {
 		EffectiveContextWindowPercent: 80,
 	}
 	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, client, model, "openai", llm.ReasoningConfig{})
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, nil, client, contextCfg, agentSvc.SessionStatusWriter()))
+	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, client, contextCfg, agentSvc.SessionStatusWriter()))
 
 	ctx := context.Background()
 	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "9006")

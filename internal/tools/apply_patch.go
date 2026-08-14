@@ -249,14 +249,9 @@ func (t *ApplyPatchTool) addFile(ctx context.Context, tc ToolContext, path strin
 	// Write file content
 	content := strings.Join(op.Lines, "\n")
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "apply_patch", path, err)
 		return "", fmt.Errorf("failed to create file: %w", err)
 	}
 
-	t.fs.auditOK(ctx, tc.SessionID, tc.UserID, "apply_patch", path, map[string]any{
-		"operation": "add",
-		"lines":     len(op.Lines),
-	})
 	return fmt.Sprintf("Created file: %s (%d lines)", path, len(op.Lines)), nil
 }
 
@@ -268,13 +263,9 @@ func (t *ApplyPatchTool) deleteFile(ctx context.Context, tc ToolContext, path st
 
 	// Delete file
 	if err := os.Remove(path); err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "apply_patch", path, err)
 		return "", fmt.Errorf("failed to delete file: %w", err)
 	}
 
-	t.fs.auditOK(ctx, tc.SessionID, tc.UserID, "apply_patch", path, map[string]any{
-		"operation": "delete",
-	})
 	return fmt.Sprintf("Deleted file: %s", path), nil
 }
 
@@ -312,7 +303,6 @@ func (t *ApplyPatchTool) updateFile(ctx context.Context, tc ToolContext, workdir
 
 	// Write updated content
 	if err := os.WriteFile(targetPath, []byte(newContent), 0644); err != nil {
-		t.fs.auditError(ctx, tc.SessionID, tc.UserID, "apply_patch", path, err)
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -322,12 +312,6 @@ func (t *ApplyPatchTool) updateFile(ctx context.Context, tc ToolContext, workdir
 			return "", fmt.Errorf("failed to remove old file after rename: %w", err)
 		}
 	}
-
-	t.fs.auditOK(ctx, tc.SessionID, tc.UserID, "apply_patch", path, map[string]any{
-		"operation": "update",
-		"renamed":   op.MoveTo != "",
-		"new_path":  targetPath,
-	})
 
 	if op.MoveTo != "" {
 		return fmt.Sprintf("Updated and renamed file: %s -> %s", path, targetPath), nil

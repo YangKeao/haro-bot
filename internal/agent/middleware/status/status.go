@@ -39,9 +39,6 @@ func (m *middleware) HandleRun(ctx context.Context, run *agent.RunState, next ag
 
 func (m *middleware) HandleLLM(ctx context.Context, turn *agent.TurnState, call *agent.LLMCall, next agent.LLMHandler) (llm.ChatResponse, error) {
 	m.writer.SetLLMModel(turn.Run.SessionID, turn.Model)
-	if call.Model != "" {
-		m.writer.SetLLMModel(turn.Run.SessionID, call.Model)
-	}
 	m.writer.SetState(turn.Run.SessionID, agent.StateWaitingForLLM)
 	return next(ctx, turn, call)
 }
