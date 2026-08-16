@@ -256,9 +256,11 @@ func (r fileConfig) toConfig() Config {
 			sandboxEnabled = parsed
 		}
 	}
+	webUseSSL := envBool("HARO_WEB_OBJECT_STORAGE_USE_SSL", r.Web.ObjectStorage.UseSSL)
+	webForcePathStyle := envBool("HARO_WEB_OBJECT_STORAGE_FORCE_PATH_STYLE", r.Web.ObjectStorage.ForcePathStyle)
 	syncInterval := parseDurationDefault(r.Skills.SyncInterval, 10*time.Minute)
 	return Config{
-		ServerAddr:          r.Server.Addr,
+		ServerAddr:          strDefault(os.Getenv("HARO_SERVER_ADDR"), r.Server.Addr),
 		TiDBDSN:             r.DB.TiDBDSN,
 		LLMHTTPDebug:        r.Log.LLMHTTPDebug,
 		TelegramToken:       r.Telegram.Token,
@@ -269,27 +271,27 @@ func (r fileConfig) toConfig() Config {
 		ToolMaxTurns:        r.Tool.MaxTurns,
 		Log:                 r.Log,
 		Web: WebConfig{
-			AccessToken:  strings.TrimSpace(r.Web.AccessToken),
+			AccessToken:  strings.TrimSpace(strDefault(os.Getenv("HARO_WEB_ACCESS_TOKEN"), r.Web.AccessToken)),
 			CookieSecure: r.Web.CookieSecure,
 			AssetsDir:    r.Web.AssetsDir,
 			ObjectStorage: ObjectStorageConfig{
-				Endpoint:       strings.TrimSpace(r.Web.ObjectStorage.Endpoint),
-				Region:         r.Web.ObjectStorage.Region,
-				Bucket:         r.Web.ObjectStorage.Bucket,
-				AccessKey:      strings.TrimSpace(r.Web.ObjectStorage.AccessKey),
-				SecretKey:      r.Web.ObjectStorage.SecretKey,
-				UseSSL:         r.Web.ObjectStorage.UseSSL,
-				ForcePathStyle: r.Web.ObjectStorage.ForcePathStyle,
+				Endpoint:       strings.TrimSpace(strDefault(os.Getenv("HARO_WEB_OBJECT_STORAGE_ENDPOINT"), r.Web.ObjectStorage.Endpoint)),
+				Region:         strDefault(os.Getenv("HARO_WEB_OBJECT_STORAGE_REGION"), r.Web.ObjectStorage.Region),
+				Bucket:         strDefault(os.Getenv("HARO_WEB_OBJECT_STORAGE_BUCKET"), r.Web.ObjectStorage.Bucket),
+				AccessKey:      strings.TrimSpace(strDefault(os.Getenv("HARO_WEB_OBJECT_STORAGE_ACCESS_KEY"), r.Web.ObjectStorage.AccessKey)),
+				SecretKey:      strDefault(os.Getenv("HARO_WEB_OBJECT_STORAGE_SECRET_KEY"), r.Web.ObjectStorage.SecretKey),
+				UseSSL:         webUseSSL,
+				ForcePathStyle: webForcePathStyle,
 			},
 		},
 		Sandbox: SandboxConfig{
-			Enabled: sandboxEnabled,
-			Namespace: strDefault(os.Getenv("HARO_SANDBOX_NAMESPACE"), r.Sandbox.Namespace),
+			Enabled:      sandboxEnabled,
+			Namespace:    strDefault(os.Getenv("HARO_SANDBOX_NAMESPACE"), r.Sandbox.Namespace),
 			RuntimeClass: strDefault(os.Getenv("HARO_SANDBOX_RUNTIME_CLASS"), r.Sandbox.RuntimeClass),
 			DefaultImage: strDefault(os.Getenv("HARO_SANDBOX_DEFAULT_IMAGE"), r.Sandbox.DefaultImage),
-			HelperImage: strDefault(os.Getenv("HARO_SANDBOX_HELPER_IMAGE"), r.Sandbox.HelperImage),
+			HelperImage:  strDefault(os.Getenv("HARO_SANDBOX_HELPER_IMAGE"), r.Sandbox.HelperImage),
 			StorageClass: strings.TrimSpace(strDefault(os.Getenv("HARO_SANDBOX_STORAGE_CLASS"), r.Sandbox.StorageClass)),
-			KubeAPIURL: strings.TrimSpace(r.Sandbox.KubeAPIURL), KubeTokenFile: r.Sandbox.KubeTokenFile, KubeCAFile: r.Sandbox.KubeCAFile,
+			KubeAPIURL:   strings.TrimSpace(r.Sandbox.KubeAPIURL), KubeTokenFile: r.Sandbox.KubeTokenFile, KubeCAFile: r.Sandbox.KubeCAFile,
 			EncryptionKey:         strings.TrimSpace(os.Getenv("HARO_SANDBOX_SECRET_KEY")),
 			DefaultCPULimitMillis: r.Sandbox.DefaultCPULimitMillis, DefaultMemoryLimitMiB: r.Sandbox.DefaultMemoryLimitMiB,
 			DefaultEphemeralStorageMiB: r.Sandbox.DefaultEphemeralStorageMiB, DefaultWorkspaceStorageMiB: r.Sandbox.DefaultWorkspaceStorageMiB,
@@ -298,6 +300,18 @@ func (r fileConfig) toConfig() Config {
 			MaxRunning: r.Sandbox.MaxRunning, RuntimePort: r.Sandbox.RuntimePort,
 		},
 	}
+}
+
+func envBool(name string, def bool) bool {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return def
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return def
+	}
+	return parsed
 }
 
 func parseDurationDefault(v string, def time.Duration) time.Duration {

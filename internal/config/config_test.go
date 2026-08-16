@@ -48,3 +48,40 @@ func TestLoadFromFileUsesSandboxDefaultsAndEnvironmentKey(t *testing.T) {
 		t.Fatal("sandbox encryption key was not read from the environment")
 	}
 }
+
+func TestLoadFromFileUsesWebEnvironmentOverrides(t *testing.T) {
+	t.Setenv("HARO_SERVER_ADDR", ":6060")
+	t.Setenv("HARO_WEB_ACCESS_TOKEN", "web-token")
+	t.Setenv("HARO_WEB_OBJECT_STORAGE_ENDPOINT", "seaweedfs-s3.seaweedfs.svc:8333")
+	t.Setenv("HARO_WEB_OBJECT_STORAGE_REGION", "us-east-1")
+	t.Setenv("HARO_WEB_OBJECT_STORAGE_BUCKET", "haro-bot")
+	t.Setenv("HARO_WEB_OBJECT_STORAGE_ACCESS_KEY", "access-key")
+	t.Setenv("HARO_WEB_OBJECT_STORAGE_SECRET_KEY", "secret-key")
+	t.Setenv("HARO_WEB_OBJECT_STORAGE_USE_SSL", "false")
+	t.Setenv("HARO_WEB_OBJECT_STORAGE_FORCE_PATH_STYLE", "true")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("[web.object_storage]\nuse_ssl = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadFromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ServerAddr != ":6060" || cfg.Web.AccessToken != "web-token" {
+		t.Fatalf("unexpected web environment overrides: %#v", cfg.Web)
+	}
+	want := ObjectStorageConfig{
+		Endpoint:       "seaweedfs-s3.seaweedfs.svc:8333",
+		Region:         "us-east-1",
+		Bucket:         "haro-bot",
+		AccessKey:      "access-key",
+		SecretKey:      "secret-key",
+		UseSSL:         false,
+		ForcePathStyle: true,
+	}
+	if cfg.Web.ObjectStorage != want {
+		t.Fatalf("unexpected object storage environment overrides: got %#v want %#v", cfg.Web.ObjectStorage, want)
+	}
+}
