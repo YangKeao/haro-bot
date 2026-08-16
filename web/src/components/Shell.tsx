@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  BookOpenText, Cloud, Home, Library, LogOut, Menu, Palette, Plus, Send, Sparkles, X,
+  BookOpenText, Box, Cloud, Home, Library, LogOut, Menu, Palette, Plus, Send, Sparkles, X,
   type LucideIcon,
 } from 'lucide-react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -25,6 +25,7 @@ const navigation: { to: string; label: string; Icon: LucideIcon }[] = [
   { to: '/guidelines', label: 'Guidelines', Icon: BookOpenText },
   { to: '/skills', label: 'Skills', Icon: Library },
   { to: '/providers', label: 'Providers', Icon: Cloud },
+  { to: '/sandboxes', label: 'Sandboxes', Icon: Box },
   { to: '/settings/integrations', label: 'Integrations', Icon: Send },
 ]
 

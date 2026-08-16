@@ -25,7 +25,7 @@ type migration struct {
 	stmts   []string
 }
 
-const currentSchemaVersion int64 = 18
+const currentSchemaVersion int64 = 19
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -46,6 +46,7 @@ var migrations = []migration{
 	{version: 16, stmts: addAgentAvatarsSQL},
 	{version: 17, stmts: addProvidersAndGenericAgentsSQL},
 	{version: 18, stmts: addRecentSessionsIndexSQL},
+	{version: 19, stmts: addSandboxesSQL},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -378,6 +379,67 @@ var addProvidersAndGenericAgentsSQL = []string{
 
 var addRecentSessionsIndexSQL = []string{
 	`CREATE INDEX IF NOT EXISTS idx_sessions_user_archived_updated ON sessions (user_id, archived_at, updated_at)`,
+}
+
+var addSandboxesSQL = []string{
+	`CREATE TABLE sandboxes (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(128) NOT NULL,
+  description TEXT,
+  image TEXT NOT NULL,
+  cpu_limit_millis INT NOT NULL DEFAULT 2000,
+  memory_limit_mib INT NOT NULL DEFAULT 2048,
+  ephemeral_storage_mib INT NOT NULL DEFAULT 10240,
+  workspace_storage_mib INT NOT NULL DEFAULT 10240,
+  desired_state VARCHAR(16) NOT NULL DEFAULT 'Running',
+  revision BIGINT NOT NULL DEFAULT 1,
+  applied_revision BIGINT NOT NULL DEFAULT 0,
+  kubernetes_name VARCHAR(63) NOT NULL,
+  runtime_ca_pem TEXT,
+  runtime_client_cert_pem TEXT,
+  runtime_client_key_ciphertext LONGTEXT,
+  runtime_token_ciphertext LONGTEXT,
+  last_error TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_sandboxes_name (name),
+  UNIQUE KEY uniq_sandboxes_kubernetes_name (kubernetes_name),
+  INDEX idx_sandboxes_state_updated (desired_state, updated_at)
+)`,
+	`ALTER TABLE agents ADD COLUMN sandbox_id BIGINT NULL AFTER provider_id`,
+	`ALTER TABLE agents ADD INDEX idx_agents_sandbox (sandbox_id)`,
+	`ALTER TABLE agents ADD CONSTRAINT fk_agents_sandbox FOREIGN KEY (sandbox_id) REFERENCES sandboxes(id) ON DELETE SET NULL`,
+	`CREATE TABLE agent_environment_variables (
+  agent_id BIGINT NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  value_ciphertext LONGTEXT NOT NULL,
+  is_secret TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (agent_id, name),
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+)`,
+	`CREATE TABLE sandbox_runs (
+  id VARCHAR(36) PRIMARY KEY,
+  sandbox_id BIGINT NOT NULL,
+  agent_id BIGINT NOT NULL,
+  session_id BIGINT NOT NULL,
+  command MEDIUMTEXT NOT NULL,
+  status VARCHAR(24) NOT NULL,
+  pid BIGINT NULL,
+  exit_code INT NULL,
+  started_at TIMESTAMP(6) NOT NULL,
+  finished_at TIMESTAMP(6) NULL,
+  output_tail MEDIUMTEXT,
+  output_truncated TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_sandbox_runs_sandbox_status (sandbox_id, status, started_at),
+  INDEX idx_sandbox_runs_session_status (session_id, status, started_at),
+  FOREIGN KEY (sandbox_id) REFERENCES sandboxes(id) ON DELETE CASCADE,
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+)`,
 }
 
 var addMessageSoftDeleteSQL = []string{

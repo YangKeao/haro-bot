@@ -239,7 +239,7 @@ func (u ownProfileUpdate) empty() bool {
 
 func agentInputFromProfile(profile AgentProfile) agentInput {
 	return agentInput{
-		ProviderID: profile.ProviderID, Name: profile.Name, Description: profile.Description, Icon: profile.Icon, Color: profile.Color,
+		ProviderID: profile.ProviderID, SandboxID: profile.SandboxID, Name: profile.Name, Description: profile.Description, Icon: profile.Icon, Color: profile.Color,
 		AvatarMode: profile.AvatarMode, Instructions: profile.Instructions,
 		Model: profile.Model, ReasoningEffortOverride: profile.ReasoningEffortOverride,
 		ContextWindowOverride:         profile.ContextWindowOverride,

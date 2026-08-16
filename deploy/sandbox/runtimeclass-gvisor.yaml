@@ -1,0 +1,6 @@
+# Install and configure gVisor/runsc on every eligible node before applying this.
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: gvisor
+handler: runsc

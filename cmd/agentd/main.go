@@ -17,6 +17,7 @@ import (
 	imtelegram "github.com/YangKeao/haro-bot/internal/im/telegram"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
+	"github.com/YangKeao/haro-bot/internal/sandbox"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
 	webui "github.com/YangKeao/haro-bot/internal/web"
@@ -73,9 +74,6 @@ func main() {
 	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
 	guidelinesMgr := guidelines.NewManager(dbConn)
 
-	fsTools := tools.NewFS()
-
-	execMgr := tools.NewExecManager()
 	toolRegistry := tools.NewRegistry(
 		tools.NewListSkillSourcesTool(skillsMgr),
 		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
@@ -84,24 +82,22 @@ func main() {
 		tools.NewActivateSkillTool(skillsMgr),
 		tools.NewRefreshSkillsTool(skillsMgr),
 		tools.NewDeleteSkillSourceTool(skillsMgr),
-		tools.NewGrepFilesTool(fsTools),
-		tools.NewReadFileTool(fsTools),
-		tools.NewListDirTool(fsTools),
-		tools.NewExecCommandTool(fsTools, execMgr),
-		tools.NewWriteStdinTool(execMgr),
 		tools.NewUpdateGuidelinesTool(guidelinesMgr),
-		tools.NewApplyPatchTool(fsTools),
 	)
 	webStore := webui.NewStore(dbConn)
+	sandboxService, err := sandbox.NewService(dbConn, cfg.Sandbox)
+	if err != nil {
+		log.Fatal("sandbox initialization failed", zap.Error(err))
+	}
 	webUserID, err := store.GetOrCreateUserByExternalID(ctx, "web", "owner")
 	if err != nil {
 		log.Fatal("create web owner failed", zap.Error(err))
 	}
-	webRuntimes := webui.NewRuntimeRegistry(webStore, store, skillsMgr, toolRegistry, objectStore, guidelinesMgr, fsTools.DefaultBase(), cfg.ToolMaxTurns, cfg.LLMHTTPDebug)
+	webRuntimes := webui.NewRuntimeRegistry(webStore, store, skillsMgr, toolRegistry, objectStore, guidelinesMgr, sandboxService, "/workspace", cfg.ToolMaxTurns, cfg.LLMHTTPDebug)
 	var imRuntime im.Runtime = imtelegram.New(cfg, webRuntimes, store, webStore)
 	webServer, err := webui.NewServer(ctx, webui.ServerDeps{
 		Config: cfg.Web, Store: webStore, Conversation: store, Objects: objectStore, Runtimes: webRuntimes,
-		Guidelines: guidelinesMgr, Skills: skillsMgr, UserID: webUserID, Logger: log,
+		Guidelines: guidelinesMgr, Skills: skillsMgr, Sandboxes: sandboxService, UserID: webUserID, Logger: log,
 		TelegramTokenConfigured: cfg.TelegramToken != "",
 	})
 	if err != nil {

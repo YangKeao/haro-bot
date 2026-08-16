@@ -23,7 +23,7 @@ describe('Home', () => {
 
   it('renders configured agents with model and skill count', async () => {
     vi.mocked(api.agents).mockResolvedValue({ agents: [{
-		id: 7, provider_id: 2, provider_name: 'Example', name: 'Researcher', description: 'Finds evidence', icon: 'search', color: '#2563eb', avatar_mode: 'icon',
+		id: 7, provider_id: 2, sandbox_id: null, provider_name: 'Example', name: 'Researcher', description: 'Finds evidence', icon: 'search', color: '#2563eb', avatar_mode: 'icon',
 		instructions: '', model: 'vision-model', reasoning_effort_override: null, context_window_override: null,
 		resolved_context_window: 128000, auto_compact_token_limit_override: null, resolved_auto_compact_token_limit: 115200,
 		effective_context_window_percent: 95, skill_names: ['search'],

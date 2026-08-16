@@ -1,6 +1,7 @@
 export interface AgentProfile {
   id: number
   provider_id: number
+  sandbox_id: number | null
   provider_name: string
   name: string
   description: string
@@ -155,4 +156,75 @@ export interface Guideline {
 export interface RunEvent {
   event: string
   data: Record<string, unknown>
+}
+
+export interface SandboxProfile {
+  id: number
+  name: string
+  description: string
+  image: string
+  cpu_limit_millis: number
+  memory_limit_mib: number
+  ephemeral_storage_mib: number
+  workspace_storage_mib: number
+  desired_state: 'Running' | 'Suspended'
+  revision: number
+  applied_revision: number
+  pending_restart: boolean
+  kubernetes_name: string
+  runtime_status: string
+  last_error?: string
+  agent_ids: number[]
+  created_at: string
+  updated_at: string
+}
+
+export interface SandboxInput {
+  name: string
+  description: string
+  image: string
+  cpu_limit_millis: number
+  memory_limit_mib: number
+  ephemeral_storage_mib: number
+  workspace_storage_mib: number
+  agent_ids: number[]
+}
+
+export interface SandboxPublicConfig {
+  default_image: string
+  defaults: Omit<SandboxInput, 'name' | 'description' | 'image' | 'agent_ids'>
+  maximums: Omit<SandboxInput, 'name' | 'description' | 'image' | 'agent_ids'> & { running: number }
+}
+
+export interface AgentEnvironmentVariable {
+  name: string
+  value?: string
+  secret: boolean
+  has_value: boolean
+}
+
+export interface AgentEnvironmentWrite {
+  name: string
+  value?: string
+  secret: boolean
+  keep_current?: boolean
+}
+
+export interface SandboxProcess {
+  id: string
+  sandbox_id: number
+  agent_id: number
+  session_id: number
+  command: string
+  status: 'starting' | 'running' | 'exited' | 'failed'
+  pid?: number
+  exit_code?: number
+  started_at: string
+  finished_at?: string
+  duration_millis: number
+  cpu_percent?: number
+  memory_bytes?: number
+  output?: string
+  output_offset?: number
+  output_truncated?: boolean
 }

@@ -39,7 +39,7 @@ func TestApplyMigrationsSetsSchemaVersion(t *testing.T) {
 	if legacyTableCount != 0 {
 		t.Fatalf("expected legacy tool_audit table to be dropped")
 	}
-	for _, column := range []string{"provider_id", "avatar_mode", "avatar_object_key", "avatar_mime_type", "reasoning_effort_override", "context_window_override"} {
+	for _, column := range []string{"provider_id", "sandbox_id", "avatar_mode", "avatar_object_key", "avatar_mime_type", "reasoning_effort_override", "context_window_override"} {
 		var count int64
 		if err := gdb.Raw(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'agents' AND column_name = ?`, column).Scan(&count).Error; err != nil {
 			t.Fatalf("query agents.%s column: %v", column, err)
@@ -48,7 +48,7 @@ func TestApplyMigrationsSetsSchemaVersion(t *testing.T) {
 			t.Fatalf("expected agents.%s column to exist", column)
 		}
 	}
-	for _, table := range []string{"providers", "agents", "agent_skills", "telegram_integrations"} {
+	for _, table := range []string{"providers", "agents", "agent_skills", "telegram_integrations", "sandboxes", "agent_environment_variables", "sandbox_runs"} {
 		var count int64
 		if err := gdb.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`, table).Scan(&count).Error; err != nil || count != 1 {
 			t.Fatalf("expected table %s to exist: count=%d err=%v", table, count, err)

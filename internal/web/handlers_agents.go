@@ -10,6 +10,7 @@ import (
 
 type agentInput struct {
 	ProviderID                    int64    `json:"provider_id"`
+	SandboxID                     *int64   `json:"sandbox_id"`
 	Name                          string   `json:"name"`
 	Description                   string   `json:"description"`
 	Icon                          string   `json:"icon"`
@@ -273,7 +274,7 @@ func normalizeAgentInput(input agentInput) (AgentWrite, error) {
 		}
 	}
 	return AgentWrite{
-		ProviderID: input.ProviderID, Name: input.Name, Description: strings.TrimSpace(input.Description), Icon: input.Icon, Color: input.Color,
+		ProviderID: input.ProviderID, SandboxID: input.SandboxID, Name: input.Name, Description: strings.TrimSpace(input.Description), Icon: input.Icon, Color: input.Color,
 		AvatarMode:   input.AvatarMode,
 		Instructions: strings.TrimSpace(input.Instructions), Model: input.Model,
 		ReasoningEffortOverride: input.ReasoningEffortOverride, ContextWindowOverride: input.ContextWindowOverride,

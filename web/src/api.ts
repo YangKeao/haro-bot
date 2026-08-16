@@ -1,4 +1,4 @@
-import type { AgentInput, AgentProfile, Attachment, Guideline, Message, ModelCatalog, ProviderInput, ProviderProfile, RecentSession, RunEvent, Session, Skill, SkillSource, TelegramIntegration } from './types'
+import type { AgentEnvironmentVariable, AgentEnvironmentWrite, AgentInput, AgentProfile, Attachment, Guideline, Message, ModelCatalog, ProviderInput, ProviderProfile, RecentSession, RunEvent, SandboxInput, SandboxProcess, SandboxProfile, SandboxPublicConfig, Session, Skill, SkillSource, TelegramIntegration } from './types'
 
 export class APIError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -30,6 +30,17 @@ export const api = {
   createAgent: (input: AgentInput, avatar?: File, removeAvatar = false) => saveAgent('/api/v1/agents', 'POST', input, avatar, removeAvatar),
   updateAgent: (id: number, input: Partial<AgentInput>, avatar?: File, removeAvatar = false) => saveAgent(`/api/v1/agents/${id}`, 'PUT', input, avatar, removeAvatar),
   archiveAgent: (id: number, restore = false) => request(`/api/v1/agents/${id}/${restore ? 'restore' : 'archive'}`, { method: 'POST', body: '{}' }),
+  agentEnvironment: (id: number) => request<{ variables: AgentEnvironmentVariable[] }>(`/api/v1/agents/${id}/environment`),
+  updateAgentEnvironment: (id: number, variables: AgentEnvironmentWrite[]) => request<{ variables: AgentEnvironmentVariable[] }>(`/api/v1/agents/${id}/environment`, { method: 'PUT', body: JSON.stringify({ variables }) }),
+  sandboxes: () => request<{ sandboxes: SandboxProfile[]; config: SandboxPublicConfig }>('/api/v1/sandboxes'),
+  sandbox: (id: number) => request<{ sandbox: SandboxProfile; config: SandboxPublicConfig }>(`/api/v1/sandboxes/${id}`),
+  createSandbox: (input: SandboxInput) => request<SandboxProfile>('/api/v1/sandboxes', { method: 'POST', body: JSON.stringify(input) }),
+  updateSandbox: (id: number, input: SandboxInput) => request<SandboxProfile>(`/api/v1/sandboxes/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+  applySandbox: (id: number) => request<SandboxProfile>(`/api/v1/sandboxes/${id}/apply`, { method: 'POST', body: '{}' }),
+  startSandbox: (id: number) => request<SandboxProfile>(`/api/v1/sandboxes/${id}/start`, { method: 'POST', body: '{}' }),
+  pauseSandbox: (id: number) => request<SandboxProfile>(`/api/v1/sandboxes/${id}/pause`, { method: 'POST', body: '{}' }),
+  resetSandboxWorkspace: (id: number, confirmName: string) => request<{ reset: boolean }>(`/api/v1/sandboxes/${id}/reset-workspace`, { method: 'POST', body: JSON.stringify({ confirm_name: confirmName }) }),
+  deleteSandbox: (id: number, confirmName: string) => request<void>(`/api/v1/sandboxes/${id}`, { method: 'DELETE', body: JSON.stringify({ confirm_name: confirmName }) }),
   providers: (archived = false) => request<{ providers: ProviderProfile[] }>(`/api/v1/providers?archived=${archived}`),
   provider: (id: number) => request<ProviderProfile>(`/api/v1/providers/${id}`),
   createProvider: (input: ProviderInput) => request<ProviderProfile>('/api/v1/providers', { method: 'POST', body: JSON.stringify(input) }),
@@ -47,6 +58,10 @@ export const api = {
   archiveSession: (id: number, restore = false) => request(`/api/v1/sessions/${id}/${restore ? 'restore' : 'archive'}`, { method: 'POST', body: '{}' }),
   messages: (id: number) => request<{ messages: Message[]; next_cursor?: number }>(`/api/v1/sessions/${id}/messages?limit=200`),
   cancel: (id: number) => request<{ cancelled: boolean }>(`/api/v1/sessions/${id}/cancel`, { method: 'POST', body: '{}' }),
+  sessionProcesses: (id: number) => request<{ processes: SandboxProcess[] }>(`/api/v1/sessions/${id}/processes`),
+  process: (id: string) => request<SandboxProcess>(`/api/v1/processes/${encodeURIComponent(id)}`),
+  processStdin: (id: string, chars: string, yieldTimeMS = 250) => request<SandboxProcess>(`/api/v1/processes/${encodeURIComponent(id)}/stdin`, { method: 'POST', body: JSON.stringify({ chars, yield_time_ms: yieldTimeMS }) }),
+  signalProcess: (id: string, signal: 'TERM' | 'KILL') => request<SandboxProcess>(`/api/v1/processes/${encodeURIComponent(id)}/signal`, { method: 'POST', body: JSON.stringify({ signal }) }),
   upload: async (sessionID: number, file: File): Promise<Attachment> => {
     const body = new FormData()
     body.append('file', file)

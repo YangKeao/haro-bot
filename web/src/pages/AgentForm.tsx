@@ -2,19 +2,20 @@ import { useEffect, useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Archive, ArrowLeft, Bot, BrainCircuit, Check, CircleAlert, Cloud, Code2, ImagePlus, LoaderCircle,
+  Archive, ArrowLeft, Bot, Box, BrainCircuit, Check, CircleAlert, Cloud, Code2, ImagePlus, KeyRound, LoaderCircle,
 	RefreshCw, RotateCcw, Save, Search, Settings2, Sparkles, Trash2, WandSparkles,
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, APIError } from '../api'
 import type { AgentInput, AgentProfile } from '../types'
 import MarkdownEditor from '../components/MarkdownEditor'
+import AgentEnvironmentEditor from '../components/AgentEnvironmentEditor'
 import { AgentAvatar } from './Home'
 
 const defaults: AgentInput = {
   name: '', description: '', icon: 'sparkles', color: '#2563eb', avatar_mode: 'icon', instructions: '',
   provider_id: 0, model: '', reasoning_effort_override: null, context_window_override: null, auto_compact_token_limit_override: null,
-  effective_context_window_percent: 95, skill_names: [],
+  effective_context_window_percent: 95, skill_names: [], sandbox_id: null,
 }
 
 const iconOptions = [
@@ -28,6 +29,8 @@ const sections = [
   { id: 'instructions', label: 'Instructions', Icon: WandSparkles },
   { id: 'provider', label: 'Provider & model', Icon: Cloud },
   { id: 'runtime', label: 'Runtime & context', Icon: Settings2 },
+  { id: 'sandbox', label: 'Sandbox', Icon: Box },
+  { id: 'environment', label: 'Environment', Icon: KeyRound },
   { id: 'skills', label: 'Skills', Icon: Sparkles },
 ]
 
@@ -37,7 +40,7 @@ function valuesFromProfile(profile: AgentProfile): AgentInput {
     avatar_mode: profile.avatar_mode || 'icon', instructions: profile.instructions, provider_id: profile.provider_id,
     model: profile.model, reasoning_effort_override: profile.reasoning_effort_override,
     context_window_override: profile.context_window_override, auto_compact_token_limit_override: profile.auto_compact_token_limit_override,
-    effective_context_window_percent: profile.effective_context_window_percent, skill_names: profile.skill_names,
+    effective_context_window_percent: profile.effective_context_window_percent, skill_names: profile.skill_names, sandbox_id: profile.sandbox_id,
   }
 }
 
@@ -53,6 +56,7 @@ export default function AgentForm() {
   const existing = useQuery({ queryKey: ['agent', id], queryFn: () => api.agent(id!), enabled: !!id })
   const providers = useQuery({ queryKey: ['providers'], queryFn: () => api.providers(false) })
   const skills = useQuery({ queryKey: ['skills'], queryFn: api.skills })
+  const sandboxes = useQuery({ queryKey: ['sandboxes'], queryFn: api.sandboxes, retry: false })
   const { register, handleSubmit, reset, watch, setValue, control, formState: { errors, isDirty } } = useForm<AgentInput>({ defaultValues: defaults })
 
   useEffect(() => {
@@ -93,6 +97,7 @@ export default function AgentForm() {
   const avatarMode = watch('avatar_mode')
   const providerID = watch('provider_id')
   const modelID = watch('model')
+  const sandboxID = watch('sandbox_id')
   const providerModels = useQuery({ queryKey: ['provider-models', providerID], queryFn: () => api.providerModels(providerID), enabled: providerID > 0 })
   const refreshCatalog = useMutation({
     mutationFn: () => api.refreshProviderModels(providerID),
@@ -171,6 +176,17 @@ export default function AgentForm() {
             <div className="field"><span>Auto-compact limit <em>Optional override</em></span><Controller control={control} name="auto_compact_token_limit_override" render={({ field }) => <input type="number" min="1" value={field.value ?? ''} onChange={event => field.onChange(event.target.value ? Number(event.target.value) : null)} placeholder={String(selectedModel?.auto_compact_token_limit || 'Auto')} />} /><small>{selectedModel?.auto_compact_token_limit ? `Auto: ${selectedModel.auto_compact_token_limit.toLocaleString()} tokens` : 'Derived from the context window when available'}</small></div>
             <label className="field"><span>Effective window %</span><input type="number" min="1" max="100" {...register('effective_context_window_percent', { valueAsNumber: true, min: 1, max: 100 })} /></label>
           </div>
+        </section>
+
+        <section id="sandbox" className="form-section settings-section">
+          <div className="section-heading"><h2>Sandbox</h2><p>Attach a persistent Kubernetes workspace for command execution. A Sandbox may be shared by several agents.</p></div>
+          <div className="form-grid"><div className="field span-2"><span>Execution workspace <em>Optional</em></span><Controller control={control} name="sandbox_id" render={({ field }) => <select value={field.value ?? ''} onChange={event => field.onChange(event.target.value ? Number(event.target.value) : null)}><option value="">No command execution</option>{sandboxes.data?.sandboxes.map(item => <option value={item.id} key={item.id}>{item.name} · {item.runtime_status || item.desired_state}</option>)}</select>} /><small>Environment variables below are injected per process and are never stored in the Sandbox Pod.</small></div></div>
+          {sandboxes.error instanceof APIError && sandboxes.error.code === 'sandbox_disabled' ? <div className="inline-alert warning"><CircleAlert /><div><b>Sandbox support is disabled</b><p>Enable it in the server configuration to run code.</p></div></div> : <div className="test-row"><Link className="button secondary" to="/sandboxes"><Box /> Manage sandboxes</Link>{sandboxID && <span className="muted">Changes take effect for the agent's next tool call.</span>}</div>}
+        </section>
+
+        <section id="environment" className="form-section settings-section">
+          <div className="section-heading"><h2>Environment variables</h2><p>Configure database credentials and runtime settings for this agent without exposing them in its instructions.</p></div>
+          <AgentEnvironmentEditor agentID={id} sandboxID={sandboxID} />
         </section>
 
         <section id="skills" className="form-section settings-section">

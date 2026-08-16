@@ -23,6 +23,7 @@ func NewStore(db *gorm.DB) *Store { return &Store{db: db} }
 type AgentProfile struct {
 	ID                             int64      `json:"id"`
 	ProviderID                     int64      `json:"provider_id"`
+	SandboxID                      *int64     `json:"sandbox_id"`
 	ProviderName                   string     `json:"provider_name"`
 	Name                           string     `json:"name"`
 	Description                    string     `json:"description"`
@@ -53,6 +54,7 @@ type AgentProfile struct {
 
 type AgentWrite struct {
 	ProviderID                    int64
+	SandboxID                     *int64
 	Name                          string
 	Description                   string
 	Icon                          string
@@ -112,8 +114,8 @@ func (s *Store) CreateAgent(ctx context.Context, input AgentWrite) (AgentProfile
 		input.Color = "#2563EB"
 	}
 	row := dbmodel.Agent{
-		ProviderID: input.ProviderID,
-		Name:       input.Name, Description: input.Description, Icon: input.Icon, Color: input.Color,
+		ProviderID: input.ProviderID, SandboxID: input.SandboxID,
+		Name: input.Name, Description: input.Description, Icon: input.Icon, Color: input.Color,
 		AvatarMode: input.AvatarMode, AvatarObjectKey: input.AvatarObjectKey, AvatarMIMEType: input.AvatarMIMEType,
 		Instructions: input.Instructions, Model: input.Model,
 		ReasoningEffortOverride: input.ReasoningEffortOverride,
@@ -144,7 +146,7 @@ func (s *Store) UpdateAgent(ctx context.Context, id int64, input AgentWrite) (Ag
 		input.AvatarMode = "icon"
 	}
 	updates := map[string]any{
-		"provider_id": input.ProviderID, "name": input.Name, "description": input.Description, "icon": input.Icon, "color": input.Color,
+		"provider_id": input.ProviderID, "sandbox_id": input.SandboxID, "name": input.Name, "description": input.Description, "icon": input.Icon, "color": input.Color,
 		"avatar_mode": input.AvatarMode, "avatar_object_key": input.AvatarObjectKey, "avatar_mime_type": input.AvatarMIMEType,
 		"instructions": input.Instructions, "model": input.Model,
 		"reasoning_effort_override": input.ReasoningEffortOverride,
@@ -246,7 +248,7 @@ func (s *Store) agentFromRow(ctx context.Context, row dbmodel.Agent) (AgentProfi
 		runtimeRevision = *provider.ModelsFetchedAt
 	}
 	return AgentProfile{
-		ID: row.ID, ProviderID: row.ProviderID, ProviderName: provider.Name,
+		ID: row.ID, ProviderID: row.ProviderID, SandboxID: row.SandboxID, ProviderName: provider.Name,
 		Name: row.Name, Description: row.Description, Icon: row.Icon, Color: row.Color,
 		AvatarMode: row.AvatarMode, AvatarObjectKey: row.AvatarObjectKey, AvatarMIMEType: row.AvatarMIMEType, AvatarURL: avatarURL,
 		Instructions: row.Instructions, BaseURL: provider.BaseURL, APIKey: provider.APIKey,

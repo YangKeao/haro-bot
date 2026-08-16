@@ -15,6 +15,7 @@ Haro Bot is a self-hosted AI agent workspace with a React web UI and Telegram in
 - WYSIWYG Markdown authoring for conversations, agent instructions, and global guidelines
 - Single-user web authentication with an HttpOnly session cookie
 - Telegram routing to any ordinary agent, with streamed draft previews and tool execution
+- Kubernetes Agent Sandbox workspaces with persistent storage, per-agent encrypted environment variables, and interactive process controls
 
 ## Requirements
 
@@ -62,12 +63,47 @@ See `config.example.toml` for all settings. The main settings are:
 | `web.object_storage.*` | Private S3-compatible attachment storage |
 | `telegram.token` | Telegram bot token; leave empty to disable Telegram startup |
 | `skills.*` | Local skill directory and Git source policy |
+| `sandbox.*` | Optional Kubernetes Agent Sandbox control plane, image, runtime class, and resource limits |
 
 Providers are global connection records containing an OpenAI-compatible Base URL, optional API key, and prompt format. Agents select a Provider and keep their own model, reasoning override, instructions, context overrides, skills, and visual identity. Haro reads `/models` and caches any capability metadata the Provider exposes; ID-only responses and manual model/runtime values remain supported. Provider keys are stored in the database but are never returned by the web API or written to logs; protect database access accordingly.
 
 Telegram keeps only its token in TOML. Select the Telegram Agent under Settings → Integrations; changing the binding takes effect without restarting and preserves separate conversation history per Agent.
 
 Web-agent runtimes expose `get_own_profile` and `update_own_profile`. These tools are bound to the current agent and cannot change provider credentials, prompt format, archive state, global guidelines, or another agent. An avatar URL used by the update tool must resolve to a public HTTP or HTTPS address; downloaded images are size- and type-checked before being copied to private object storage.
+
+### Code execution sandboxes
+
+Sandbox execution is disabled by default. Haro uses the Kubernetes SIGs [Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) `agents.x-k8s.io/v1beta1` API from release v0.5.3. Install its controller and CRDs first, configure the `gvisor` RuntimeClass on eligible nodes, and then apply the example namespace, RBAC, and network policy:
+
+```bash
+kubectl apply -f deploy/sandbox/namespace.yaml
+kubectl apply -f deploy/sandbox/rbac.yaml
+kubectl apply -f deploy/sandbox/runtimeclass-gvisor.yaml
+kubectl apply -f deploy/sandbox/network-policy.yaml
+```
+
+The manifests assume Haro runs as service account `haro-bot` in namespace `haro-system`, while execution Pods run in `haro-sandboxes`. Adjust both the RoleBinding and NetworkPolicy if your deployment uses different names. The network policy permits runtime traffic only from labeled Haro Pods and deliberately leaves Sandbox egress unrestricted.
+
+Generate the mandatory database encryption key without putting it in TOML:
+
+```bash
+openssl rand -base64 32
+export HARO_SANDBOX_SECRET_KEY='the-generated-value'
+```
+
+Then set `sandbox.enabled = true`. A Sandbox is created explicitly in the UI and may be shared by multiple Agents; an Agent belongs to at most one Sandbox. Agents assigned to the same Sandbox are one trust domain: they share root access to the workspace and can inspect or control each other's processes, including process environment. Use separate Sandboxes when secrets must remain isolated. The Pod is not stopped for idleness and processes have no automatic timeout. Pause, start, apply/restart, reset, and delete are manual operations. `/workspace` is a persistent PVC, while changes elsewhere in the container are lost when Agent Sandbox recreates the Pod. Secrets are encrypted at rest, injected only into the invoking Agent's process, omitted from API responses, and exactly matched values are masked from recorded commands and logs.
+
+For container deployments, `HARO_SANDBOX_ENABLED`, `HARO_SANDBOX_NAMESPACE`, `HARO_SANDBOX_RUNTIME_CLASS`, `HARO_SANDBOX_STORAGE_CLASS`, `HARO_SANDBOX_DEFAULT_IMAGE`, and `HARO_SANDBOX_HELPER_IMAGE` can override the corresponding non-secret TOML settings.
+
+Keep `HARO_SANDBOX_SECRET_KEY` stable and back it up like any other application encryption key. Losing or changing it makes existing runtime credentials and Agent environment values unreadable; use **Apply & restart** to rotate a Sandbox's runtime certificate and bearer token.
+
+The default development image includes Go, Node.js, Python, build tools, and a MySQL client. Build it with:
+
+```bash
+docker build -f sandbox/Dockerfile -t ghcr.io/yangkeao/haro-bot-sandbox:latest .
+```
+
+Custom OCI images are accepted but must provide `/bin/sh`; Haro injects the static `haro-sandboxd` runtime through an init container. Sandbox processes run as root inside gVisor with a bounded capability set and no privilege escalation. The main Haro image remains non-root and has no host execution tools registered.
 
 For production, serve Haro Bot over HTTPS, set `web.cookie_secure = true`, keep the object bucket private, and use a high-entropy access token.
 
@@ -78,6 +114,9 @@ The UI uses a versioned JSON/SSE API under `/api/v1`:
 - `/auth`: login, logout, and session status
 - `/providers`: manage shared connections and refresh cached model catalogs
 - `/agents`: create, update, archive, and restore agents; create/update accepts JSON or multipart form data for avatar uploads
+- `/sandboxes`: create and configure execution workspaces; explicit lifecycle actions live below each Sandbox
+- `/agents/{id}/environment`: manage per-Agent process environment variables without returning secret values
+- `/sessions/{id}/processes`: inspect processes launched in a conversation; process endpoints accept stdin, TERM, and KILL
 - `/integrations/telegram`: inspect token status and select the Telegram agent
 - `/agents/{id}/avatar`: return an authenticated agent avatar from private object storage
 - `/agents/{id}/sessions`: create and list sessions
@@ -130,7 +169,7 @@ npm run test:e2e
 npm run build
 ```
 
-Build the complete production image with `docker build .`. The Dockerfile builds the Vite assets before compiling the Go server.
+Build the complete production image with `docker build .`. The Dockerfile builds the Vite assets before compiling the Go server. The Docker workflow publishes both `haro-bot` and `haro-bot-sandbox` images to GHCR.
 
 ## License
 

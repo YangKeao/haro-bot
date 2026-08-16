@@ -10,6 +10,7 @@ import { api, APIError, streamRun } from '../api'
 import type { AgentProfile, Attachment, Message, RunEvent } from '../types'
 import { AgentAvatar } from './Home'
 import MarkdownEditor from '../components/MarkdownEditor'
+import ProcessPanel from '../components/ProcessPanel'
 
 type ToolActivity = { id: string; name: string; arguments?: unknown; content?: string; done?: boolean; truncated?: boolean }
 
@@ -133,6 +134,7 @@ export default function Chat() {
           {error && <div className="run-error"><span>Run interrupted</span><p>{error}</p></div>}
           <div ref={bottomRef} />
         </div></div>
+        <ProcessPanel sessionID={activeSessionID} enabled={Boolean(agent.data?.sandbox_id)} />
         <footer className="composer-wrap"><div className="composer-column">
           {pending.length > 0 && <div className="pending-images">{pending.map(image => <div key={image.id}><img src={`/api/v1/attachments/${image.id}`} alt={image.name} /><button onClick={() => void removePending(image)} aria-label={`Remove ${image.name}`}><X /></button></div>)}</div>}
           {upload.isPending && <div className="uploading"><LoaderCircle className="spin" /> Uploading image…</div>}

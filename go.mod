@@ -23,6 +23,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/ProtonMail/go-crypto v1.0.0 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.4 // indirect
 	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/dlclark/regexp2 v1.10.0 // indirect

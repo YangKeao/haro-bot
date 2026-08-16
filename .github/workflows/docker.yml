@@ -17,6 +17,16 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: haro-bot
+            dockerfile: Dockerfile
+            suffix: ''
+          - name: haro-bot-sandbox
+            dockerfile: sandbox/Dockerfile
+            suffix: '-sandbox'
     permissions:
       contents: read
       packages: write
@@ -40,7 +50,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -52,8 +62,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

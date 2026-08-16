@@ -28,7 +28,6 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
-    sudo \
     # Version control
     git \
     # Network tools
@@ -56,8 +55,6 @@ COPY --from=web-builder /src/web/dist /app/web/dist
 # Create non-root user for security
 RUN useradd -r -s /bin/false appuser && \
     chown -R appuser:appuser /app
-
-RUN echo 'appuser ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 USER appuser
 

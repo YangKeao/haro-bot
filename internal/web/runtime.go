@@ -12,6 +12,7 @@ import (
 	"github.com/YangKeao/haro-bot/internal/llm"
 	llmopenai "github.com/YangKeao/haro-bot/internal/llm/openai"
 	"github.com/YangKeao/haro-bot/internal/memory"
+	"github.com/YangKeao/haro-bot/internal/sandbox"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
 )
@@ -30,6 +31,7 @@ type RuntimeRegistry struct {
 	objects      *ObjectStore
 	downloader   *avatarDownloader
 	guidelines   *guidelines.Manager
+	sandboxes    *sandbox.Service
 	baseDir      string
 	maxToolTurns int
 	httpDebug    bool
@@ -38,10 +40,10 @@ type RuntimeRegistry struct {
 	entries map[int64]runtimeEntry
 }
 
-func NewRuntimeRegistry(store *Store, conversation memory.StoreAPI, skillsManager *skills.Manager, registry *tools.Registry, objects *ObjectStore, guidelinesManager *guidelines.Manager, baseDir string, maxToolTurns int, httpDebug bool) *RuntimeRegistry {
+func NewRuntimeRegistry(store *Store, conversation memory.StoreAPI, skillsManager *skills.Manager, registry *tools.Registry, objects *ObjectStore, guidelinesManager *guidelines.Manager, sandboxes *sandbox.Service, baseDir string, maxToolTurns int, httpDebug bool) *RuntimeRegistry {
 	return &RuntimeRegistry{
 		store: store, conversation: conversation, skills: skillsManager, tools: registry, objects: objects, downloader: newAvatarDownloader(),
-		guidelines: guidelinesManager, baseDir: baseDir, maxToolTurns: maxToolTurns,
+		guidelines: guidelinesManager, sandboxes: sandboxes, baseDir: baseDir, maxToolTurns: maxToolTurns,
 		httpDebug: httpDebug, entries: make(map[int64]runtimeEntry),
 	}
 }
@@ -66,6 +68,13 @@ func (r *RuntimeRegistry) Get(ctx context.Context, id int64) (*agent.Agent, Agen
 		agentID: id, store: r.store, skills: r.skills, objects: r.objects, downloader: r.downloader,
 		invalidate: func() { r.Invalidate(id) },
 	})
+	if profile.SandboxID != nil && r.sandboxes != nil && r.sandboxes.Enabled() {
+		scopedTools.Register(tools.NewSandboxExecCommandTool(id, r.sandboxes))
+		scopedTools.Register(tools.NewSandboxWriteStdinTool(id, r.sandboxes))
+		scopedTools.Register(tools.NewSandboxListProcessesTool(id, r.sandboxes))
+		scopedTools.Register(tools.NewSandboxStopProcessTool(id, r.sandboxes))
+		scopedTools.Register(tools.NewSandboxTailProcessLogsTool(id, r.sandboxes))
+	}
 	reasoningEffort := ""
 	if profile.ReasoningEffortOverride != nil {
 		reasoningEffort = *profile.ReasoningEffortOverride

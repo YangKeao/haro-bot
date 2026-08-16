@@ -18,6 +18,7 @@ import (
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/memory"
+	"github.com/YangKeao/haro-bot/internal/sandbox"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -31,6 +32,7 @@ type Server struct {
 	runtimes                *RuntimeRegistry
 	guidelines              *guidelines.Manager
 	skills                  *skills.Manager
+	sandboxes               *sandbox.Service
 	userID                  int64
 	telegramTokenConfigured bool
 	assetsDir               string
@@ -48,6 +50,7 @@ type ServerDeps struct {
 	Runtimes                *RuntimeRegistry
 	Guidelines              *guidelines.Manager
 	Skills                  *skills.Manager
+	Sandboxes               *sandbox.Service
 	UserID                  int64
 	Logger                  *zap.Logger
 	TelegramTokenConfigured bool
@@ -76,7 +79,7 @@ func NewServer(ctx context.Context, deps ServerDeps) (*Server, error) {
 	}
 	return &Server{
 		cfg: deps.Config, store: deps.Store, conversation: deps.Conversation, objects: deps.Objects,
-		runtimes: deps.Runtimes, guidelines: deps.Guidelines, skills: deps.Skills, userID: deps.UserID,
+		runtimes: deps.Runtimes, guidelines: deps.Guidelines, skills: deps.Skills, sandboxes: deps.Sandboxes, userID: deps.UserID,
 		assetsDir: assetsDir, log: log.Named("web"), auth: newAuthenticator(deps.Config.AccessToken, deps.Config.CookieSecure),
 		telegramTokenConfigured: deps.TelegramTokenConfigured,
 		runs:                    make(map[int64]context.CancelFunc),
@@ -124,6 +127,18 @@ func (s *Server) Register(mux *http.ServeMux) {
 	api.HandleFunc("GET /api/v1/agents/{agentID}/avatar", s.handleGetAgentAvatar)
 	api.HandleFunc("POST /api/v1/agents/{agentID}/archive", s.handleArchiveAgent)
 	api.HandleFunc("POST /api/v1/agents/{agentID}/restore", s.handleRestoreAgent)
+	api.HandleFunc("GET /api/v1/agents/{agentID}/environment", s.handleGetAgentEnvironment)
+	api.HandleFunc("PUT /api/v1/agents/{agentID}/environment", s.handleUpdateAgentEnvironment)
+
+	api.HandleFunc("GET /api/v1/sandboxes", s.handleListSandboxes)
+	api.HandleFunc("POST /api/v1/sandboxes", s.handleCreateSandbox)
+	api.HandleFunc("GET /api/v1/sandboxes/{sandboxID}", s.handleGetSandbox)
+	api.HandleFunc("PUT /api/v1/sandboxes/{sandboxID}", s.handleUpdateSandbox)
+	api.HandleFunc("DELETE /api/v1/sandboxes/{sandboxID}", s.handleDeleteSandbox)
+	api.HandleFunc("POST /api/v1/sandboxes/{sandboxID}/apply", s.handleApplySandbox)
+	api.HandleFunc("POST /api/v1/sandboxes/{sandboxID}/start", s.handleStartSandbox)
+	api.HandleFunc("POST /api/v1/sandboxes/{sandboxID}/pause", s.handlePauseSandbox)
+	api.HandleFunc("POST /api/v1/sandboxes/{sandboxID}/reset-workspace", s.handleResetSandboxWorkspace)
 
 	api.HandleFunc("GET /api/v1/providers", s.handleListProviders)
 	api.HandleFunc("POST /api/v1/providers", s.handleCreateProvider)
@@ -146,6 +161,11 @@ func (s *Server) Register(mux *http.ServeMux) {
 	api.HandleFunc("GET /api/v1/sessions/{sessionID}/messages", s.handleListMessages)
 	api.HandleFunc("POST /api/v1/sessions/{sessionID}/runs", s.handleRun)
 	api.HandleFunc("POST /api/v1/sessions/{sessionID}/cancel", s.handleCancelRun)
+	api.HandleFunc("GET /api/v1/sessions/{sessionID}/processes", s.handleListSessionProcesses)
+	api.HandleFunc("GET /api/v1/processes/{processID}", s.handleGetProcess)
+	api.HandleFunc("GET /api/v1/processes/{processID}/logs", s.handleGetProcess)
+	api.HandleFunc("POST /api/v1/processes/{processID}/stdin", s.handleProcessStdin)
+	api.HandleFunc("POST /api/v1/processes/{processID}/signal", s.handleProcessSignal)
 
 	api.HandleFunc("POST /api/v1/sessions/{sessionID}/attachments", s.handleUploadAttachment)
 	api.HandleFunc("GET /api/v1/attachments/{attachmentID}", s.handleGetAttachment)

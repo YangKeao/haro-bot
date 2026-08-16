@@ -72,6 +72,7 @@ func (Provider) TableName() string { return "providers" }
 type Agent struct {
 	ID                            int64      `gorm:"primaryKey;autoIncrement"`
 	ProviderID                    int64      `gorm:"column:provider_id"`
+	SandboxID                     *int64     `gorm:"column:sandbox_id"`
 	Name                          string     `gorm:"column:name;size:128"`
 	Description                   string     `gorm:"column:description;type:text"`
 	Icon                          string     `gorm:"column:icon;size:32"`
@@ -91,6 +92,60 @@ type Agent struct {
 }
 
 func (Agent) TableName() string { return "agents" }
+
+type Sandbox struct {
+	ID                         int64     `gorm:"primaryKey;autoIncrement"`
+	Name                       string    `gorm:"column:name;size:128"`
+	Description                string    `gorm:"column:description;type:text"`
+	Image                      string    `gorm:"column:image;type:text"`
+	CPULimitMillis             int       `gorm:"column:cpu_limit_millis"`
+	MemoryLimitMiB             int       `gorm:"column:memory_limit_mib"`
+	EphemeralStorageMiB        int       `gorm:"column:ephemeral_storage_mib"`
+	WorkspaceStorageMiB        int       `gorm:"column:workspace_storage_mib"`
+	DesiredState               string    `gorm:"column:desired_state;size:16"`
+	Revision                   int64     `gorm:"column:revision"`
+	AppliedRevision            int64     `gorm:"column:applied_revision"`
+	KubernetesName             string    `gorm:"column:kubernetes_name;size:63"`
+	RuntimeCAPEM               string    `gorm:"column:runtime_ca_pem;type:text"`
+	RuntimeClientCertPEM       string    `gorm:"column:runtime_client_cert_pem;type:text"`
+	RuntimeClientKeyCiphertext string    `gorm:"column:runtime_client_key_ciphertext;type:longtext"`
+	RuntimeTokenCiphertext     string    `gorm:"column:runtime_token_ciphertext;type:longtext"`
+	LastError                  *string   `gorm:"column:last_error;type:text"`
+	CreatedAt                  time.Time `gorm:"column:created_at"`
+	UpdatedAt                  time.Time `gorm:"column:updated_at"`
+}
+
+func (Sandbox) TableName() string { return "sandboxes" }
+
+type AgentEnvironmentVariable struct {
+	AgentID         int64     `gorm:"primaryKey;column:agent_id"`
+	Name            string    `gorm:"primaryKey;column:name;size:128"`
+	ValueCiphertext string    `gorm:"column:value_ciphertext;type:longtext"`
+	IsSecret        bool      `gorm:"column:is_secret"`
+	CreatedAt       time.Time `gorm:"column:created_at"`
+	UpdatedAt       time.Time `gorm:"column:updated_at"`
+}
+
+func (AgentEnvironmentVariable) TableName() string { return "agent_environment_variables" }
+
+type SandboxRun struct {
+	ID              string     `gorm:"primaryKey;column:id;size:36"`
+	SandboxID       int64      `gorm:"column:sandbox_id"`
+	AgentID         int64      `gorm:"column:agent_id"`
+	SessionID       int64      `gorm:"column:session_id"`
+	Command         string     `gorm:"column:command;type:mediumtext"`
+	Status          string     `gorm:"column:status;size:24"`
+	PID             *int64     `gorm:"column:pid"`
+	ExitCode        *int       `gorm:"column:exit_code"`
+	StartedAt       time.Time  `gorm:"column:started_at"`
+	FinishedAt      *time.Time `gorm:"column:finished_at"`
+	OutputTail      string     `gorm:"column:output_tail;type:mediumtext"`
+	OutputTruncated bool       `gorm:"column:output_truncated"`
+	CreatedAt       time.Time  `gorm:"column:created_at"`
+	UpdatedAt       time.Time  `gorm:"column:updated_at"`
+}
+
+func (SandboxRun) TableName() string { return "sandbox_runs" }
 
 type AgentSkill struct {
 	AgentID   int64     `gorm:"primaryKey;column:agent_id"`

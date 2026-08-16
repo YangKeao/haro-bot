@@ -13,6 +13,8 @@ const Skills = lazy(() => import('./pages/Skills'))
 const Providers = lazy(() => import('./pages/Providers'))
 const ProviderForm = lazy(() => import('./pages/ProviderForm'))
 const Integrations = lazy(() => import('./pages/Integrations'))
+const Sandboxes = lazy(() => import('./pages/Sandboxes'))
+const SandboxForm = lazy(() => import('./pages/SandboxForm'))
 
 function Login() {
   const [token, setToken] = useState('')
@@ -69,6 +71,9 @@ export function AppRoutes() {
     <Route path="providers" element={<Providers />} />
     <Route path="providers/new" element={<ProviderForm />} />
     <Route path="providers/:providerID/edit" element={<ProviderForm />} />
+    <Route path="sandboxes" element={<Sandboxes />} />
+    <Route path="sandboxes/new" element={<SandboxForm />} />
+    <Route path="sandboxes/:sandboxID/edit" element={<SandboxForm />} />
     <Route path="settings/integrations" element={<Integrations />} />
     <Route path="*" element={<Navigate to="/" replace />} />
 	</Routes></Suspense>

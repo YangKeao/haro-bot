@@ -29,11 +29,28 @@ sync_interval = "10m"
 [brave]
 search_api_key = ""
 
-[fs]
-allowed_roots = ["./workspace"]
-
 [tool]
 max_turns = 1024
+
+# Kubernetes Agent Sandbox v0.5.3 must be installed in the target cluster.
+# Set HARO_SANDBOX_SECRET_KEY to a random, base64-encoded 32-byte key.
+[sandbox]
+enabled = false
+namespace = "haro-sandboxes"
+runtime_class = "gvisor"
+storage_class = ""
+default_image = "ghcr.io/yangkeao/haro-bot-sandbox:latest"
+helper_image = "ghcr.io/yangkeao/haro-bot-sandbox:latest"
+runtime_port = 8888
+default_cpu_limit_millis = 2000
+default_memory_limit_mib = 4096
+default_ephemeral_storage_mib = 4096
+default_workspace_storage_mib = 10240
+max_cpu_limit_millis = 8000
+max_memory_limit_mib = 16384
+max_ephemeral_storage_mib = 32768
+max_workspace_storage_mib = 102400
+max_running = 10
 
 [log]
 level = "info"

@@ -3,6 +3,7 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 const agent = {
   id: 1,
 	provider_id: 1,
+	sandbox_id: 1,
 	provider_name: 'Codex OAuth',
   name: 'Research Atlas',
   description: 'Synthesizes sources into clear, decision-ready briefs.',
@@ -33,6 +34,39 @@ const provider = {
 	catalog_stale: false,
 	created_at: '2026-08-14T01:00:00Z',
 	updated_at: '2026-08-14T01:00:00Z',
+}
+
+const sandbox = {
+	id: 1,
+	name: 'Data Lab',
+	description: 'A shared workspace for database analysis and small utilities.',
+	image: 'ghcr.io/yangkeao/haro-bot-sandbox:latest',
+	cpu_limit_millis: 2000,
+	memory_limit_mib: 4096,
+	ephemeral_storage_mib: 4096,
+	workspace_storage_mib: 10240,
+	desired_state: 'Running',
+	revision: 2,
+	applied_revision: 1,
+	pending_restart: true,
+	kubernetes_name: 'haro-data-lab-a1b2c3d4',
+	runtime_status: 'Ready',
+	agent_ids: [1],
+	created_at: '2026-08-14T01:00:00Z',
+	updated_at: '2026-08-14T01:00:00Z',
+}
+
+const sandboxConfig = {
+	default_image: 'ghcr.io/yangkeao/haro-bot-sandbox:latest',
+	defaults: { cpu_limit_millis: 2000, memory_limit_mib: 4096, ephemeral_storage_mib: 4096, workspace_storage_mib: 10240 },
+	maximums: { cpu_limit_millis: 8000, memory_limit_mib: 16384, ephemeral_storage_mib: 32768, workspace_storage_mib: 102400, running: 10 },
+}
+
+const sandboxProcess = {
+	id: 'process-1', sandbox_id: 1, agent_id: 1, session_id: 10,
+	command: 'python3 analyze.py --database sales', status: 'running', pid: 42,
+	started_at: '2026-08-14T01:00:00Z', duration_millis: 15342,
+	cpu_percent: 12.4, memory_bytes: 73400320, output: 'Connected to MySQL\nProcessed 4,200 rows\n',
 }
 
 const modelCatalog = {
@@ -107,6 +141,9 @@ async function mockAPI(page: Page, initiallyAuthenticated = false) {
 		if (path === '/api/v1/providers/1') return route.fulfill({ json: provider })
 		if (path === '/api/v1/providers/1/models') return route.fulfill({ json: modelCatalog })
 		if (path === '/api/v1/providers/1/models/refresh') return route.fulfill({ json: modelCatalog })
+		if (path === '/api/v1/sandboxes') return route.fulfill({ json: { sandboxes: [sandbox], config: sandboxConfig } })
+		if (path === '/api/v1/sandboxes/1') return route.fulfill({ json: { sandbox, config: sandboxConfig } })
+		if (path === '/api/v1/agents/1/environment') return route.fulfill({ json: { variables: [{ name: 'MYSQL_HOST', value: 'database.internal', secret: false, has_value: true }, { name: 'MYSQL_PASSWORD', secret: true, has_value: true }] } })
 		if (path === '/api/v1/integrations/telegram') {
 			return route.fulfill({ json: { token_configured: true, agent_id: 1 } })
 		}
@@ -122,6 +159,8 @@ async function mockAPI(page: Page, initiallyAuthenticated = false) {
         { id: 2, session_id: 10, role: 'assistant', content: 'The strongest signal is sustained demand with moderating growth.', created_at: '2026-08-14T01:01:00Z' },
       ] } })
     }
+		if (path === '/api/v1/sessions/10/processes') return route.fulfill({ json: { processes: [sandboxProcess] } })
+		if (path === '/api/v1/processes/process-1/signal' || path === '/api/v1/processes/process-1/stdin') return route.fulfill({ json: sandboxProcess })
 		if (path === '/api/v1/sessions/11/messages') return route.fulfill({ json: { messages: [] } })
 		if (path === '/api/v1/skills') return route.fulfill({ json: { skills: [{ name: 'web-search', description: 'Search public sources', version: '1', hash: 'abc' }] } })
     await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'not_found', message: path } }) })
@@ -175,6 +214,7 @@ test('uses labeled navigation and persists appearance preferences', async ({ pag
   await expect(page.getByRole('link', { name: 'Home', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'New agent' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Guidelines' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Sandboxes' })).toBeVisible()
   await page.getByRole('button', { name: 'Appearance' }).click()
   await page.getByRole('menuitem', { name: /Dusty rose/ }).click()
   await expect(page.locator('html')).toHaveAttribute('data-accent', 'rose')
@@ -197,13 +237,38 @@ test('uses a labeled navigation drawer on mobile', async ({ page }) => {
 test('shows every agent setting section on one page', async ({ page }) => {
   await mockAPI(page, true)
   await page.goto('/agents/1/edit')
-  for (const heading of ['Identity & avatar', 'Instructions', 'Provider & model', 'Runtime & context', 'Skills', 'Lifecycle']) {
+  for (const heading of ['Identity & avatar', 'Instructions', 'Provider & model', 'Runtime & context', 'Sandbox', 'Environment variables', 'Skills', 'Lifecycle']) {
     await expect(page.getByRole('heading', { name: heading })).toBeAttached()
   }
   await expect(page.getByRole('button', { name: 'Save changes' }).first()).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save changes' }).first()).toBeDisabled()
   await expect(page.getByText('No pending changes')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Markdown' })).toBeAttached()
+})
+
+test('manages persistent sandboxes and exposes session processes', async ({ page }) => {
+	await mockAPI(page, true)
+	await page.goto('/sandboxes')
+	await expect(page.getByRole('heading', { name: 'Sandboxes' })).toBeVisible()
+	await expect(page.getByRole('link', { name: /Data Lab/ })).toContainText('Changes waiting to be applied')
+	if (process.env.REVIEW_SCREENSHOTS) await page.screenshot({ path: '/tmp/haro-sandboxes-desktop.png', fullPage: true })
+	await page.getByRole('link', { name: /Data Lab/ }).click()
+	await expect(page.getByRole('heading', { name: 'Resources & persistence' })).toBeVisible()
+	await expect(page.getByText('Changes are not active yet')).toBeVisible()
+	await expect(page.getByRole('button', { name: 'Apply & restart' })).toBeEnabled()
+	if (process.env.REVIEW_SCREENSHOTS) await page.screenshot({ path: '/tmp/haro-sandbox-form-desktop.png', fullPage: true })
+
+	await page.goto('/agents/1/sessions/10')
+	await expect(page.getByText('Sandbox processes')).toBeVisible()
+	await page.getByText('python3 analyze.py --database sales').click()
+	await expect(page.getByText('Processed 4,200 rows')).toBeVisible()
+	await expect(page.getByRole('button', { name: 'TERM' })).toBeVisible()
+	if (process.env.REVIEW_SCREENSHOTS) {
+		await page.screenshot({ path: '/tmp/haro-process-desktop.png', fullPage: true })
+		await page.setViewportSize({ width: 390, height: 844 })
+		await page.waitForTimeout(350)
+		await page.screenshot({ path: '/tmp/haro-process-mobile.png', fullPage: true })
+	}
 })
 
 test('uses provider catalog metadata for agent runtime controls', async ({ page }) => {

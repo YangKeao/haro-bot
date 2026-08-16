@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: haro-system
+  labels:
+    app.kubernetes.io/part-of: haro-bot
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: haro-sandboxes
+  labels:
+    app.kubernetes.io/part-of: haro-bot
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: haro-bot
+  namespace: haro-system
+automountServiceAccountToken: true

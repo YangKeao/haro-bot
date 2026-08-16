@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,29 @@ type ObjectStorageConfig struct {
 	ForcePathStyle bool
 }
 
+type SandboxConfig struct {
+	Enabled                    bool
+	Namespace                  string
+	RuntimeClass               string
+	DefaultImage               string
+	HelperImage                string
+	StorageClass               string
+	KubeAPIURL                 string
+	KubeTokenFile              string
+	KubeCAFile                 string
+	EncryptionKey              string
+	DefaultCPULimitMillis      int
+	DefaultMemoryLimitMiB      int
+	DefaultEphemeralStorageMiB int
+	DefaultWorkspaceStorageMiB int
+	MaxCPULimitMillis          int
+	MaxMemoryLimitMiB          int
+	MaxEphemeralStorageMiB     int
+	MaxWorkspaceStorageMiB     int
+	MaxRunning                 int
+	RuntimePort                int
+}
+
 // Config is the runtime configuration loaded from file.
 type Config struct {
 	ServerAddr          string
@@ -47,6 +71,7 @@ type Config struct {
 	ToolMaxTurns        int
 	Log                 LogConfig
 	Web                 WebConfig
+	Sandbox             SandboxConfig
 }
 
 // fileConfig mirrors the TOML structure for deserialization.
@@ -86,6 +111,27 @@ type fileConfig struct {
 			ForcePathStyle bool   `toml:"force_path_style"`
 		} `toml:"object_storage"`
 	} `toml:"web"`
+	Sandbox struct {
+		Enabled                    bool   `toml:"enabled"`
+		Namespace                  string `toml:"namespace"`
+		RuntimeClass               string `toml:"runtime_class"`
+		DefaultImage               string `toml:"default_image"`
+		HelperImage                string `toml:"helper_image"`
+		StorageClass               string `toml:"storage_class"`
+		KubeAPIURL                 string `toml:"kube_api_url"`
+		KubeTokenFile              string `toml:"kube_token_file"`
+		KubeCAFile                 string `toml:"kube_ca_file"`
+		DefaultCPULimitMillis      int    `toml:"default_cpu_limit_millis"`
+		DefaultMemoryLimitMiB      int    `toml:"default_memory_limit_mib"`
+		DefaultEphemeralStorageMiB int    `toml:"default_ephemeral_storage_mib"`
+		DefaultWorkspaceStorageMiB int    `toml:"default_workspace_storage_mib"`
+		MaxCPULimitMillis          int    `toml:"max_cpu_limit_millis"`
+		MaxMemoryLimitMiB          int    `toml:"max_memory_limit_mib"`
+		MaxEphemeralStorageMiB     int    `toml:"max_ephemeral_storage_mib"`
+		MaxWorkspaceStorageMiB     int    `toml:"max_workspace_storage_mib"`
+		MaxRunning                 int    `toml:"max_running"`
+		RuntimePort                int    `toml:"runtime_port"`
+	} `toml:"sandbox"`
 }
 
 // LoadFromFile reads configuration from a TOML file.
@@ -136,6 +182,22 @@ func defaultFileConfig() fileConfig {
 	rec.Web.AssetsDir = "./web/dist"
 	rec.Web.ObjectStorage.Region = "us-east-1"
 	rec.Web.ObjectStorage.Bucket = "haro-bot"
+	rec.Sandbox.Namespace = "haro-sandboxes"
+	rec.Sandbox.RuntimeClass = "gvisor"
+	rec.Sandbox.DefaultImage = "ghcr.io/yangkeao/haro-bot-sandbox:latest"
+	rec.Sandbox.HelperImage = rec.Sandbox.DefaultImage
+	rec.Sandbox.KubeTokenFile = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	rec.Sandbox.KubeCAFile = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	rec.Sandbox.DefaultCPULimitMillis = 2000
+	rec.Sandbox.DefaultMemoryLimitMiB = 2048
+	rec.Sandbox.DefaultEphemeralStorageMiB = 10240
+	rec.Sandbox.DefaultWorkspaceStorageMiB = 10240
+	rec.Sandbox.MaxCPULimitMillis = 4000
+	rec.Sandbox.MaxMemoryLimitMiB = 8192
+	rec.Sandbox.MaxEphemeralStorageMiB = 51200
+	rec.Sandbox.MaxWorkspaceStorageMiB = 102400
+	rec.Sandbox.MaxRunning = 10
+	rec.Sandbox.RuntimePort = 8888
 	return rec
 }
 
@@ -167,11 +229,33 @@ func (r fileConfig) withDefaults() fileConfig {
 	r.Web.AssetsDir = strDefault(r.Web.AssetsDir, def.Web.AssetsDir)
 	r.Web.ObjectStorage.Region = strDefault(r.Web.ObjectStorage.Region, def.Web.ObjectStorage.Region)
 	r.Web.ObjectStorage.Bucket = strDefault(r.Web.ObjectStorage.Bucket, def.Web.ObjectStorage.Bucket)
+	r.Sandbox.Namespace = strDefault(r.Sandbox.Namespace, def.Sandbox.Namespace)
+	r.Sandbox.RuntimeClass = strDefault(r.Sandbox.RuntimeClass, def.Sandbox.RuntimeClass)
+	r.Sandbox.DefaultImage = strDefault(r.Sandbox.DefaultImage, def.Sandbox.DefaultImage)
+	r.Sandbox.HelperImage = strDefault(r.Sandbox.HelperImage, def.Sandbox.HelperImage)
+	r.Sandbox.KubeTokenFile = strDefault(r.Sandbox.KubeTokenFile, def.Sandbox.KubeTokenFile)
+	r.Sandbox.KubeCAFile = strDefault(r.Sandbox.KubeCAFile, def.Sandbox.KubeCAFile)
+	r.Sandbox.DefaultCPULimitMillis = intDefault(r.Sandbox.DefaultCPULimitMillis, def.Sandbox.DefaultCPULimitMillis)
+	r.Sandbox.DefaultMemoryLimitMiB = intDefault(r.Sandbox.DefaultMemoryLimitMiB, def.Sandbox.DefaultMemoryLimitMiB)
+	r.Sandbox.DefaultEphemeralStorageMiB = intDefault(r.Sandbox.DefaultEphemeralStorageMiB, def.Sandbox.DefaultEphemeralStorageMiB)
+	r.Sandbox.DefaultWorkspaceStorageMiB = intDefault(r.Sandbox.DefaultWorkspaceStorageMiB, def.Sandbox.DefaultWorkspaceStorageMiB)
+	r.Sandbox.MaxCPULimitMillis = intDefault(r.Sandbox.MaxCPULimitMillis, def.Sandbox.MaxCPULimitMillis)
+	r.Sandbox.MaxMemoryLimitMiB = intDefault(r.Sandbox.MaxMemoryLimitMiB, def.Sandbox.MaxMemoryLimitMiB)
+	r.Sandbox.MaxEphemeralStorageMiB = intDefault(r.Sandbox.MaxEphemeralStorageMiB, def.Sandbox.MaxEphemeralStorageMiB)
+	r.Sandbox.MaxWorkspaceStorageMiB = intDefault(r.Sandbox.MaxWorkspaceStorageMiB, def.Sandbox.MaxWorkspaceStorageMiB)
+	r.Sandbox.MaxRunning = intDefault(r.Sandbox.MaxRunning, def.Sandbox.MaxRunning)
+	r.Sandbox.RuntimePort = intDefault(r.Sandbox.RuntimePort, def.Sandbox.RuntimePort)
 	return r
 }
 
 func (r fileConfig) toConfig() Config {
 	r = r.withDefaults()
+	sandboxEnabled := r.Sandbox.Enabled
+	if value := strings.TrimSpace(os.Getenv("HARO_SANDBOX_ENABLED")); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			sandboxEnabled = parsed
+		}
+	}
 	syncInterval := parseDurationDefault(r.Skills.SyncInterval, 10*time.Minute)
 	return Config{
 		ServerAddr:          r.Server.Addr,
@@ -197,6 +281,21 @@ func (r fileConfig) toConfig() Config {
 				UseSSL:         r.Web.ObjectStorage.UseSSL,
 				ForcePathStyle: r.Web.ObjectStorage.ForcePathStyle,
 			},
+		},
+		Sandbox: SandboxConfig{
+			Enabled: sandboxEnabled,
+			Namespace: strDefault(os.Getenv("HARO_SANDBOX_NAMESPACE"), r.Sandbox.Namespace),
+			RuntimeClass: strDefault(os.Getenv("HARO_SANDBOX_RUNTIME_CLASS"), r.Sandbox.RuntimeClass),
+			DefaultImage: strDefault(os.Getenv("HARO_SANDBOX_DEFAULT_IMAGE"), r.Sandbox.DefaultImage),
+			HelperImage: strDefault(os.Getenv("HARO_SANDBOX_HELPER_IMAGE"), r.Sandbox.HelperImage),
+			StorageClass: strings.TrimSpace(strDefault(os.Getenv("HARO_SANDBOX_STORAGE_CLASS"), r.Sandbox.StorageClass)),
+			KubeAPIURL: strings.TrimSpace(r.Sandbox.KubeAPIURL), KubeTokenFile: r.Sandbox.KubeTokenFile, KubeCAFile: r.Sandbox.KubeCAFile,
+			EncryptionKey:         strings.TrimSpace(os.Getenv("HARO_SANDBOX_SECRET_KEY")),
+			DefaultCPULimitMillis: r.Sandbox.DefaultCPULimitMillis, DefaultMemoryLimitMiB: r.Sandbox.DefaultMemoryLimitMiB,
+			DefaultEphemeralStorageMiB: r.Sandbox.DefaultEphemeralStorageMiB, DefaultWorkspaceStorageMiB: r.Sandbox.DefaultWorkspaceStorageMiB,
+			MaxCPULimitMillis: r.Sandbox.MaxCPULimitMillis, MaxMemoryLimitMiB: r.Sandbox.MaxMemoryLimitMiB,
+			MaxEphemeralStorageMiB: r.Sandbox.MaxEphemeralStorageMiB, MaxWorkspaceStorageMiB: r.Sandbox.MaxWorkspaceStorageMiB,
+			MaxRunning: r.Sandbox.MaxRunning, RuntimePort: r.Sandbox.RuntimePort,
 		},
 	}
 }
