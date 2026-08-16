@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration && live_llm
 
 package e2e_test
 

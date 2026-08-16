@@ -98,6 +98,19 @@ Run the backend checks:
 go test ./...
 ```
 
+Run database-backed integration tests against the configured TiDB instance:
+
+```bash
+go test -tags=integration ./internal/... -count=1
+```
+
+Tests that call a real model endpoint are intentionally excluded from hosted CI. Run
+the complete integration and E2E suite from a network that can reach the provider:
+
+```bash
+go test -tags='integration live_llm' ./internal/... -count=1
+```
+
 Run the frontend locally (API requests proxy to port 8080):
 
 ```bash
