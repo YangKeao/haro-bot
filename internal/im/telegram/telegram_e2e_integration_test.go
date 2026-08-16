@@ -52,7 +52,7 @@ func TestTelegramHandlerReadFileToolFlow(t *testing.T) {
 	llmClient, model := testutil.NewLLMClientFromEnv(t)
 	agentSvc := agent.New(store, skillsMgr, registry, rootDir, 12, llmClient, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, llmClient, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
-	srv := New(config.Config{}, agentSvc, store)
+	srv := newIntegrationServer(config.Config{}, agentSvc, store)
 
 	tgToken := "test-token"
 	captureCh := make(chan telegramSendCapture, 1)

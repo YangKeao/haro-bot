@@ -31,6 +31,36 @@ type telegramSendCapture struct {
 	ChatID int64
 }
 
+type staticAgentResolver struct {
+	runtime *agent.Agent
+}
+
+func (r staticAgentResolver) Resolve(context.Context, int64) (*agent.Agent, error) {
+	return r.runtime, nil
+}
+
+type staticBindingStore struct {
+	agentID int64
+}
+
+func (s staticBindingStore) GetTelegramAgentID(context.Context) (*int64, error) {
+	id := s.agentID
+	return &id, nil
+}
+
+func (staticBindingStore) BindSessionAgent(context.Context, int64, int64) error {
+	return nil
+}
+
+func newIntegrationServer(cfg config.Config, runtime *agent.Agent, store memory.StoreAPI) *Server {
+	return New(
+		cfg,
+		staticAgentResolver{runtime: runtime},
+		store,
+		staticBindingStore{agentID: 1},
+	)
+}
+
 func parseTelegramPayload(t *testing.T, r *http.Request) map[string]string {
 	t.Helper()
 	ct := r.Header.Get("Content-Type")
@@ -76,7 +106,7 @@ func TestTelegramHandlerSendsMessage(t *testing.T) {
 	agentSvc := agent.New(store, skillsMgr, registry, t.TempDir(), 4, llmClient, model, "openai", llm.ReasoningConfig{})
 	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, llmClient, llm.ContextConfig{}, agentSvc.SessionStatusWriter()))
 
-	srv := New(config.Config{}, agentSvc, store)
+	srv := newIntegrationServer(config.Config{}, agentSvc, store)
 
 	token := "test-token"
 	captureCh := make(chan telegramSendCapture, 1)
