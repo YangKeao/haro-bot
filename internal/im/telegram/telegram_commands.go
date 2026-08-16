@@ -21,7 +21,7 @@ const telegramMessageLimit = 4096
 // Reserve some space for message prefix (e.g., "🧵 Goroutines (1/10)\n\n")
 const telegramMessageReserve = 100
 
-func (s *Server) handleTelegramCommand(ctx context.Context, b *bot.Bot, update *models.Update, uid int64, sessionID int64) bool {
+func (s *Server) handleTelegramCommand(ctx context.Context, b *bot.Bot, update *models.Update, runtime *agent.Agent, sessionID int64) bool {
 	if update.Message == nil || update.Message.Text == "" {
 		return false
 	}
@@ -45,7 +45,7 @@ func (s *Server) handleTelegramCommand(ctx context.Context, b *bot.Bot, update *
 
 	switch cmd {
 	case "/status":
-		s.handleStatusCommand(ctx, b, update, sessionID)
+		s.handleStatusCommand(ctx, b, update, runtime, sessionID)
 		return true
 	case "/help":
 		s.handleHelpCommand(ctx, b, update)
@@ -63,13 +63,17 @@ func (s *Server) handleTelegramCommand(ctx context.Context, b *bot.Bot, update *
 	}
 }
 
-func (s *Server) handleStatusCommand(ctx context.Context, b *bot.Bot, update *models.Update, sessionID int64) {
+func (s *Server) handleStatusCommand(ctx context.Context, b *bot.Bot, update *models.Update, runtime *agent.Agent, sessionID int64) {
 	log := logging.L().Named("telegram_cmd")
 	if update.Message == nil {
 		return
 	}
 
-	status := s.agent.GetSessionStatus(sessionID)
+	if runtime == nil || sessionID == 0 {
+		s.sendConfigurationMessage(ctx, b, update)
+		return
+	}
+	status := runtime.GetSessionStatus(sessionID)
 
 	var statusText string
 	switch status.State {

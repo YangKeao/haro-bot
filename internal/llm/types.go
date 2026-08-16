@@ -1,11 +1,18 @@
 package llm
 
 type Message struct {
-	Role             string     `json:"role"`
-	Content          string     `json:"content,omitempty"`
-	ReasoningContent string     `json:"reasoning_content,omitempty"`
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	Role             string         `json:"role"`
+	Content          string         `json:"content,omitempty"`
+	Images           []ImageContent `json:"images,omitempty"`
+	ReasoningContent string         `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall     `json:"tool_calls,omitempty"`
+	ToolCallID       string         `json:"tool_call_id,omitempty"`
+}
+
+type ImageContent struct {
+	URL      string `json:"url"`
+	MIMEType string `json:"mime_type,omitempty"`
+	Name     string `json:"name,omitempty"`
 }
 
 type Tool struct {

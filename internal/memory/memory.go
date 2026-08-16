@@ -18,12 +18,26 @@ import (
 
 // store provides persistence for sessions, messages, and summaries.
 type store struct {
-	db *gorm.DB
+	db               *gorm.DB
+	attachmentLoader AttachmentLoader
+}
+
+type AttachmentLoader func(ctx context.Context, objectKey, mimeType, name string) (string, error)
+type StoreOption func(*store)
+
+func WithAttachmentLoader(loader AttachmentLoader) StoreOption {
+	return func(s *store) { s.attachmentLoader = loader }
 }
 
 // NewStore creates a StoreAPI backed by the provided database handle.
-func NewStore(db *gorm.DB) StoreAPI {
-	return &store{db: db}
+func NewStore(db *gorm.DB, opts ...StoreOption) StoreAPI {
+	s := &store{db: db}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
+	return s
 }
 
 // Message is a persisted chat message within a session.
@@ -33,6 +47,7 @@ type Message struct {
 	Role      string
 	Content   string
 	Metadata  *MessageMetadata
+	Images    []llm.ImageContent
 	CreatedAt time.Time
 }
 
@@ -43,6 +58,7 @@ type MessageMetadata struct {
 	ToolCalls            []llm.ToolCall `json:"tool_calls,omitempty"`
 	Status               string         `json:"status,omitempty"`
 	InheritedFromSession *int64         `json:"inherited_from_session,omitempty"`
+	AttachmentIDs        []string       `json:"attachment_ids,omitempty"`
 }
 
 // Summary is a session summary snapshot used to compact the view window.
@@ -157,7 +173,25 @@ func (s *store) AddMessageAndGetID(ctx context.Context, sessionID int64, role, c
 		Content:   content,
 		Metadata:  meta,
 	}
-	if err := s.db.WithContext(ctx).Create(&msg).Error; err != nil {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&msg).Error; err != nil {
+			return err
+		}
+		if metadata == nil || len(metadata.AttachmentIDs) == 0 {
+			return nil
+		}
+		result := tx.Model(&dbmodel.Attachment{}).
+			Where("id IN ? AND session_id = ? AND message_id IS NULL AND deleted_at IS NULL", metadata.AttachmentIDs, sessionID).
+			Update("message_id", msg.ID)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != int64(len(metadata.AttachmentIDs)) {
+			return errors.New("one or more attachments are invalid or already used")
+		}
+		return nil
+	})
+	if err != nil {
 		return 0, err
 	}
 	return msg.ID, nil
@@ -390,6 +424,7 @@ func (s *store) loadMessagesAfter(ctx context.Context, sessionID, afterID int64,
 		return nil, err
 	}
 	msgs := make([]Message, 0, len(records))
+	messageIndexes := make(map[int64]int, len(records))
 	for _, r := range records {
 		var meta *MessageMetadata
 		if len(r.Metadata) > 0 {
@@ -399,6 +434,7 @@ func (s *store) loadMessagesAfter(ctx context.Context, sessionID, afterID int64,
 			}
 			meta = &parsed
 		}
+		messageIndexes[r.ID] = len(msgs)
 		msgs = append(msgs, Message{
 			ID:        r.ID,
 			SessionID: r.SessionID,
@@ -407,6 +443,30 @@ func (s *store) loadMessagesAfter(ctx context.Context, sessionID, afterID int64,
 			Metadata:  meta,
 			CreatedAt: r.CreatedAt,
 		})
+	}
+	if s.attachmentLoader != nil && len(messageIndexes) > 0 {
+		ids := make([]int64, 0, len(messageIndexes))
+		for id := range messageIndexes {
+			ids = append(ids, id)
+		}
+		var attachments []dbmodel.Attachment
+		if err := s.db.WithContext(ctx).Where("message_id IN ? AND deleted_at IS NULL", ids).Order("created_at ASC").Find(&attachments).Error; err != nil {
+			return nil, err
+		}
+		for _, attachment := range attachments {
+			if attachment.MessageID == nil {
+				continue
+			}
+			index, ok := messageIndexes[*attachment.MessageID]
+			if !ok {
+				continue
+			}
+			url, err := s.attachmentLoader(ctx, attachment.ObjectKey, attachment.MIMEType, attachment.OriginalName)
+			if err != nil {
+				return nil, err
+			}
+			msgs[index].Images = append(msgs[index].Images, llm.ImageContent{URL: url, MIMEType: attachment.MIMEType, Name: attachment.OriginalName})
+		}
 	}
 	return reverseMessages(msgs), nil
 }

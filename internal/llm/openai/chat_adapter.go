@@ -71,15 +71,31 @@ func buildChatMessages(messages []llm.Message) []openaisdk.ChatCompletionMessage
 				},
 			})
 		default:
-			if msg.Content == "" {
+			if msg.Content == "" && len(msg.Images) == 0 {
 				continue
+			}
+			content := openaisdk.ChatCompletionUserMessageParamContentUnion{}
+			if len(msg.Images) == 0 {
+				content.OfString = openaisdk.String(msg.Content)
+			} else {
+				parts := make([]openaisdk.ChatCompletionContentPartUnionParam, 0, len(msg.Images)+1)
+				if msg.Content != "" {
+					parts = append(parts, openaisdk.ChatCompletionContentPartUnionParam{OfText: &openaisdk.ChatCompletionContentPartTextParam{Text: msg.Content}})
+				}
+				for _, image := range msg.Images {
+					if image.URL == "" {
+						continue
+					}
+					parts = append(parts, openaisdk.ChatCompletionContentPartUnionParam{OfImageURL: &openaisdk.ChatCompletionContentPartImageParam{
+						ImageURL: openaisdk.ChatCompletionContentPartImageImageURLParam{URL: image.URL, Detail: "auto"},
+					}})
+				}
+				content.OfArrayOfContentParts = parts
 			}
 			out = append(out, openaisdk.ChatCompletionMessageParamUnion{
 				OfUser: &openaisdk.ChatCompletionUserMessageParam{
-					Role: constant.ValueOf[constant.User](),
-					Content: openaisdk.ChatCompletionUserMessageParamContentUnion{
-						OfString: openaisdk.String(msg.Content),
-					},
+					Role:    constant.ValueOf[constant.User](),
+					Content: content,
 				},
 			})
 		}
@@ -135,7 +151,7 @@ func buildChatTools(tools []llm.Tool) []openaisdk.ChatCompletionToolParam {
 }
 
 // chatCompletionToChat converts openai ChatCompletion to our ChatResponse.
-// reasoningContent is the accumulated reasoning content from streaming (for GLM/DeepSeek).
+// reasoningContent is the accumulated reasoning content or summary from streaming.
 func chatCompletionToChat(resp *openaisdk.ChatCompletion, reasoningContent string) llm.ChatResponse {
 	content := ""
 	toolCalls := []llm.ToolCall(nil)

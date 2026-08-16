@@ -92,3 +92,39 @@ func TestChatRetriesEmptyResponses(t *testing.T) {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
+
+func TestChatStreamsReasoningContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"id\":\"reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}\n\n")
+		fmt.Fprint(w, "data: {\"id\":\"reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.4\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"Checking the calculation\"}}]}\n\n")
+		fmt.Fprint(w, "data: {\"id\":\"reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.4\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"3973\"}}]}\n\n")
+		fmt.Fprint(w, "data: {\"id\":\"reasoning\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.4\",\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{}}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":2,\"total_tokens\":3}}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	var reasoningDeltas []string
+	client := New(srv.URL, "")
+	resp, err := client.Chat(context.Background(), llm.ChatRequest{
+		Model: "gpt-5.4",
+		Messages: []llm.Message{
+			{Role: "user", Content: "calculate"},
+		},
+		ReasoningEnabled: true,
+		StreamHandler: func(event llm.StreamEvent) {
+			if event.ReasoningDelta != "" {
+				reasoningDeltas = append(reasoningDeltas, event.ReasoningDelta)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected chat to succeed, got %v", err)
+	}
+	if got := resp.Choices[0].Message.ReasoningContent; got != "Checking the calculation" {
+		t.Fatalf("unexpected persisted reasoning content: %q", got)
+	}
+	if len(reasoningDeltas) != 1 || reasoningDeltas[0] != "Checking the calculation" {
+		t.Fatalf("unexpected streamed reasoning deltas: %#v", reasoningDeltas)
+	}
+}

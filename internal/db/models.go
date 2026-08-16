@@ -17,11 +17,14 @@ type User struct {
 func (User) TableName() string { return "users" }
 
 type Session struct {
-	ID        int64     `gorm:"primaryKey;autoIncrement"`
-	UserID    int64     `gorm:"column:user_id"`
-	Channel   string    `gorm:"column:channel;size:32"`
-	CreatedAt time.Time `gorm:"column:created_at"`
-	UpdatedAt time.Time `gorm:"column:updated_at"`
+	ID         int64      `gorm:"primaryKey;autoIncrement"`
+	UserID     int64      `gorm:"column:user_id"`
+	AgentID    *int64     `gorm:"column:agent_id"`
+	Channel    string     `gorm:"column:channel;size:32"`
+	Title      string     `gorm:"column:title;size:255"`
+	ArchivedAt *time.Time `gorm:"column:archived_at"`
+	CreatedAt  time.Time  `gorm:"column:created_at"`
+	UpdatedAt  time.Time  `gorm:"column:updated_at"`
 }
 
 func (Session) TableName() string { return "sessions" }
@@ -49,6 +52,76 @@ type SessionSummary struct {
 }
 
 func (SessionSummary) TableName() string { return "session_summaries" }
+
+type Provider struct {
+	ID               int64      `gorm:"primaryKey;autoIncrement"`
+	Name             string     `gorm:"column:name;size:128"`
+	BaseURL          string     `gorm:"column:base_url;type:text"`
+	APIKey           string     `gorm:"column:api_key;type:text"`
+	PromptFormat     string     `gorm:"column:prompt_format;size:32"`
+	ModelCatalogJSON string     `gorm:"column:model_catalog_json;type:longtext"`
+	ModelsFetchedAt  *time.Time `gorm:"column:models_fetched_at"`
+	ModelsLastError  *string    `gorm:"column:models_last_error;type:text"`
+	ArchivedAt       *time.Time `gorm:"column:archived_at"`
+	CreatedAt        time.Time  `gorm:"column:created_at"`
+	UpdatedAt        time.Time  `gorm:"column:updated_at"`
+}
+
+func (Provider) TableName() string { return "providers" }
+
+type Agent struct {
+	ID                            int64      `gorm:"primaryKey;autoIncrement"`
+	ProviderID                    int64      `gorm:"column:provider_id"`
+	Name                          string     `gorm:"column:name;size:128"`
+	Description                   string     `gorm:"column:description;type:text"`
+	Icon                          string     `gorm:"column:icon;size:32"`
+	Color                         string     `gorm:"column:color;size:16"`
+	AvatarMode                    string     `gorm:"column:avatar_mode;size:16"`
+	AvatarObjectKey               string     `gorm:"column:avatar_object_key;size:512"`
+	AvatarMIMEType                string     `gorm:"column:avatar_mime_type;size:64"`
+	Instructions                  string     `gorm:"column:instructions;type:longtext"`
+	Model                         string     `gorm:"column:model;size:255"`
+	ReasoningEffortOverride       *string    `gorm:"column:reasoning_effort_override;size:64"`
+	ContextWindowOverride         *int       `gorm:"column:context_window_override"`
+	AutoCompactTokenLimitOverride *int       `gorm:"column:auto_compact_token_limit_override"`
+	EffectiveContextWindowPercent int        `gorm:"column:effective_context_window_percent"`
+	ArchivedAt                    *time.Time `gorm:"column:archived_at"`
+	CreatedAt                     time.Time  `gorm:"column:created_at"`
+	UpdatedAt                     time.Time  `gorm:"column:updated_at"`
+}
+
+func (Agent) TableName() string { return "agents" }
+
+type AgentSkill struct {
+	AgentID   int64     `gorm:"primaryKey;column:agent_id"`
+	SkillName string    `gorm:"primaryKey;column:skill_name;size:128"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+}
+
+func (AgentSkill) TableName() string { return "agent_skills" }
+
+type TelegramIntegration struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement:false"`
+	AgentID   *int64    `gorm:"column:agent_id"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at"`
+}
+
+func (TelegramIntegration) TableName() string { return "telegram_integrations" }
+
+type Attachment struct {
+	ID           string     `gorm:"primaryKey;column:id;size:36"`
+	SessionID    int64      `gorm:"column:session_id"`
+	MessageID    *int64     `gorm:"column:message_id"`
+	ObjectKey    string     `gorm:"column:object_key;size:512"`
+	OriginalName string     `gorm:"column:original_name;size:255"`
+	MIMEType     string     `gorm:"column:mime_type;size:64"`
+	SizeBytes    int64      `gorm:"column:size_bytes"`
+	CreatedAt    time.Time  `gorm:"column:created_at"`
+	DeletedAt    *time.Time `gorm:"column:deleted_at"`
+}
+
+func (Attachment) TableName() string { return "attachments" }
 
 type SkillSource struct {
 	ID            int64          `gorm:"primaryKey;autoIncrement"`

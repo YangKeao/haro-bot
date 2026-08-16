@@ -1,3 +1,11 @@
+FROM node:22-bookworm-slim AS web-builder
+
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
 # Build stage
 FROM golang:1.22-bookworm AS builder
 
@@ -43,6 +51,7 @@ WORKDIR /app
 
 # Copy the binary from builder
 COPY --from=builder /agentd /app/agentd
+COPY --from=web-builder /src/web/dist /app/web/dist
 
 # Create non-root user for security
 RUN useradd -r -s /bin/false appuser && \

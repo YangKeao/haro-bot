@@ -2,6 +2,8 @@ package telegram
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strconv"
 	"unicode/utf8"
 
@@ -58,18 +60,22 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 		log.Warn("telegram user error", zap.Error(err))
 		return
 	}
-	sessionID, err := s.store.GetOrCreateSession(ctx, uid, "telegram")
+	agentRuntime, sessionID, channel, err := s.resolveAgentSession(ctx, uid)
 	if err != nil {
-		log.Warn("telegram session error", zap.Error(err))
+		if s.handleTelegramCommand(ctx, b, update, nil, 0) {
+			return
+		}
+		log.Warn("telegram agent unavailable", zap.Error(err))
+		s.sendConfigurationMessage(ctx, b, update)
 		return
 	}
 	// Handle commands
-	if s.handleTelegramCommand(ctx, b, update, uid, sessionID) {
+	if s.handleTelegramCommand(ctx, b, update, agentRuntime, sessionID) {
 		return
 	}
 
 	// Cancel any previous operation for this session
-	if s.agent.CancelSession(sessionID) {
+	if agentRuntime.CancelSession(sessionID) {
 		log.Info("cancelled previous session operation", zap.Int64("session_id", sessionID))
 	}
 
@@ -81,7 +87,7 @@ func (s *Server) handleTelegramUpdate(ctx context.Context, b *bot.Bot, update *m
 	}
 	progress := newTelegramProgress(b, update.Message.Chat.ID, threadID, businessConnID)
 	defer progress.Stop()
-	output, err := s.agent.HandleWithMiddleware(ctx, uid, "telegram", update.Message.Text, "", agent.MiddlewareSet{
+	output, err := agentRuntime.HandleWithMiddleware(ctx, uid, channel, update.Message.Text, "", agent.MiddlewareSet{
 		LLMMiddleware:     []agent.LLMMiddleware{progress},
 		LLMDeltaListeners: []agent.LLMDeltaListener{progress},
 		ToolCallListeners: []agent.ToolCallListener{progress},
@@ -127,15 +133,51 @@ func (s *Server) handleTelegramCallback(ctx context.Context, b *bot.Bot, query *
 		log.Warn("telegram user error", zap.Error(err))
 		return
 	}
-	_, err = s.store.GetOrCreateSession(ctx, uid, "telegram")
-	if err != nil {
-		log.Warn("telegram session error", zap.Error(err))
-		return
-	}
+	_, _, _, _ = s.resolveAgentSession(ctx, uid)
 	_, _ = b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 		CallbackQueryID: query.ID,
 	})
 	log.Debug("telegram callback ignored", zap.String("data", query.Data))
+}
+
+func (s *Server) resolveAgentSession(ctx context.Context, userID int64) (*agent.Agent, int64, string, error) {
+	if s.resolver == nil || s.binding == nil {
+		return nil, 0, "", errors.New("Telegram agent is not configured")
+	}
+	agentID, err := s.binding.GetTelegramAgentID(ctx)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	if agentID == nil {
+		return nil, 0, "", errors.New("Telegram agent is not configured")
+	}
+	runtime, err := s.resolver.Resolve(ctx, *agentID)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	channel := fmt.Sprintf("telegram:%d", *agentID)
+	sessionID, err := s.store.GetOrCreateSession(ctx, userID, channel)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	if err := s.binding.BindSessionAgent(ctx, sessionID, *agentID); err != nil {
+		return nil, 0, "", err
+	}
+	return runtime, sessionID, channel, nil
+}
+
+func (s *Server) sendConfigurationMessage(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update == nil || update.Message == nil {
+		return
+	}
+	params := &bot.SendMessageParams{ChatID: update.Message.Chat.ID, Text: "Telegram agent is not configured. Select an agent in Settings → Integrations."}
+	if update.Message.MessageThreadID > 0 {
+		params.MessageThreadID = update.Message.MessageThreadID
+	}
+	if update.Message.BusinessConnectionID != "" {
+		params.BusinessConnectionID = update.Message.BusinessConnectionID
+	}
+	_, _ = b.SendMessage(ctx, params)
 }
 
 func sendTelegramMessage(ctx context.Context, log *zap.Logger, b *bot.Bot, params *bot.SendMessageParams) error {

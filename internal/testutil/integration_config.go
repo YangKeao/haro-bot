@@ -24,15 +24,6 @@ func EnsureIntegrationEnv(t *testing.T) config.Config {
 	if os.Getenv("TIDB_DSN") == "" && strings.TrimSpace(cfg.TiDBDSN) != "" {
 		t.Setenv("TIDB_DSN", cfg.TiDBDSN)
 	}
-	if os.Getenv("LLM_BASE_URL") == "" && strings.TrimSpace(cfg.LLMBaseURL) != "" {
-		t.Setenv("LLM_BASE_URL", cfg.LLMBaseURL)
-	}
-	if os.Getenv("LLM_API_KEY") == "" && strings.TrimSpace(cfg.LLMAPIKey) != "" {
-		t.Setenv("LLM_API_KEY", cfg.LLMAPIKey)
-	}
-	if os.Getenv("LLM_MODEL") == "" && strings.TrimSpace(cfg.LLMModel) != "" {
-		t.Setenv("LLM_MODEL", cfg.LLMModel)
-	}
 	return cfg
 }
 

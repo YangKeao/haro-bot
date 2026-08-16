@@ -1,120 +1,123 @@
 # Haro Bot
 
-An AI agent with Telegram integration and tool execution capabilities.
+Haro Bot is a self-hosted AI agent workspace with a React web UI and Telegram integration.
 
 ## Features
 
-- **Telegram Integration**: Real-time message streaming with draft previews
-- **Skill System**: Extensible skills synced from Git repositories
-- **Tool Execution**: Filesystem operations and command execution
-- **Session Management**: Fork sessions for parallel task execution
+- Multi-agent web workspace with shared Provider connections and per-agent model, instructions, visual identity, and skill selection
+- Automatic model discovery with optional reasoning, context-window, compaction, and modality metadata
+- Agent-owned profile tools for updating its instructions, identity, avatar, model, context, and skills when explicitly requested
+- Multi-session chat with streaming output, reasoning/tool activity, cancellation, rename, archive, and restore
+- Image attachments backed by a private S3-compatible object store
+- Global guidelines shared by web agents and the Telegram agent
+- Git-backed skill source management
+- Responsive light UI for desktop, tablet, and mobile, with a persistent accent color and labeled navigation drawer
+- WYSIWYG Markdown authoring for conversations, agent instructions, and global guidelines
+- Single-user web authentication with an HttpOnly session cookie
+- Telegram routing to any ordinary agent, with streamed draft previews and tool execution
+
+## Requirements
+
+- Go 1.22+
+- Node.js 22+
+- TiDB 8.5+
+- An S3-compatible object store such as MinIO
+- An OpenAI-compatible Chat Completions provider
 
 ## Quick Start
 
-1. Start TiDB and create a database
-2. Create a config file (see `config.example.toml`)
-3. Run the server:
+1. Start TiDB and create the `haro_bot` database.
+2. Start an S3-compatible object store and create credentials Haro Bot can use. The configured bucket is created automatically.
+3. Build the web application:
 
-```bash
-./agentd -config config.toml
-```
+   ```bash
+   cd web
+   npm ci
+   npm run build
+   cd ..
+   ```
 
-### Command-line Flags
+4. Copy `config.example.toml` to `config.toml` and set the database, web token, and object storage values.
+5. Start Haro Bot:
 
-- `-config <path>`: Path to config file (default: `config.toml`)
-- `-unrestricted`: Skip path restrictions and symlink checks
+   ```bash
+   go run ./cmd/agentd -config config.toml
+   ```
+
+6. Open `http://localhost:8080`, sign in with `web.access_token`, create a Provider, and then create an Agent.
+
+The web configuration is mandatory. Startup fails if the access token, built assets, or object storage are unavailable.
 
 ## Configuration
 
-Configuration is primarily stored in `config.toml`. See `config.example.toml` for a complete example.
+See `config.example.toml` for all settings. The main settings are:
 
-### Required Settings
+| Setting | Purpose |
+| --- | --- |
+| `server.addr` | HTTP listen address |
+| `db.tidb_dsn` | TiDB connection string |
+| `web.access_token` | Single-user web sign-in token; use a long random value |
+| `web.cookie_secure` | Require HTTPS when sending the authentication cookie |
+| `web.assets_dir` | Vite production build directory |
+| `web.object_storage.*` | Private S3-compatible attachment storage |
+| `telegram.token` | Telegram bot token; leave empty to disable Telegram startup |
+| `skills.*` | Local skill directory and Git source policy |
 
-- `db.tidb_dsn`: TiDB connection string
+Providers are global connection records containing an OpenAI-compatible Base URL, optional API key, and prompt format. Agents select a Provider and keep their own model, reasoning override, instructions, context overrides, skills, and visual identity. Haro reads `/models` and caches any capability metadata the Provider exposes; ID-only responses and manual model/runtime values remain supported. Provider keys are stored in the database but are never returned by the web API or written to logs; protect database access accordingly.
 
-### Key Optional Settings
+Telegram keeps only its token in TOML. Select the Telegram Agent under Settings → Integrations; changing the binding takes effect without restarting and preserves separate conversation history per Agent.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `server.addr` | `:8080` | HTTP server address |
-| `llm.base_url` | `https://api.openai.com/v1` | LLM API endpoint |
-| `llm.model` | `gpt-4o-mini` | Model to use |
-| `telegram.token` | - | Telegram bot token |
-| `skills.dir` | `./skills` | Skills directory |
-| `fs.allowed_roots` | `[skills.dir]` | Allowed filesystem paths |
+Web-agent runtimes expose `get_own_profile` and `update_own_profile`. These tools are bound to the current agent and cannot change provider credentials, prompt format, archive state, global guidelines, or another agent. An avatar URL used by the update tool must resolve to a public HTTP or HTTPS address; downloaded images are size- and type-checked before being copied to private object storage.
 
-## Tools
+For production, serve Haro Bot over HTTPS, set `web.cookie_secure = true`, keep the object bucket private, and use a high-entropy access token.
 
-### Filesystem Tools
-- `read_file`: Read file contents with indentation-aware mode
-- `list_dir`: List directory contents
-- `grep_files`: Search file contents
-- `exec_command`: Run shell commands
-- `write_stdin`: Write to running process stdin
+## Web API
 
-### Search Tools
-- `brave_search`: Web search (requires `BRAVE_SEARCH_API_KEY`)
+The UI uses a versioned JSON/SSE API under `/api/v1`:
 
-### Session Tools
-- `session_summary`: Create session checkpoint/handoff
+- `/auth`: login, logout, and session status
+- `/providers`: manage shared connections and refresh cached model catalogs
+- `/agents`: create, update, archive, and restore agents; create/update accepts JSON or multipart form data for avatar uploads
+- `/integrations/telegram`: inspect token status and select the Telegram agent
+- `/agents/{id}/avatar`: return an authenticated agent avatar from private object storage
+- `/agents/{id}/sessions`: create and list sessions
+- `/sessions/{id}`: rename, archive, restore, list messages, run, and cancel
+- `/sessions/{id}/attachments`: upload image attachments
+- `/guidelines`: edit the global guideline and inspect its history
+- `/skills` and `/skill-sources`: inspect skills and manage Git sources
 
-### Skill Tools
-- `install_skill`: Install skills from Git repos
-- `activate_skill`: Activate an installed skill
+All endpoints except login require the signed HttpOnly cookie. Mutating requests also enforce same-origin checks.
 
-### Session Control Tools
-- `session_fork`: Start a child session for parallel tasks
-- `session_interrupt`: Interrupt a child session
-- `session_status`: Check child session status
-- `session_cancel`: Cancel a child session
-
-## Security
-
-### Normal Mode
-- Filesystem access restricted to `fs.allowed_roots`
-- Symlink traversal blocked
-- Telegram approval for out-of-bounds access
-
-### Unrestricted Mode (`--unrestricted`)
-- Path restrictions disabled
-- Symlink checks disabled
-- Approval requests disabled
-
-## HTTP Endpoints
-
-- `GET /healthz`: Health check
-- `GET /debug/pprof/*`: Performance profiling endpoints (goroutine, heap, profile, trace, etc.)
-
-## Skills
-
-Skills are directories containing `SKILL.md` with YAML frontmatter. Example:
-
-```
-skills/
-  my-skill/
-    SKILL.md
-    ...
-```
-
-Register from Git using the `install_skill` tool:
-```json
-{
-  "source_type": "git",
-  "url": "https://github.com/example/skills.git",
-  "ref": "main",
-  "subdir": "skills"
-}
-```
+Operational endpoints remain available at `GET /healthz` and `/debug/pprof/*`.
 
 ## Development
 
-```bash
-# Build
-go build ./cmd/agentd
+Run the backend checks:
 
-# Run tests
+```bash
 go test ./...
 ```
+
+Run the frontend locally (API requests proxy to port 8080):
+
+```bash
+cd web
+npm ci
+npm run dev
+```
+
+Run all frontend checks:
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+npx playwright install chromium
+npm run test:e2e
+npm run build
+```
+
+Build the complete production image with `docker build .`. The Dockerfile builds the Vite assets before compiling the Go server.
 
 ## License
 

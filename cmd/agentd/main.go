@@ -10,19 +10,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/YangKeao/haro-bot/internal/agent"
-	agentdefaults "github.com/YangKeao/haro-bot/internal/agent/defaults"
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/db"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/im"
 	imtelegram "github.com/YangKeao/haro-bot/internal/im/telegram"
-	"github.com/YangKeao/haro-bot/internal/llm"
-	llmopenai "github.com/YangKeao/haro-bot/internal/llm/openai"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
+	webui "github.com/YangKeao/haro-bot/internal/web"
 	"go.uber.org/zap"
 )
 
@@ -57,12 +54,21 @@ func main() {
 		log.Fatal("db migrations failed", zap.Error(err))
 	}
 
-	log.Info("config loaded", zap.Any("cfg", cfg))
+	log.Info("config loaded",
+		zap.String("server_addr", cfg.ServerAddr),
+		zap.String("web_assets_dir", cfg.Web.AssetsDir),
+		zap.String("object_store_endpoint", cfg.Web.ObjectStorage.Endpoint),
+		zap.String("object_store_bucket", cfg.Web.ObjectStorage.Bucket),
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	store := memory.NewStore(dbConn)
+	objectStore, err := webui.NewObjectStore(cfg.Web.ObjectStorage)
+	if err != nil {
+		log.Fatal("web object storage config failed", zap.Error(err))
+	}
+	store := memory.NewStore(dbConn, memory.WithAttachmentLoader(objectStore.DataURL))
 	skillsStore := skills.NewStore(dbConn)
 	skillsMgr := skills.NewManager(skillsStore, cfg.SkillsDir, cfg.SkillsRepoAllowlist)
 	guidelinesMgr := guidelines.NewManager(dbConn)
@@ -86,24 +92,21 @@ func main() {
 		tools.NewUpdateGuidelinesTool(guidelinesMgr),
 		tools.NewApplyPatchTool(fsTools),
 	)
-	llmClient := llmopenai.New(cfg.LLMBaseURL, cfg.LLMAPIKey, llmopenai.WithHTTPDebug(cfg.LLMHTTPDebug))
-	contextCfg := llm.ContextConfig{
-		WindowTokens:                  cfg.LLMContextWindow,
-		AutoCompactTokenLimit:         cfg.LLMAutoCompactTokenLimit,
-		EffectiveContextWindowPercent: cfg.LLMEffectiveContextWindowPercent,
+	webStore := webui.NewStore(dbConn)
+	webUserID, err := store.GetOrCreateUserByExternalID(ctx, "web", "owner")
+	if err != nil {
+		log.Fatal("create web owner failed", zap.Error(err))
 	}
-	agentSvc := agent.New(
-		store,
-		skillsMgr,
-		toolRegistry, fsTools.DefaultBase(),
-		cfg.ToolMaxTurns,
-		llmClient,
-		cfg.LLMModel,
-		string(cfg.LLMPromptFormat),
-		llm.ReasoningConfig{Enabled: cfg.LLMReasoningEnabled, Effort: cfg.LLMReasoningEffort},
-	)
-	agentSvc.SetMiddleware(agentdefaults.New(guidelinesMgr, store, llmClient, contextCfg, agentSvc.SessionStatusWriter()))
-	var imRuntime im.Runtime = imtelegram.New(cfg, agentSvc, store)
+	webRuntimes := webui.NewRuntimeRegistry(webStore, store, skillsMgr, toolRegistry, objectStore, guidelinesMgr, fsTools.DefaultBase(), cfg.ToolMaxTurns, cfg.LLMHTTPDebug)
+	var imRuntime im.Runtime = imtelegram.New(cfg, webRuntimes, store, webStore)
+	webServer, err := webui.NewServer(ctx, webui.ServerDeps{
+		Config: cfg.Web, Store: webStore, Conversation: store, Objects: objectStore, Runtimes: webRuntimes,
+		Guidelines: guidelinesMgr, Skills: skillsMgr, UserID: webUserID, Logger: log,
+		TelegramTokenConfigured: cfg.TelegramToken != "",
+	})
+	if err != nil {
+		log.Fatal("web server init failed", zap.Error(err))
+	}
 
 	imRuntime.Start(ctx)
 
@@ -124,6 +127,8 @@ func main() {
 	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	webServer.Register(mux)
+	webServer.StartCleanup(ctx)
 
 	httpServer := &http.Server{
 		Addr:    cfg.ServerAddr,

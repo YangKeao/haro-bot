@@ -9,11 +9,12 @@ import (
 )
 
 type MiddlewareSet struct {
-	RunMiddleware     []RunMiddleware
-	LLMMiddleware     []LLMMiddleware
-	LLMDeltaListeners []LLMDeltaListener
-	ToolCallListeners []ToolCallListener
-	OutputListeners   []OutputListener
+	RunMiddleware       []RunMiddleware
+	LLMMiddleware       []LLMMiddleware
+	LLMDeltaListeners   []LLMDeltaListener
+	ToolCallListeners   []ToolCallListener
+	ToolResultListeners []ToolResultListener
+	OutputListeners     []OutputListener
 }
 
 type RunState struct {
@@ -26,7 +27,8 @@ type RunState struct {
 	Stored    []StoredMessage
 	Transient TransientContext
 
-	AvailableSkills []skills.Metadata
+	AvailableSkills   []skills.Metadata
+	AgentInstructions string
 }
 
 type TurnState struct {
@@ -68,6 +70,11 @@ type ToolCallListener interface {
 	OnToolCalls(ctx context.Context, turn *TurnState, msg llm.Message) error
 }
 
+type ToolResultListener interface {
+	Name() string
+	OnToolResults(ctx context.Context, turn *TurnState, messages []StoredMessage) error
+}
+
 type OutputListener interface {
 	Name() string
 	OnFinalOutput(ctx context.Context, turn *TurnState, output string) error
@@ -82,21 +89,35 @@ func mergeMiddlewareSets(base, extra MiddlewareSet) MiddlewareSet {
 	llmMiddleware := append(append([]LLMMiddleware(nil), base.LLMMiddleware...), extra.LLMMiddleware...)
 	llmDeltaListeners := append(append([]LLMDeltaListener(nil), base.LLMDeltaListeners...), extra.LLMDeltaListeners...)
 	toolCallListeners := append(append([]ToolCallListener(nil), base.ToolCallListeners...), extra.ToolCallListeners...)
+	toolResultListeners := append(append([]ToolResultListener(nil), base.ToolResultListeners...), extra.ToolResultListeners...)
 	outputListeners := append(append([]OutputListener(nil), base.OutputListeners...), extra.OutputListeners...)
 
 	sort.SliceStable(runMiddleware, func(i, j int) bool { return hookPriority(runMiddleware[i]) < hookPriority(runMiddleware[j]) })
 	sort.SliceStable(llmMiddleware, func(i, j int) bool { return hookPriority(llmMiddleware[i]) < hookPriority(llmMiddleware[j]) })
 	sort.SliceStable(llmDeltaListeners, func(i, j int) bool { return hookPriority(llmDeltaListeners[i]) < hookPriority(llmDeltaListeners[j]) })
 	sort.SliceStable(toolCallListeners, func(i, j int) bool { return hookPriority(toolCallListeners[i]) < hookPriority(toolCallListeners[j]) })
+	sort.SliceStable(toolResultListeners, func(i, j int) bool {
+		return hookPriority(toolResultListeners[i]) < hookPriority(toolResultListeners[j])
+	})
 	sort.SliceStable(outputListeners, func(i, j int) bool { return hookPriority(outputListeners[i]) < hookPriority(outputListeners[j]) })
 
 	return MiddlewareSet{
-		RunMiddleware:     runMiddleware,
-		LLMMiddleware:     llmMiddleware,
-		LLMDeltaListeners: llmDeltaListeners,
-		ToolCallListeners: toolCallListeners,
-		OutputListeners:   outputListeners,
+		RunMiddleware:       runMiddleware,
+		LLMMiddleware:       llmMiddleware,
+		LLMDeltaListeners:   llmDeltaListeners,
+		ToolCallListeners:   toolCallListeners,
+		ToolResultListeners: toolResultListeners,
+		OutputListeners:     outputListeners,
 	}
+}
+
+func executeToolResultListeners(ctx context.Context, listeners []ToolResultListener, turn *TurnState, messages []StoredMessage) error {
+	for _, listener := range listeners {
+		if err := listener.OnToolResults(ctx, turn, messages); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func hookPriority(h any) int {

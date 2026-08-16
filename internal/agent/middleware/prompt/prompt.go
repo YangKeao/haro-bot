@@ -37,11 +37,15 @@ func (m *middleware) Priority() int {
 }
 
 func (m *middleware) HandleRun(ctx context.Context, run *agent.RunState, next agent.RunHandler) (string, error) {
-	run.Prompt = buildPrompt(ctx, m.gl, run.AvailableSkills, run.PromptFormat)
+	run.Prompt = buildPromptWithInstructions(ctx, m.gl, run.AvailableSkills, run.PromptFormat, run.AgentInstructions)
 	return next(ctx, run)
 }
 
 func buildPrompt(ctx context.Context, gl GuidelinesLoader, skillsList []skills.Metadata, format string) string {
+	return buildPromptWithInstructions(ctx, gl, skillsList, format, "")
+}
+
+func buildPromptWithInstructions(ctx context.Context, gl GuidelinesLoader, skillsList []skills.Metadata, format, instructions string) string {
 	var b strings.Builder
 	format = strings.ToLower(strings.TrimSpace(format))
 	skillsXML := ""
@@ -61,6 +65,11 @@ func buildPrompt(ctx context.Context, gl GuidelinesLoader, skillsList []skills.M
 			b.WriteString(g.Content)
 			b.WriteString("\n\n")
 		}
+	}
+	if instructions = strings.TrimSpace(instructions); instructions != "" {
+		b.WriteString("\n## Agent Instructions\n")
+		b.WriteString(instructions)
+		b.WriteString("\n\n")
 	}
 
 	if len(skillsList) > 0 && !isClaudeFormat(format) {

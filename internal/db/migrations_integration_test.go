@@ -39,6 +39,28 @@ func TestApplyMigrationsSetsSchemaVersion(t *testing.T) {
 	if legacyTableCount != 0 {
 		t.Fatalf("expected legacy tool_audit table to be dropped")
 	}
+	for _, column := range []string{"provider_id", "avatar_mode", "avatar_object_key", "avatar_mime_type", "reasoning_effort_override", "context_window_override"} {
+		var count int64
+		if err := gdb.Raw(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'agents' AND column_name = ?`, column).Scan(&count).Error; err != nil {
+			t.Fatalf("query agents.%s column: %v", column, err)
+		}
+		if count != 1 {
+			t.Fatalf("expected agents.%s column to exist", column)
+		}
+	}
+	for _, table := range []string{"providers", "agents", "agent_skills", "telegram_integrations"} {
+		var count int64
+		if err := gdb.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`, table).Scan(&count).Error; err != nil || count != 1 {
+			t.Fatalf("expected table %s to exist: count=%d err=%v", table, count, err)
+		}
+	}
+	var recentIndexCount int64
+	if err := gdb.Raw(`SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'sessions' AND index_name = 'idx_sessions_user_archived_updated'`).Scan(&recentIndexCount).Error; err != nil {
+		t.Fatalf("query recent sessions index: %v", err)
+	}
+	if recentIndexCount != 3 {
+		t.Fatalf("expected three columns in recent sessions index, got %d", recentIndexCount)
+	}
 	assertDeadSchemaRemoved(t, gdb)
 }
 
@@ -112,8 +134,35 @@ func createLegacyDeadSchema(t *testing.T, gdb *gorm.DB) {
 	t.Helper()
 	statements := []string{
 		`CREATE TABLE users (id BIGINT PRIMARY KEY, profile_json JSON)`,
-		`CREATE TABLE sessions (id BIGINT PRIMARY KEY, summary TEXT, status VARCHAR(16))`,
-		`CREATE TABLE session_summaries (id BIGINT PRIMARY KEY, source_entry_ids JSON)`,
+		`CREATE TABLE sessions (
+  id BIGINT PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  channel VARCHAR(32) NOT NULL,
+  summary TEXT,
+  status VARCHAR(16),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_user_channel (user_id, channel)
+)`,
+		`CREATE TABLE messages (
+  id BIGINT PRIMARY KEY,
+  session_id BIGINT NOT NULL,
+  role VARCHAR(16) NOT NULL,
+  content MEDIUMTEXT NOT NULL,
+  metadata_json JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL
+)`,
+		`CREATE TABLE session_summaries (
+  id BIGINT PRIMARY KEY,
+  session_id BIGINT NOT NULL,
+  entry_id BIGINT NOT NULL,
+  phase VARCHAR(64),
+  summary TEXT,
+  state_json JSON,
+  source_entry_ids JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`,
 		`CREATE TABLE app_config (id BIGINT PRIMARY KEY)`,
 	}
 	for _, stmt := range statements {

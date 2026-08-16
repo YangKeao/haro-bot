@@ -40,7 +40,11 @@ func (s *Session) runLoop(ctx context.Context, run *RunState, hooks MiddlewareSe
 			zap.Int("tool_calls", len(msg.ToolCalls)),
 		)
 		if len(msg.ToolCalls) == 0 {
-			if _, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "assistant", msg.Content, nil); err != nil {
+			var metadata *memory.MessageMetadata
+			if msg.ReasoningContent != "" {
+				metadata = &memory.MessageMetadata{ReasoningContent: msg.ReasoningContent}
+			}
+			if _, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "assistant", msg.Content, metadata); err != nil {
 				log.Error("store assistant failed", zap.Int64("session_id", s.id), zap.Error(err))
 				return "", err
 			}
@@ -55,7 +59,7 @@ func (s *Session) runLoop(ctx context.Context, run *RunState, hooks MiddlewareSe
 		if err := executeToolCallListeners(ctx, hooks.ToolCallListeners, turn, msg); err != nil {
 			return "", err
 		}
-		assistantEntryID, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "assistant", msg.Content, &memory.MessageMetadata{ToolCalls: msg.ToolCalls})
+		assistantEntryID, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "assistant", msg.Content, &memory.MessageMetadata{ToolCalls: msg.ToolCalls, ReasoningContent: msg.ReasoningContent})
 		if err != nil {
 			return "", err
 		}
@@ -67,6 +71,9 @@ func (s *Session) runLoop(ctx context.Context, run *RunState, hooks MiddlewareSe
 
 		toolMsgs, updatedSkill, err := s.deps.toolRunner.Run(ctx, s.id, s.deps.defaultBaseDir, turn.ActiveSkill, msg.ToolCalls)
 		if err != nil {
+			return "", err
+		}
+		if err := executeToolResultListeners(ctx, hooks.ToolResultListeners, turn, toolMsgs); err != nil {
 			return "", err
 		}
 		log.Debug("tool run completed", zap.Int("tool_messages", len(toolMsgs)))

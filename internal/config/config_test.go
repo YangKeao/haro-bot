@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-func TestLoadFromFileNormalizesPromptFormat(t *testing.T) {
+func TestLoadFromFileReadsLLMHTTPDebugFromLogConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	data := []byte(`[llm]
-prompt_format = "bogus-format"
+	data := []byte(`[log]
+llm_http_debug = true
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -20,7 +20,7 @@ prompt_format = "bogus-format"
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.LLMPromptFormat != PromptFormatOpenAI {
-		t.Fatalf("expected prompt format to normalize to openai, got: %v", cfg.LLMPromptFormat)
+	if !cfg.LLMHTTPDebug {
+		t.Fatal("expected log.llm_http_debug to enable LLM HTTP debug logging")
 	}
 }

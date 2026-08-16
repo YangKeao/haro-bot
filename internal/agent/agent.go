@@ -51,6 +51,16 @@ func (a *Agent) SetMiddleware(middleware MiddlewareSet) {
 	a.sessions.deps.middleware = middleware
 }
 
+func (a *Agent) SetProfile(instructions string, skillNames []string) {
+	a.sessions.deps.instructions = strings.TrimSpace(instructions)
+	a.sessions.deps.allowedSkills = make(map[string]struct{}, len(skillNames))
+	for _, name := range skillNames {
+		if name = strings.TrimSpace(name); name != "" {
+			a.sessions.deps.allowedSkills[name] = struct{}{}
+		}
+	}
+}
+
 func (a *Agent) SessionStatusWriter() SessionStatusWriter {
 	return a.stateManager
 }
@@ -63,6 +73,12 @@ func (a *Agent) HandleWithMiddleware(ctx context.Context, userID int64, channel 
 	return a.handleWithMiddleware(ctx, userID, channel, input, modelOverride, middleware)
 }
 
+func (a *Agent) HandleSessionWithMiddleware(ctx context.Context, userID, sessionID int64, channel, input string, metadata *memory.MessageMetadata, middleware MiddlewareSet) (string, error) {
+	session := a.sessions.Get(sessionID)
+	defer a.sessions.Release(sessionID)
+	return session.Handle(ctx, userID, channel, input, "", metadata, middleware)
+}
+
 func (a *Agent) handleWithMiddleware(ctx context.Context, userID int64, channel string, input string, modelOverride string, middleware MiddlewareSet) (string, error) {
 	log := logging.L().Named("agent")
 	sessionID, err := a.store.GetOrCreateSession(ctx, userID, channel)
@@ -72,7 +88,7 @@ func (a *Agent) handleWithMiddleware(ctx context.Context, userID int64, channel 
 	}
 	session := a.sessions.Get(sessionID)
 	defer a.sessions.Release(sessionID)
-	return session.Handle(ctx, userID, channel, input, modelOverride, middleware)
+	return session.Handle(ctx, userID, channel, input, modelOverride, nil, middleware)
 }
 
 // GetSessionStatus returns the current status of a session.
@@ -88,6 +104,7 @@ func (a *Agent) CancelSession(sessionID int64) bool {
 
 func toLLMMessage(m memory.Message) llm.Message {
 	llmMsg := llm.Message{Role: m.Role, Content: m.Content}
+	llmMsg.Images = append(llmMsg.Images, m.Images...)
 	if m.Metadata != nil {
 		if m.Metadata.ToolCallID != "" {
 			llmMsg.ToolCallID = m.Metadata.ToolCallID

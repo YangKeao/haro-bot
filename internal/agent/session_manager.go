@@ -22,6 +22,8 @@ type sessionDeps struct {
 	reasoning      llm.ReasoningConfig
 	tokenEstimator *llm.TokenEstimator
 	middleware     MiddlewareSet
+	instructions   string
+	allowedSkills  map[string]struct{}
 }
 
 type sessionManager struct {

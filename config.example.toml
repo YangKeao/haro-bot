@@ -1,20 +1,22 @@
 [server]
 addr = ":8080"
 
+[web]
+access_token = "replace-with-a-long-random-token"
+cookie_secure = false
+assets_dir = "./web/dist"
+
+[web.object_storage]
+endpoint = "127.0.0.1:9000"
+region = "us-east-1"
+bucket = "haro-bot"
+access_key = "minioadmin"
+secret_key = "minioadmin"
+use_ssl = false
+force_path_style = true
+
 [db]
 tidb_dsn = "root:@tcp(127.0.0.1:4000)/haro_bot?parseTime=true"
-
-[llm]
-base_url = "https://api.openai.com/v1"
-api_key = "sk-..."
-model = "gpt-4o-mini"
-prompt_format = "openai"
-reasoning_enabled = false
-reasoning_effort = ""
-http_debug = false
-context_window = 0
-auto_compact_token_limit = 0
-effective_context_window_percent = 95
 
 [telegram]
 token = ""
@@ -37,3 +39,4 @@ max_turns = 1024
 level = "info"
 development = false
 encoding = "json"
+llm_http_debug = false

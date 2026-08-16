@@ -13,7 +13,7 @@ import (
 // streamResult holds the result of streaming completion
 type streamResult struct {
 	completion       *openaisdk.ChatCompletion
-	reasoningContent string // Accumulated reasoning content (for GLM/DeepSeek)
+	reasoningContent string // Accumulated reasoning content or summary
 }
 
 func streamChatCompletion(ctx context.Context, client *openaisdk.Client, params openaisdk.ChatCompletionNewParams, handler llm.StreamHandler) (*streamResult, error) {
@@ -28,14 +28,14 @@ func streamChatCompletion(ctx context.Context, client *openaisdk.Client, params 
 
 	var acc openaisdk.ChatCompletionAccumulator
 
-	// Accumulate reasoning content separately since openai-go's Accumulator doesn't handle ExtraFields
+	// Accumulate reasoning separately since openai-go's Accumulator doesn't handle ExtraFields.
 	var reasoningBuilder strings.Builder
 
 	for stream.Next() {
 		chunk := stream.Current()
 		if handler != nil && len(chunk.Choices) > 0 {
 			for _, choice := range chunk.Choices {
-				// Handle reasoning content from ExtraFields (for models like GLM, DeepSeek)
+				// Handle OpenAI-compatible reasoning content from ExtraFields.
 				// Note: field.Valid() may return false for unknown fields, but Raw() still has the value
 				if field, ok := choice.Delta.JSON.ExtraFields["reasoning_content"]; ok {
 					raw := field.Raw()

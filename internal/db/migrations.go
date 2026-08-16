@@ -25,7 +25,7 @@ type migration struct {
 	stmts   []string
 }
 
-const currentSchemaVersion int64 = 14
+const currentSchemaVersion int64 = 18
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -42,6 +42,10 @@ var migrations = []migration{
 	{version: 12, stmts: dropToolAuditSQL},
 	{version: 13, stmts: dropLegacyMemoryTablesSQL},
 	{version: 14, stmts: dropDeadSchemaSQL},
+	{version: 15, stmts: addWebWorkspaceSQL},
+	{version: 16, stmts: addAgentAvatarsSQL},
+	{version: 17, stmts: addProvidersAndGenericAgentsSQL},
+	{version: 18, stmts: addRecentSessionsIndexSQL},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -193,6 +197,187 @@ var dropDeadSchemaSQL = []string{
 	`ALTER TABLE sessions DROP COLUMN IF EXISTS summary`,
 	`ALTER TABLE sessions DROP COLUMN IF EXISTS status`,
 	`ALTER TABLE session_summaries DROP COLUMN IF EXISTS source_entry_ids`,
+}
+
+var addWebWorkspaceSQL = []string{
+	`CREATE TABLE IF NOT EXISTS web_agents (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(128) NOT NULL,
+  description TEXT,
+  icon VARCHAR(32) NOT NULL DEFAULT 'sparkles',
+	  color VARCHAR(16) NOT NULL DEFAULT '#2563EB',
+  instructions LONGTEXT,
+  base_url TEXT NOT NULL,
+  api_key TEXT,
+  model VARCHAR(255) NOT NULL,
+  prompt_format VARCHAR(32) NOT NULL DEFAULT 'openai',
+  reasoning_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  reasoning_effort VARCHAR(32) NOT NULL DEFAULT '',
+  context_window INT NOT NULL DEFAULT 0,
+  auto_compact_token_limit INT NOT NULL DEFAULT 0,
+  effective_context_window_percent INT NOT NULL DEFAULT 95,
+  archived_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_web_agents_archived (archived_at)
+)`,
+	`CREATE TABLE IF NOT EXISTS web_agent_skills (
+  agent_id BIGINT NOT NULL,
+  skill_name VARCHAR(128) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (agent_id, skill_name),
+  FOREIGN KEY (agent_id) REFERENCES web_agents(id)
+)`,
+	`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS agent_id BIGINT NULL AFTER user_id`,
+	`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS title VARCHAR(255) NOT NULL DEFAULT '' AFTER channel`,
+	`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP NULL AFTER title`,
+	`CREATE INDEX IF NOT EXISTS idx_sessions_agent_archived_updated ON sessions (agent_id, archived_at, updated_at)`,
+	`CREATE TABLE IF NOT EXISTS attachments (
+  id VARCHAR(36) PRIMARY KEY,
+  session_id BIGINT NOT NULL,
+  message_id BIGINT NULL,
+  object_key VARCHAR(512) NOT NULL,
+  original_name VARCHAR(255) NOT NULL,
+  mime_type VARCHAR(64) NOT NULL,
+  size_bytes BIGINT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL,
+  UNIQUE KEY uniq_attachments_object_key (object_key),
+  INDEX idx_attachments_session_message (session_id, message_id),
+  INDEX idx_attachments_orphan (message_id, created_at),
+  FOREIGN KEY (session_id) REFERENCES sessions(id),
+  FOREIGN KEY (message_id) REFERENCES messages(id)
+)`,
+}
+
+var addAgentAvatarsSQL = []string{
+	`ALTER TABLE web_agents ADD COLUMN IF NOT EXISTS avatar_mode VARCHAR(16) NOT NULL DEFAULT 'icon' AFTER color`,
+	`ALTER TABLE web_agents ADD COLUMN IF NOT EXISTS avatar_object_key VARCHAR(512) NOT NULL DEFAULT '' AFTER avatar_mode`,
+	`ALTER TABLE web_agents ADD COLUMN IF NOT EXISTS avatar_mime_type VARCHAR(64) NOT NULL DEFAULT '' AFTER avatar_object_key`,
+	`ALTER TABLE web_agents MODIFY COLUMN color VARCHAR(16) NOT NULL DEFAULT '#2563EB'`,
+}
+
+var addProvidersAndGenericAgentsSQL = []string{
+	`DROP TABLE IF EXISTS attachments`,
+	`DROP TABLE IF EXISTS session_summaries`,
+	`DROP TABLE IF EXISTS messages`,
+	`DROP TABLE IF EXISTS sessions`,
+	`DROP TABLE IF EXISTS telegram_integrations`,
+	`DROP TABLE IF EXISTS agent_skills`,
+	`DROP TABLE IF EXISTS agents`,
+	`DROP TABLE IF EXISTS web_agent_skills`,
+	`DROP TABLE IF EXISTS web_agents`,
+	`DROP TABLE IF EXISTS providers`,
+	`CREATE TABLE providers (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(128) NOT NULL,
+  base_url TEXT NOT NULL,
+  api_key TEXT,
+  prompt_format VARCHAR(32) NOT NULL DEFAULT 'openai',
+  model_catalog_json LONGTEXT,
+  models_fetched_at TIMESTAMP NULL,
+  models_last_error TEXT,
+  archived_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_providers_name (name),
+  INDEX idx_providers_archived (archived_at)
+)`,
+	`CREATE TABLE agents (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  provider_id BIGINT NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  description TEXT,
+  icon VARCHAR(32) NOT NULL DEFAULT 'sparkles',
+  color VARCHAR(16) NOT NULL DEFAULT '#2563EB',
+  avatar_mode VARCHAR(16) NOT NULL DEFAULT 'icon',
+  avatar_object_key VARCHAR(512) NOT NULL DEFAULT '',
+  avatar_mime_type VARCHAR(64) NOT NULL DEFAULT '',
+  instructions LONGTEXT,
+  model VARCHAR(255) NOT NULL,
+  reasoning_effort_override VARCHAR(64) NULL,
+  context_window_override INT NULL,
+  auto_compact_token_limit_override INT NULL,
+  effective_context_window_percent INT NOT NULL DEFAULT 95,
+  archived_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_agents_provider (provider_id),
+  INDEX idx_agents_archived (archived_at),
+  FOREIGN KEY (provider_id) REFERENCES providers(id)
+)`,
+	`CREATE TABLE agent_skills (
+  agent_id BIGINT NOT NULL,
+  skill_name VARCHAR(128) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (agent_id, skill_name),
+  FOREIGN KEY (agent_id) REFERENCES agents(id)
+)`,
+	`CREATE TABLE sessions (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  agent_id BIGINT NULL,
+  channel VARCHAR(64) NOT NULL,
+  title VARCHAR(255) NOT NULL DEFAULT '',
+  archived_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_sessions_agent_archived_updated (agent_id, archived_at, updated_at),
+  INDEX idx_sessions_user_channel (user_id, channel),
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (agent_id) REFERENCES agents(id)
+)`,
+	`CREATE TABLE messages (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  session_id BIGINT NOT NULL,
+  role VARCHAR(16) NOT NULL,
+  content MEDIUMTEXT NOT NULL,
+  metadata_json JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL,
+  INDEX idx_session_created (session_id, created_at),
+  INDEX idx_messages_session_deleted (session_id, deleted_at),
+  FOREIGN KEY (session_id) REFERENCES sessions(id)
+)`,
+	`CREATE TABLE session_summaries (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  session_id BIGINT NOT NULL,
+  entry_id BIGINT NOT NULL,
+  phase VARCHAR(64) DEFAULT '',
+  summary TEXT,
+  state_json JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_session_summaries_session (session_id, id),
+  INDEX idx_session_summaries_entry (session_id, entry_id),
+  FOREIGN KEY (session_id) REFERENCES sessions(id)
+)`,
+	`CREATE TABLE attachments (
+  id VARCHAR(36) PRIMARY KEY,
+  session_id BIGINT NOT NULL,
+  message_id BIGINT NULL,
+  object_key VARCHAR(512) NOT NULL,
+  original_name VARCHAR(255) NOT NULL,
+  mime_type VARCHAR(64) NOT NULL,
+  size_bytes BIGINT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL,
+  UNIQUE KEY uniq_attachments_object_key (object_key),
+  INDEX idx_attachments_session_message (session_id, message_id),
+  INDEX idx_attachments_orphan (message_id, created_at),
+  FOREIGN KEY (session_id) REFERENCES sessions(id),
+  FOREIGN KEY (message_id) REFERENCES messages(id)
+)`,
+	`CREATE TABLE telegram_integrations (
+  id BIGINT PRIMARY KEY,
+  agent_id BIGINT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (agent_id) REFERENCES agents(id)
+)`,
+}
+
+var addRecentSessionsIndexSQL = []string{
+	`CREATE INDEX IF NOT EXISTS idx_sessions_user_archived_updated ON sessions (user_id, archived_at, updated_at)`,
 }
 
 var addMessageSoftDeleteSQL = []string{
