@@ -169,7 +169,7 @@ npm run test:e2e
 npm run build
 ```
 
-Build the complete production image with `docker build .`. The Dockerfile builds the Vite assets before compiling the Go server. The Docker workflow publishes both `haro-bot` and `haro-bot-sandbox` images to GHCR.
+Build the complete production image with `docker build .`. The Dockerfile builds the Vite assets before compiling the Go server. The Docker workflow publishes both `haro-bot` and `haro-bot-sandbox` images to GHCR. After a successful `master` build, it pins both new digests in `YangKeao/homelab`, opens a deployment PR, and squash-merges it when GitHub reports no conflicts. Configure the haro-bot Actions secret `HOMELAB_TOKEN` with a fine-grained token limited to the homelab repository and grant only Contents and Pull requests read/write access.
 
 ## License
 

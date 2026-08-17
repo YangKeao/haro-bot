@@ -59,6 +59,7 @@ jobs:
             type=sha
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -68,3 +69,162 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Save image digest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/image-digests"
+          printf '%s\n' '${{ steps.build.outputs.digest }}' > "${RUNNER_TEMP}/image-digests/${{ matrix.name }}"
+
+      - name: Upload image digest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.name }}
+          path: ${{ runner.temp }}/image-digests/${{ matrix.name }}
+          retention-days: 1
+
+  update-homelab:
+    name: Update homelab deployment
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    concurrency:
+      group: haro-bot-homelab-deployment
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ secrets.HOMELAB_TOKEN }}
+    steps:
+      - name: Check source revision is still current
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/master" --jq '.sha')"
+          if [[ "${GITHUB_SHA}" != "${latest_sha}" ]]; then
+            echo 'current=false' >> "${GITHUB_OUTPUT}"
+            echo "Skipped stale deployment ${GITHUB_SHA:0:12}; latest master is ${latest_sha:0:12}." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          echo 'current=true' >> "${GITHUB_OUTPUT}"
+
+      - name: Check homelab credentials
+        if: steps.source.outputs.current == 'true'
+        shell: bash
+        run: |
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "::error::HOMELAB_TOKEN is required. Use a fine-grained token scoped to YangKeao/homelab with Contents and Pull requests read/write permissions."
+            exit 1
+          fi
+
+      - name: Download image digests
+        if: steps.source.outputs.current == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: ${{ runner.temp }}/image-digests
+          merge-multiple: true
+
+      - name: Checkout homelab repository
+        if: steps.source.outputs.current == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: YangKeao/homelab
+          ref: master
+          token: ${{ secrets.HOMELAB_TOKEN }}
+          path: homelab
+          fetch-depth: 0
+
+      - name: Update immutable image references
+        if: steps.source.outputs.current == 'true'
+        id: update
+        working-directory: homelab
+        shell: bash
+        run: |
+          set -euo pipefail
+          bot_digest="$(tr -d '\r\n' < "${RUNNER_TEMP}/image-digests/haro-bot")"
+          sandbox_digest="$(tr -d '\r\n' < "${RUNNER_TEMP}/image-digests/haro-bot-sandbox")"
+          digest_pattern='sha256:[0-9a-f]{64}'
+          if [[ ! "${bot_digest}" =~ ^${digest_pattern}$ || ! "${sandbox_digest}" =~ ^${digest_pattern}$ ]]; then
+            echo "::error::The Docker build did not produce valid image digests."
+            exit 1
+          fi
+
+          deployment='infrastructure/haro-bot/deployment.yaml'
+          bot_image="ghcr.io/yangkeao/haro-bot@${bot_digest}"
+          sandbox_image="ghcr.io/yangkeao/haro-bot-sandbox@${sandbox_digest}"
+          sed -E -i \
+            -e "s#ghcr.io/yangkeao/haro-bot@sha256:[0-9a-f]{64}#${bot_image}#g" \
+            -e "s#ghcr.io/yangkeao/haro-bot-sandbox@sha256:[0-9a-f]{64}#${sandbox_image}#g" \
+            "${deployment}"
+
+          if [[ "$(grep -Fc "${bot_image}" "${deployment}")" -ne 1 ]]; then
+            echo "::error::Expected exactly one haro-bot image reference in ${deployment}."
+            exit 1
+          fi
+          if [[ "$(grep -Fc "${sandbox_image}" "${deployment}")" -ne 2 ]]; then
+            echo "::error::Expected exactly two haro-bot-sandbox image references in ${deployment}."
+            exit 1
+          fi
+
+          if git diff --quiet -- "${deployment}"; then
+            echo 'changed=false' >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          branch="deploy/haro-bot-${GITHUB_SHA:0:12}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "${branch}"
+          git add "${deployment}"
+          git commit -m "Deploy haro-bot ${GITHUB_SHA:0:12}"
+          git push --force origin "HEAD:refs/heads/${branch}"
+          echo 'changed=true' >> "${GITHUB_OUTPUT}"
+          echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
+          echo "bot_digest=${bot_digest}" >> "${GITHUB_OUTPUT}"
+          echo "sandbox_digest=${sandbox_digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create deployment pull request
+        if: steps.source.outputs.current == 'true' && steps.update.outputs.changed == 'true'
+        id: pull-request
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch='${{ steps.update.outputs.branch }}'
+          pr_url="$(gh pr list --repo YangKeao/homelab --state open --head "${branch}" --json url --jq '.[0].url // empty')"
+          if [[ -z "${pr_url}" ]]; then
+            body="$(printf 'Automated deployment from [YangKeao/haro-bot@%s](https://github.com/YangKeao/haro-bot/commit/%s).\n\n- haro-bot: `%s`\n- haro-bot-sandbox: `%s`' "${GITHUB_SHA:0:12}" "${GITHUB_SHA}" '${{ steps.update.outputs.bot_digest }}' '${{ steps.update.outputs.sandbox_digest }}')"
+            pr_url="$(gh pr create --repo YangKeao/homelab --base master --head "${branch}" --title "Deploy haro-bot ${GITHUB_SHA:0:12}" --body "${body}")"
+          fi
+          echo "url=${pr_url}" >> "${GITHUB_OUTPUT}"
+          echo "Deployment PR: ${pr_url}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Merge conflict-free deployment pull request
+        if: steps.source.outputs.current == 'true' && steps.update.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_url='${{ steps.pull-request.outputs.url }}'
+          mergeable='UNKNOWN'
+          for _ in $(seq 1 30); do
+            mergeable="$(gh pr view "${pr_url}" --repo YangKeao/homelab --json mergeable --jq '.mergeable')"
+            [[ "${mergeable}" != 'UNKNOWN' ]] && break
+            sleep 2
+          done
+          if [[ "${mergeable}" == 'CONFLICTING' ]]; then
+            echo "PR has conflicts and was left open: ${pr_url}" | tee -a "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          if [[ "${mergeable}" != 'MERGEABLE' ]]; then
+            echo "::error::GitHub did not determine mergeability for ${pr_url}. The PR was left open."
+            exit 1
+          fi
+          gh pr merge "${pr_url}" --repo YangKeao/homelab --squash --delete-branch
+          echo "Merged deployment PR: ${pr_url}" >> "${GITHUB_STEP_SUMMARY}"
