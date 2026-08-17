@@ -25,7 +25,7 @@ type migration struct {
 	stmts   []string
 }
 
-const currentSchemaVersion int64 = 19
+const currentSchemaVersion int64 = 20
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -47,6 +47,7 @@ var migrations = []migration{
 	{version: 17, stmts: addProvidersAndGenericAgentsSQL},
 	{version: 18, stmts: addRecentSessionsIndexSQL},
 	{version: 19, stmts: addSandboxesSQL},
+	{version: 20, stmts: addSandboxRunTTYSQL},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -440,6 +441,10 @@ var addSandboxesSQL = []string{
   FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 )`,
+}
+
+var addSandboxRunTTYSQL = []string{
+	`ALTER TABLE sandbox_runs ADD COLUMN tty TINYINT(1) NOT NULL DEFAULT 0 AFTER command`,
 }
 
 var addMessageSoftDeleteSQL = []string{

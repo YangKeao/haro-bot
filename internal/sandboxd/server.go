@@ -23,6 +23,7 @@ import (
 const (
 	maxLogBytes         = 1 << 20
 	maxListOutputBytes  = 8 << 10
+	maxActiveProcesses  = 64
 	maxTrackedProcesses = 256
 )
 
@@ -37,6 +38,7 @@ type Server struct {
 
 type managedProcess struct {
 	mu              sync.Mutex
+	interactionMu   sync.Mutex
 	info            sandbox.Process
 	command         *exec.Cmd
 	stdin           io.WriteCloser
@@ -45,6 +47,8 @@ type managedProcess struct {
 	log             []byte
 	logOffset       int64
 	outputTruncated bool
+	unread          []byte
+	unreadDropped   int
 }
 
 func New(workspace, token string) (*Server, error) {
@@ -105,11 +109,12 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	if len(s.processes)+len(s.pending) >= maxTrackedProcesses {
+	if s.activeProcessCountLocked()+len(s.pending) >= maxActiveProcesses {
 		s.mu.Unlock()
-		writeError(w, http.StatusTooManyRequests, "sandbox process history limit reached; apply/restart the Sandbox to start a fresh runtime")
+		writeError(w, http.StatusTooManyRequests, "sandbox active process limit reached")
 		return
 	}
+	s.pruneCompletedLocked(maxTrackedProcesses - 1)
 	_, running := s.processes[input.ID]
 	_, pending := s.pending[input.ID]
 	if running || pending {
@@ -128,18 +133,17 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	canceled := false
 	if !input.Background {
-		yield := time.Duration(input.YieldTimeMS) * time.Millisecond
-		if yield <= 0 {
-			yield = 10 * time.Second
-		}
+		yield := time.Duration(sandbox.ExecYieldTimeMS(input.YieldTimeMS)) * time.Millisecond
 		select {
 		case <-process.done:
 		case <-time.After(yield):
 		case <-r.Context().Done():
+			canceled = true
 		}
 	}
-	writeJSON(w, http.StatusCreated, process.snapshot())
+	writeJSON(w, http.StatusCreated, process.interactionSnapshot(!canceled))
 }
 
 func (s *Server) start(input sandbox.ExecRequest) (*managedProcess, error) {
@@ -147,11 +151,24 @@ func (s *Server) start(input sandbox.ExecRequest) (*managedProcess, error) {
 	if err != nil {
 		return nil, err
 	}
-	command := exec.Command("/bin/sh", "-lc", input.Command)
+	shell := strings.TrimSpace(input.Shell)
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	login := true
+	if input.Login != nil {
+		login = *input.Login
+	}
+	flag := "-c"
+	if login {
+		flag = "-lc"
+	}
+	command := exec.Command(shell, flag, input.Command)
 	command.Dir = workdir
 	command.Env = buildEnvironment(input.Environment, s.workspace, input.TTY)
+	tty := input.TTY
 	process := &managedProcess{
-		info:    sandbox.Process{ID: input.ID, AgentID: input.AgentID, SessionID: input.SessionID, Command: input.Command, Status: sandbox.RunStarting, StartedAt: time.Now().UTC()},
+		info:    sandbox.Process{ID: input.ID, AgentID: input.AgentID, SessionID: input.SessionID, Command: input.Command, TTY: &tty, Status: sandbox.RunStarting, StartedAt: time.Now().UTC()},
 		command: command, done: make(chan struct{}),
 	}
 	if input.TTY {
@@ -200,6 +217,42 @@ func (s *Server) register(process *managedProcess) {
 	s.mu.Unlock()
 }
 
+func (s *Server) activeProcessCountLocked() int {
+	count := 0
+	for _, process := range s.processes {
+		process.mu.Lock()
+		status := process.info.Status
+		process.mu.Unlock()
+		if status == sandbox.RunStarting || status == sandbox.RunRunning {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *Server) pruneCompletedLocked(target int) {
+	for len(s.processes) > target {
+		var oldestID string
+		var oldest time.Time
+		for id, process := range s.processes {
+			process.mu.Lock()
+			status := process.info.Status
+			started := process.info.StartedAt
+			process.mu.Unlock()
+			if status == sandbox.RunStarting || status == sandbox.RunRunning {
+				continue
+			}
+			if oldestID == "" || started.Before(oldest) {
+				oldestID, oldest = id, started
+			}
+		}
+		if oldestID == "" {
+			return
+		}
+		delete(s.processes, oldestID)
+	}
+}
+
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	var sessionID int64
 	if value := r.URL.Query().Get("session_id"); value != "" {
@@ -241,28 +294,43 @@ func (s *Server) handleStdin(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
+	process.interactionMu.Lock()
+	defer process.interactionMu.Unlock()
 	process.mu.Lock()
-	stdin := process.stdin
-	status := process.info.Status
+	stdin, status, ttyValue, pid := process.stdin, process.info.Status, process.info.TTY, process.info.PID
 	process.mu.Unlock()
-	if status != sandbox.RunRunning || stdin == nil {
-		writeError(w, http.StatusConflict, "process is not running")
-		return
-	}
+	tty := ttyValue != nil && *ttyValue
 	if input.Chars != "" {
-		if _, err := io.WriteString(stdin, input.Chars); err != nil {
+		if status != sandbox.RunRunning || stdin == nil {
+			writeError(w, http.StatusConflict, "process is not running")
+			return
+		}
+		var err error
+		if !tty && input.Chars == "\x03" {
+			err = syscall.Kill(-int(pid), syscall.SIGINT)
+			if errors.Is(err, syscall.ESRCH) {
+				err = nil
+			}
+		} else if !tty {
+			writeError(w, http.StatusConflict, "stdin is only available for TTY processes; send \\u0003 to interrupt")
+			return
+		} else {
+			_, err = io.WriteString(stdin, input.Chars)
+		}
+		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return
 		}
 	}
-	if input.YieldTimeMS > 0 {
-		select {
-		case <-process.done:
-		case <-time.After(time.Duration(input.YieldTimeMS) * time.Millisecond):
-		case <-r.Context().Done():
-		}
+	canceled := false
+	yield := sandbox.StdinYieldTimeMS(input.Chars, input.YieldTimeMS, input.MaxYieldTimeMS)
+	select {
+	case <-process.done:
+	case <-time.After(time.Duration(yield) * time.Millisecond):
+	case <-r.Context().Done():
+		canceled = true
 	}
-	writeJSON(w, http.StatusOK, process.snapshot())
+	writeJSON(w, http.StatusOK, process.interactionSnapshot(!canceled))
 }
 
 func (s *Server) handleSignal(w http.ResponseWriter, r *http.Request) {
@@ -347,11 +415,17 @@ func (p *managedProcess) read(reader io.Reader) {
 func (p *managedProcess) appendLog(value []byte) {
 	p.mu.Lock()
 	p.log = append(p.log, value...)
+	p.unread = append(p.unread, value...)
 	if len(p.log) > maxLogBytes {
 		drop := len(p.log) - maxLogBytes
 		p.log = append([]byte(nil), p.log[drop:]...)
 		p.logOffset += int64(drop)
 		p.outputTruncated = true
+	}
+	if len(p.unread) > maxLogBytes {
+		drop := len(p.unread) - maxLogBytes
+		p.unread = append([]byte(nil), p.unread[drop:]...)
+		p.unreadDropped += drop
 	}
 	p.mu.Unlock()
 }
@@ -396,6 +470,21 @@ func (p *managedProcess) snapshot() sandbox.Process {
 	}
 	result.MemoryBytes = processMemoryBytes(result.PID)
 	result.CPUPercent = processCPUPercent(result.PID, result.DurationMillis)
+	return result
+}
+
+func (p *managedProcess) interactionSnapshot(drain bool) sandbox.Process {
+	result := p.snapshot()
+	p.mu.Lock()
+	result.InteractionOutput = string(append([]byte(nil), p.unread...))
+	result.InteractionOutputAvailable = true
+	result.InteractionOutputTruncated = p.unreadDropped > 0
+	result.InteractionOriginalBytes = len(p.unread) + p.unreadDropped
+	if drain {
+		p.unread = nil
+		p.unreadDropped = 0
+	}
+	p.mu.Unlock()
 	return result
 }
 

@@ -216,7 +216,8 @@ export interface SandboxProcess {
   agent_id: number
   session_id: number
   command: string
-  status: 'starting' | 'running' | 'exited' | 'failed'
+  tty?: boolean
+  status: 'starting' | 'running' | 'exited' | 'failed' | 'lost'
   pid?: number
   exit_code?: number
   started_at: string

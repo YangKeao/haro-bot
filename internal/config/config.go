@@ -36,26 +36,27 @@ type ObjectStorageConfig struct {
 }
 
 type SandboxConfig struct {
-	Enabled                    bool
-	Namespace                  string
-	RuntimeClass               string
-	DefaultImage               string
-	HelperImage                string
-	StorageClass               string
-	KubeAPIURL                 string
-	KubeTokenFile              string
-	KubeCAFile                 string
-	EncryptionKey              string
-	DefaultCPULimitMillis      int
-	DefaultMemoryLimitMiB      int
-	DefaultEphemeralStorageMiB int
-	DefaultWorkspaceStorageMiB int
-	MaxCPULimitMillis          int
-	MaxMemoryLimitMiB          int
-	MaxEphemeralStorageMiB     int
-	MaxWorkspaceStorageMiB     int
-	MaxRunning                 int
-	RuntimePort                int
+	Enabled                        bool
+	Namespace                      string
+	RuntimeClass                   string
+	DefaultImage                   string
+	HelperImage                    string
+	StorageClass                   string
+	KubeAPIURL                     string
+	KubeTokenFile                  string
+	KubeCAFile                     string
+	EncryptionKey                  string
+	DefaultCPULimitMillis          int
+	DefaultMemoryLimitMiB          int
+	DefaultEphemeralStorageMiB     int
+	DefaultWorkspaceStorageMiB     int
+	MaxCPULimitMillis              int
+	MaxMemoryLimitMiB              int
+	MaxEphemeralStorageMiB         int
+	MaxWorkspaceStorageMiB         int
+	MaxRunning                     int
+	RuntimePort                    int
+	BackgroundTerminalMaxTimeoutMS int
 }
 
 // Config is the runtime configuration loaded from file.
@@ -112,25 +113,26 @@ type fileConfig struct {
 		} `toml:"object_storage"`
 	} `toml:"web"`
 	Sandbox struct {
-		Enabled                    bool   `toml:"enabled"`
-		Namespace                  string `toml:"namespace"`
-		RuntimeClass               string `toml:"runtime_class"`
-		DefaultImage               string `toml:"default_image"`
-		HelperImage                string `toml:"helper_image"`
-		StorageClass               string `toml:"storage_class"`
-		KubeAPIURL                 string `toml:"kube_api_url"`
-		KubeTokenFile              string `toml:"kube_token_file"`
-		KubeCAFile                 string `toml:"kube_ca_file"`
-		DefaultCPULimitMillis      int    `toml:"default_cpu_limit_millis"`
-		DefaultMemoryLimitMiB      int    `toml:"default_memory_limit_mib"`
-		DefaultEphemeralStorageMiB int    `toml:"default_ephemeral_storage_mib"`
-		DefaultWorkspaceStorageMiB int    `toml:"default_workspace_storage_mib"`
-		MaxCPULimitMillis          int    `toml:"max_cpu_limit_millis"`
-		MaxMemoryLimitMiB          int    `toml:"max_memory_limit_mib"`
-		MaxEphemeralStorageMiB     int    `toml:"max_ephemeral_storage_mib"`
-		MaxWorkspaceStorageMiB     int    `toml:"max_workspace_storage_mib"`
-		MaxRunning                 int    `toml:"max_running"`
-		RuntimePort                int    `toml:"runtime_port"`
+		Enabled                        bool   `toml:"enabled"`
+		Namespace                      string `toml:"namespace"`
+		RuntimeClass                   string `toml:"runtime_class"`
+		DefaultImage                   string `toml:"default_image"`
+		HelperImage                    string `toml:"helper_image"`
+		StorageClass                   string `toml:"storage_class"`
+		KubeAPIURL                     string `toml:"kube_api_url"`
+		KubeTokenFile                  string `toml:"kube_token_file"`
+		KubeCAFile                     string `toml:"kube_ca_file"`
+		DefaultCPULimitMillis          int    `toml:"default_cpu_limit_millis"`
+		DefaultMemoryLimitMiB          int    `toml:"default_memory_limit_mib"`
+		DefaultEphemeralStorageMiB     int    `toml:"default_ephemeral_storage_mib"`
+		DefaultWorkspaceStorageMiB     int    `toml:"default_workspace_storage_mib"`
+		MaxCPULimitMillis              int    `toml:"max_cpu_limit_millis"`
+		MaxMemoryLimitMiB              int    `toml:"max_memory_limit_mib"`
+		MaxEphemeralStorageMiB         int    `toml:"max_ephemeral_storage_mib"`
+		MaxWorkspaceStorageMiB         int    `toml:"max_workspace_storage_mib"`
+		MaxRunning                     int    `toml:"max_running"`
+		RuntimePort                    int    `toml:"runtime_port"`
+		BackgroundTerminalMaxTimeoutMS int    `toml:"background_terminal_max_timeout_ms"`
 	} `toml:"sandbox"`
 }
 
@@ -198,6 +200,7 @@ func defaultFileConfig() fileConfig {
 	rec.Sandbox.MaxWorkspaceStorageMiB = 102400
 	rec.Sandbox.MaxRunning = 10
 	rec.Sandbox.RuntimePort = 8888
+	rec.Sandbox.BackgroundTerminalMaxTimeoutMS = 300000
 	return rec
 }
 
@@ -245,6 +248,7 @@ func (r fileConfig) withDefaults() fileConfig {
 	r.Sandbox.MaxWorkspaceStorageMiB = intDefault(r.Sandbox.MaxWorkspaceStorageMiB, def.Sandbox.MaxWorkspaceStorageMiB)
 	r.Sandbox.MaxRunning = intDefault(r.Sandbox.MaxRunning, def.Sandbox.MaxRunning)
 	r.Sandbox.RuntimePort = intDefault(r.Sandbox.RuntimePort, def.Sandbox.RuntimePort)
+	r.Sandbox.BackgroundTerminalMaxTimeoutMS = intDefault(r.Sandbox.BackgroundTerminalMaxTimeoutMS, def.Sandbox.BackgroundTerminalMaxTimeoutMS)
 	return r
 }
 
@@ -298,6 +302,7 @@ func (r fileConfig) toConfig() Config {
 			MaxCPULimitMillis: r.Sandbox.MaxCPULimitMillis, MaxMemoryLimitMiB: r.Sandbox.MaxMemoryLimitMiB,
 			MaxEphemeralStorageMiB: r.Sandbox.MaxEphemeralStorageMiB, MaxWorkspaceStorageMiB: r.Sandbox.MaxWorkspaceStorageMiB,
 			MaxRunning: r.Sandbox.MaxRunning, RuntimePort: r.Sandbox.RuntimePort,
+			BackgroundTerminalMaxTimeoutMS: envInt("HARO_SANDBOX_BACKGROUND_TERMINAL_MAX_TIMEOUT_MS", r.Sandbox.BackgroundTerminalMaxTimeoutMS),
 		},
 	}
 }
@@ -309,6 +314,18 @@ func envBool(name string, def bool) bool {
 	}
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
+		return def
+	}
+	return parsed
+}
+
+func envInt(name string, def int) int {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return def
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
 		return def
 	}
 	return parsed

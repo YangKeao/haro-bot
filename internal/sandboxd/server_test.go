@@ -31,6 +31,9 @@ func TestServerExecutesInWorkspaceWithAgentEnvironment(t *testing.T) {
 	if process.Status != sandbox.RunExited || process.ExitCode == nil || *process.ExitCode != 0 {
 		t.Fatalf("unexpected process: %#v", process)
 	}
+	if process.TTY == nil || *process.TTY {
+		t.Fatalf("non-TTY mode was not preserved: %#v", process.TTY)
+	}
 	if !strings.Contains(process.Output, "database.internal:") || !strings.Contains(process.Output, runtime.workspace) {
 		t.Fatalf("environment or workspace missing from %q", process.Output)
 	}
@@ -61,8 +64,42 @@ func TestServerDrainsTTYOutputBeforeExit(t *testing.T) {
 	if process.Status != sandbox.RunExited || process.ExitCode == nil || *process.ExitCode != 0 {
 		t.Fatalf("unexpected TTY process: %#v", process)
 	}
+	if process.TTY == nil || !*process.TTY {
+		t.Fatalf("TTY mode was not preserved: %#v", process.TTY)
+	}
 	if !strings.Contains(process.Output, "tty-output") {
 		t.Fatalf("TTY output was not drained: %q", process.Output)
+	}
+}
+
+func TestServerReturnsOnlyUnreadOutputForEachInteraction(t *testing.T) {
+	runtime, err := New(t.TempDir(), "test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(runtime.Handler())
+	t.Cleanup(server.Close)
+
+	input := sandbox.ExecRequest{ID: "incremental", AgentID: 1, SessionID: 1, Command: "printf first; sleep 0.5; printf second", YieldTimeMS: 250}
+	var first sandbox.Process
+	requestJSON(t, server.URL+"/v1/processes", "test-token", input, http.StatusCreated, &first)
+	if !first.InteractionOutputAvailable || first.InteractionOutput != "first" || first.Status != sandbox.RunRunning {
+		t.Fatalf("unexpected initial interaction: %#v", first)
+	}
+
+	var second sandbox.Process
+	requestJSON(t, server.URL+"/v1/processes/incremental/stdin", "test-token", sandbox.StdinRequest{YieldTimeMS: 1}, http.StatusOK, &second)
+	if second.Status != sandbox.RunExited || second.InteractionOutput != "second" {
+		t.Fatalf("unexpected second interaction: %#v", second)
+	}
+	if second.Output != first.InteractionOutput+second.InteractionOutput {
+		t.Fatalf("cumulative output %q does not match interactions", second.Output)
+	}
+
+	var final sandbox.Process
+	requestJSON(t, server.URL+"/v1/processes/incremental/stdin", "test-token", sandbox.StdinRequest{}, http.StatusOK, &final)
+	if !final.InteractionOutputAvailable || final.InteractionOutput != "" {
+		t.Fatalf("terminal poll repeated output: %#v", final)
 	}
 }
 

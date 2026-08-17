@@ -64,9 +64,16 @@ const sandboxConfig = {
 
 const sandboxProcess = {
 	id: 'process-1', sandbox_id: 1, agent_id: 1, session_id: 10,
-	command: 'python3 analyze.py --database sales', status: 'running', pid: 42,
+	command: 'python3 analyze.py --database sales', tty: false, status: 'running', pid: 42,
 	started_at: '2026-08-14T01:00:00Z', duration_millis: 15342,
 	cpu_percent: 12.4, memory_bytes: 73400320, output: 'Connected to MySQL\nProcessed 4,200 rows\n',
+}
+
+const finishedProcess = {
+	id: 'process-2', sandbox_id: 1, agent_id: 1, session_id: 10,
+	command: 'printf complete', status: 'exited', pid: 43, exit_code: 0,
+	started_at: '2026-08-14T01:00:00Z', finished_at: '2026-08-14T01:00:00Z', duration_millis: 42,
+	cpu_percent: 0, memory_bytes: 0, output: 'complete',
 }
 
 const modelCatalog = {
@@ -156,10 +163,12 @@ async function mockAPI(page: Page, initiallyAuthenticated = false) {
     if (path === '/api/v1/sessions/10/messages') {
       return route.fulfill({ json: { messages: [
         { id: 1, session_id: 10, role: 'user', content: 'Summarize the market signals.', created_at: '2026-08-14T01:00:00Z' },
-        { id: 2, session_id: 10, role: 'assistant', content: 'The strongest signal is sustained demand with moderating growth.', created_at: '2026-08-14T01:01:00Z' },
+		{ id: 2, session_id: 10, role: 'assistant', content: '', metadata: { tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'exec_command', arguments: '{"cmd":"printf complete"}' } }] }, created_at: '2026-08-14T01:00:30Z' },
+		{ id: 3, session_id: 10, role: 'tool', content: 'Process ID: process-2\nStatus: exited\nWall time: 0.0420 seconds\nProcess exited with code 0\nOutput:\ncomplete', metadata: { tool_call_id: 'call-1', status: 'ok' }, created_at: '2026-08-14T01:00:31Z' },
+		{ id: 4, session_id: 10, role: 'assistant', content: 'The strongest signal is sustained demand with moderating growth.', created_at: '2026-08-14T01:01:00Z' },
       ] } })
     }
-		if (path === '/api/v1/sessions/10/processes') return route.fulfill({ json: { processes: [sandboxProcess] } })
+		if (path === '/api/v1/sessions/10/processes') return route.fulfill({ json: { processes: [sandboxProcess, finishedProcess] } })
 		if (path === '/api/v1/processes/process-1/signal' || path === '/api/v1/processes/process-1/stdin') return route.fulfill({ json: sandboxProcess })
 		if (path === '/api/v1/sessions/11/messages') return route.fulfill({ json: { messages: [] } })
 		if (path === '/api/v1/skills') return route.fulfill({ json: { skills: [{ name: 'web-search', description: 'Search public sources', version: '1', hash: 'abc' }] } })
@@ -260,9 +269,15 @@ test('manages persistent sandboxes and exposes session processes', async ({ page
 
 	await page.goto('/agents/1/sessions/10')
 	await expect(page.getByText('Sandbox processes')).toBeVisible()
+	await expect(page.locator('.process-panel')).not.toContainText('printf complete')
+	await expect(page.locator('.inline-process')).toContainText('printf complete')
+	await expect(page.locator('.tool-call').filter({ hasText: 'exec_command' })).toHaveCount(0)
+	await page.locator('.inline-process summary').click()
+	await expect(page.locator('.inline-process')).toContainText('complete')
 	await page.getByText('python3 analyze.py --database sales').click()
 	await expect(page.getByText('Processed 4,200 rows')).toBeVisible()
 	await expect(page.getByRole('button', { name: 'TERM' })).toBeVisible()
+	await expect(page.locator('.process-panel input[placeholder="Send stdin…"]')).toHaveCount(0)
 	if (process.env.REVIEW_SCREENSHOTS) {
 		await page.screenshot({ path: '/tmp/haro-process-desktop.png', fullPage: true })
 		await page.setViewportSize({ width: 390, height: 844 })

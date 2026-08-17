@@ -373,6 +373,7 @@ svg { flex: 0 0 auto; }
 .reasoning > div { padding: 0 11px 10px; color: var(--muted); font-size: 10px; line-height: 1.55; white-space: pre-wrap; }
 .tool-call pre, .tool-result pre { max-height: 300px; margin: 0 8px 8px; }
 .tool-result { margin: -15px 0 23px 41px; }
+.inline-process { margin: -15px 0 23px 41px; }
 .tool-detail { padding: 0 8px 8px; }
 .tool-detail b { display: block; margin: 4px 2px 6px; color: var(--faint); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
 .live-tools { margin: -13px 0 24px 41px; }
@@ -483,6 +484,7 @@ svg { flex: 0 0 auto; }
 .process-item[open] > summary > svg { transform: rotate(180deg); }
 .process-state { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
 .process-state.running, .process-state.starting { background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 10%, transparent); }
+.process-state.exited { background: var(--muted); }
 .process-state.failed { background: var(--danger); }
 .process-duration { color: var(--faint); font-size: 8px; }
 .process-detail { padding: 0 9px 9px; }
@@ -502,6 +504,8 @@ svg { flex: 0 0 auto; }
 .process-loading { display: flex; align-items: center; gap: 6px; }
 .process-loading svg { width: 13px; }
 .process-error { color: var(--danger); }
+.process-inline > summary code { color: var(--text); }
+.live-tools > .process-inline { margin-bottom: 7px; }
 
 /* Guideline and skills */
 .settings-grid { display: grid; max-width: 1180px; grid-template-columns: minmax(0, 1.65fr) minmax(260px, .68fr); gap: 14px; margin: 0 auto; }
@@ -707,7 +711,7 @@ svg { flex: 0 0 auto; }
 	.icon-picker button { width: calc(33.333% - 5px); }
 	.message { grid-template-columns: 26px minmax(0, 1fr); gap: 9px; }
 	.message-avatar { width: 26px; height: 26px; }
-	.tool-result, .live-tools, .run-error { margin-left: 35px; }
+	.tool-result, .inline-process, .live-tools, .run-error { margin-left: 35px; }
 	.message-images { grid-template-columns: minmax(0, 1fr); }
 }
 

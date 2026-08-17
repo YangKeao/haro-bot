@@ -10,7 +10,49 @@ const (
 	RunRunning  = "running"
 	RunExited   = "exited"
 	RunFailed   = "failed"
+	RunLost     = "lost"
+
+	DefaultExecYieldTimeMS                = 10_000
+	DefaultWriteYieldTimeMS               = 250
+	MinYieldTimeMS                        = 250
+	MaxYieldTimeMS                        = 30_000
+	MinEmptyWriteYieldTimeMS              = 5_000
+	DefaultBackgroundTerminalMaxTimeoutMS = 300_000
+	DefaultMaxOutputTokens                = 10_000
 )
+
+func ExecYieldTimeMS(requested int) int {
+	if requested <= 0 {
+		requested = DefaultExecYieldTimeMS
+	}
+	return clamp(requested, MinYieldTimeMS, MaxYieldTimeMS)
+}
+
+func StdinYieldTimeMS(chars string, requested, backgroundTerminalMax int) int {
+	if requested <= 0 {
+		requested = DefaultWriteYieldTimeMS
+	}
+	if chars != "" {
+		return clamp(requested, MinYieldTimeMS, MaxYieldTimeMS)
+	}
+	if backgroundTerminalMax <= 0 {
+		backgroundTerminalMax = DefaultBackgroundTerminalMaxTimeoutMS
+	}
+	if backgroundTerminalMax < MinEmptyWriteYieldTimeMS {
+		backgroundTerminalMax = MinEmptyWriteYieldTimeMS
+	}
+	return clamp(requested, MinEmptyWriteYieldTimeMS, backgroundTerminalMax)
+}
+
+func clamp(value, minimum, maximum int) int {
+	if value < minimum {
+		return minimum
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
+}
 
 type Profile struct {
 	ID                         int64     `json:"id"`
@@ -68,6 +110,7 @@ type Process struct {
 	AgentID         int64      `json:"agent_id"`
 	SessionID       int64      `json:"session_id"`
 	Command         string     `json:"command"`
+	TTY             *bool      `json:"tty,omitempty"`
 	Status          string     `json:"status"`
 	PID             int64      `json:"pid,omitempty"`
 	ExitCode        *int       `json:"exit_code,omitempty"`
@@ -79,6 +122,13 @@ type Process struct {
 	Output          string     `json:"output,omitempty"`
 	OutputOffset    int64      `json:"output_offset,omitempty"`
 	OutputTruncated bool       `json:"output_truncated,omitempty"`
+
+	// InteractionOutput is the unread output for a single exec/write_stdin
+	// interaction. Output remains the bounded cumulative log used by the web UI.
+	InteractionOutput          string `json:"interaction_output,omitempty"`
+	InteractionOutputAvailable bool   `json:"interaction_output_available,omitempty"`
+	InteractionOutputTruncated bool   `json:"interaction_output_truncated,omitempty"`
+	InteractionOriginalBytes   int    `json:"interaction_original_bytes,omitempty"`
 }
 
 type ExecRequest struct {
@@ -87,6 +137,8 @@ type ExecRequest struct {
 	SessionID   int64             `json:"session_id"`
 	Command     string            `json:"command"`
 	Workdir     string            `json:"workdir,omitempty"`
+	Shell       string            `json:"shell,omitempty"`
+	Login       *bool             `json:"login,omitempty"`
 	TTY         bool              `json:"tty,omitempty"`
 	Background  bool              `json:"background,omitempty"`
 	YieldTimeMS int               `json:"yield_time_ms,omitempty"`
@@ -98,6 +150,7 @@ type SignalRequest struct {
 }
 
 type StdinRequest struct {
-	Chars       string `json:"chars"`
-	YieldTimeMS int    `json:"yield_time_ms,omitempty"`
+	Chars          string `json:"chars"`
+	YieldTimeMS    int    `json:"yield_time_ms,omitempty"`
+	MaxYieldTimeMS int    `json:"max_yield_time_ms,omitempty"`
 }

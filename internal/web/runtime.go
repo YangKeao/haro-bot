@@ -71,9 +71,6 @@ func (r *RuntimeRegistry) Get(ctx context.Context, id int64) (*agent.Agent, Agen
 	if profile.SandboxID != nil && r.sandboxes != nil && r.sandboxes.Enabled() {
 		scopedTools.Register(tools.NewSandboxExecCommandTool(id, r.sandboxes))
 		scopedTools.Register(tools.NewSandboxWriteStdinTool(id, r.sandboxes))
-		scopedTools.Register(tools.NewSandboxListProcessesTool(id, r.sandboxes))
-		scopedTools.Register(tools.NewSandboxStopProcessTool(id, r.sandboxes))
-		scopedTools.Register(tools.NewSandboxTailProcessLogsTool(id, r.sandboxes))
 	}
 	reasoningEffort := ""
 	if profile.ReasoningEffortOverride != nil {

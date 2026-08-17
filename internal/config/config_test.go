@@ -29,6 +29,7 @@ func TestLoadFromFileUsesSandboxDefaultsAndEnvironmentKey(t *testing.T) {
 	t.Setenv("HARO_SANDBOX_SECRET_KEY", "0123456789abcdef0123456789abcdef")
 	t.Setenv("HARO_SANDBOX_ENABLED", "true")
 	t.Setenv("HARO_SANDBOX_STORAGE_CLASS", "ssd-nobackup")
+	t.Setenv("HARO_SANDBOX_BACKGROUND_TERMINAL_MAX_TIMEOUT_MS", "420000")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 	if err := os.WriteFile(path, []byte("[sandbox]\nenabled = false\n"), 0o600); err != nil {
@@ -46,6 +47,9 @@ func TestLoadFromFileUsesSandboxDefaultsAndEnvironmentKey(t *testing.T) {
 	}
 	if cfg.Sandbox.EncryptionKey != "0123456789abcdef0123456789abcdef" {
 		t.Fatal("sandbox encryption key was not read from the environment")
+	}
+	if cfg.Sandbox.BackgroundTerminalMaxTimeoutMS != 420000 {
+		t.Fatalf("unexpected background terminal maximum: %d", cfg.Sandbox.BackgroundTerminalMaxTimeoutMS)
 	}
 }
 

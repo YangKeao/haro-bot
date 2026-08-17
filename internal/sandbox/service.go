@@ -373,23 +373,33 @@ func (s *Service) StartProcess(ctx context.Context, agentID, sessionID int64, re
 	}
 	request.ID = uuid.NewString()
 	request.AgentID, request.SessionID, request.Environment = agentID, sessionID, environment
+	request.YieldTimeMS = ExecYieldTimeMS(request.YieldTimeMS)
 	if strings.TrimSpace(request.Workdir) == "" {
 		request.Workdir = "/workspace"
 	}
 	started := time.Now().UTC()
 	redactedCommand := redact(request.Command, secrets)
-	row := dbmodel.SandboxRun{ID: request.ID, SandboxID: profile.ID, AgentID: agentID, SessionID: sessionID, Command: redactedCommand, Status: RunStarting, StartedAt: started}
+	row := dbmodel.SandboxRun{ID: request.ID, SandboxID: profile.ID, AgentID: agentID, SessionID: sessionID, Command: redactedCommand, TTY: request.TTY, Status: RunStarting, StartedAt: started}
 	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
 		return Process{}, err
 	}
 	process, err := s.runtime.Exec(ctx, target, request)
 	if err != nil {
-		now := time.Now().UTC()
-		_ = s.db.WithContext(ctx).Model(&dbmodel.SandboxRun{}).Where("id = ?", request.ID).Updates(map[string]any{"status": RunFailed, "finished_at": now, "output_tail": redact(err.Error(), secrets)}).Error
+		reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if recovered, getErr := s.runtime.GetProcess(reconcileCtx, target, request.ID); getErr == nil {
+			recovered.SandboxID, recovered.AgentID, recovered.SessionID = profile.ID, agentID, sessionID
+			recovered.TTY = boolPointer(request.TTY)
+			s.persistProcess(reconcileCtx, recovered, secrets)
+		} else {
+			now := time.Now().UTC()
+			_ = s.db.WithContext(reconcileCtx).Model(&dbmodel.SandboxRun{}).Where("id = ?", request.ID).Updates(map[string]any{"status": RunFailed, "finished_at": now, "output_tail": redact(err.Error(), secrets)}).Error
+		}
 		return Process{}, err
 	}
 	process.SandboxID = profile.ID
 	process.AgentID, process.SessionID = agentID, sessionID
+	process.TTY = boolPointer(request.TTY)
 	s.persistProcess(ctx, process, secrets)
 	return redactProcess(process, secrets), nil
 }
@@ -414,11 +424,14 @@ func (s *Service) ListProcessesForSession(ctx context.Context, sessionID int64) 
 		return s.persistedProcesses(ctx, sessionID)
 	}
 	secrets, _ := s.agentSecretValues(ctx, *session.AgentID)
+	live := make(map[string]struct{}, len(processes))
 	for i := range processes {
+		live[processes[i].ID] = struct{}{}
 		processes[i].SandboxID = profile.ID
 		s.persistProcess(ctx, processes[i], secrets)
 		processes[i] = redactProcess(processes[i], secrets)
 	}
+	s.reconcileLostProcesses(ctx, profile.ID, &sessionID, live)
 	sort.Slice(processes, func(i, j int) bool { return processes[i].StartedAt.After(processes[j].StartedAt) })
 	return processes, nil
 }
@@ -432,12 +445,15 @@ func (s *Service) ListProcessesForAgent(ctx context.Context, agentID int64) ([]P
 	if err != nil {
 		return nil, err
 	}
+	live := make(map[string]struct{}, len(processes))
 	for i := range processes {
+		live[processes[i].ID] = struct{}{}
 		processes[i].SandboxID = profile.ID
 		secrets, _ := s.agentSecretValues(ctx, processes[i].AgentID)
 		s.persistProcess(ctx, processes[i], secrets)
 		processes[i] = redactProcess(processes[i], secrets)
 	}
+	s.reconcileLostProcesses(ctx, profile.ID, nil, live)
 	sort.Slice(processes, func(i, j int) bool { return processes[i].StartedAt.After(processes[j].StartedAt) })
 	return processes, nil
 }
@@ -447,6 +463,8 @@ func (s *Service) WriteProcessStdin(ctx context.Context, actorAgentID int64, pro
 	if err != nil {
 		return Process{}, err
 	}
+	input.MaxYieldTimeMS = s.config.BackgroundTerminalMaxTimeoutMS
+	input.YieldTimeMS = StdinYieldTimeMS(input.Chars, input.YieldTimeMS, input.MaxYieldTimeMS)
 	process, err := s.runtime.WriteStdin(ctx, target, processID, input)
 	if err != nil {
 		return Process{}, err
@@ -674,6 +692,9 @@ func (s *Service) persistProcess(ctx context.Context, process Process, environme
 		"status": status, "pid": nullablePID(process.PID), "exit_code": process.ExitCode, "finished_at": process.FinishedAt,
 		"output_tail": output, "output_truncated": process.OutputTruncated, "updated_at": time.Now(),
 	}
+	if process.TTY != nil {
+		updates["tty"] = *process.TTY
+	}
 	_ = s.db.WithContext(ctx).Model(&dbmodel.SandboxRun{}).Where("id = ?", process.ID).Updates(updates).Error
 }
 
@@ -688,9 +709,29 @@ func (s *Service) persistedProcesses(ctx context.Context, sessionID int64) ([]Pr
 		if row.PID != nil {
 			pid = *row.PID
 		}
-		result = append(result, Process{ID: row.ID, SandboxID: row.SandboxID, AgentID: row.AgentID, SessionID: row.SessionID, Command: row.Command, Status: row.Status, PID: pid, ExitCode: row.ExitCode, StartedAt: row.StartedAt, FinishedAt: row.FinishedAt, DurationMillis: time.Since(row.StartedAt).Milliseconds(), Output: row.OutputTail, OutputTruncated: row.OutputTruncated})
+		result = append(result, Process{ID: row.ID, SandboxID: row.SandboxID, AgentID: row.AgentID, SessionID: row.SessionID, Command: row.Command, TTY: boolPointer(row.TTY), Status: row.Status, PID: pid, ExitCode: row.ExitCode, StartedAt: row.StartedAt, FinishedAt: row.FinishedAt, DurationMillis: time.Since(row.StartedAt).Milliseconds(), Output: row.OutputTail, OutputTruncated: row.OutputTruncated})
 	}
 	return result, nil
+}
+
+func (s *Service) reconcileLostProcesses(ctx context.Context, sandboxID int64, sessionID *int64, live map[string]struct{}) {
+	query := s.db.WithContext(ctx).Where("sandbox_id = ? AND status IN ?", sandboxID, []string{RunStarting, RunRunning})
+	if sessionID != nil {
+		query = query.Where("session_id = ?", *sessionID)
+	}
+	var rows []dbmodel.SandboxRun
+	if err := query.Find(&rows).Error; err != nil {
+		return
+	}
+	now := time.Now().UTC()
+	for _, row := range rows {
+		if _, ok := live[row.ID]; ok {
+			continue
+		}
+		_ = s.db.WithContext(ctx).Model(&dbmodel.SandboxRun{}).Where("id = ? AND status IN ?", row.ID, []string{RunStarting, RunRunning}).Updates(map[string]any{
+			"status": RunLost, "finished_at": now, "updated_at": now,
+		}).Error
+	}
 }
 
 func validateEnvironmentName(name string) error {
@@ -718,6 +759,7 @@ func redact(value string, environment map[string]string) string {
 func redactProcess(process Process, environment map[string]string) Process {
 	process.Command = redact(process.Command, environment)
 	process.Output = redact(process.Output, environment)
+	process.InteractionOutput = redact(process.InteractionOutput, environment)
 	return process
 }
 
@@ -727,6 +769,8 @@ func nullablePID(pid int64) any {
 	}
 	return pid
 }
+
+func boolPointer(value bool) *bool { return &value }
 
 func newKubernetesName(name string) (string, error) {
 	var builder strings.Builder

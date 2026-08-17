@@ -42,6 +42,8 @@ storage_class = ""
 default_image = "ghcr.io/yangkeao/haro-bot-sandbox:latest"
 helper_image = "ghcr.io/yangkeao/haro-bot-sandbox:latest"
 runtime_port = 8888
+# Maximum duration of one empty write_stdin poll. Commands themselves have no lifetime limit.
+background_terminal_max_timeout_ms = 300000
 default_cpu_limit_millis = 2000
 default_memory_limit_mib = 4096
 default_ephemeral_storage_mib = 4096

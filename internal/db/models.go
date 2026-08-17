@@ -134,6 +134,7 @@ type SandboxRun struct {
 	AgentID         int64      `gorm:"column:agent_id"`
 	SessionID       int64      `gorm:"column:session_id"`
 	Command         string     `gorm:"column:command;type:mediumtext"`
+	TTY             bool       `gorm:"column:tty"`
 	Status          string     `gorm:"column:status;size:24"`
 	PID             *int64     `gorm:"column:pid"`
 	ExitCode        *int       `gorm:"column:exit_code"`

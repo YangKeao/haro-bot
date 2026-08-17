@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Archive, Bot, Check, ChevronDown, LoaderCircle, MessageSquarePlus, MoreHorizontal, PanelLeft, Paperclip, Pencil, Plus, RotateCcw, Send, Settings2, Sparkles, Square, X } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -7,23 +7,30 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { api, APIError, streamRun } from '../api'
-import type { AgentProfile, Attachment, Message, RunEvent } from '../types'
+import type { AgentProfile, Attachment, Message, RunEvent, ToolCall } from '../types'
 import { AgentAvatar } from './Home'
 import MarkdownEditor from '../components/MarkdownEditor'
+import ProcessEntry from '../components/ProcessEntry'
 import ProcessPanel from '../components/ProcessPanel'
+import { aggregateProcessTools, type DisplayProcess } from '../processes'
 
 type ToolActivity = { id: string; name: string; arguments?: unknown; content?: string; done?: boolean; truncated?: boolean }
 
-function MessageBubble({ message, agent }: { message: Message; agent?: AgentProfile }) {
+function MessageBubble({ message, agent, inlineProcesses, hiddenToolCalls, hiddenToolResults }: { message: Message; agent?: AgentProfile; inlineProcesses?: Map<string, DisplayProcess>; hiddenToolCalls?: Set<string>; hiddenToolResults?: Set<string> }) {
   const meta = message.metadata || {}
+  const process = meta.tool_call_id ? inlineProcesses?.get(meta.tool_call_id) : undefined
+  if (message.role === 'tool' && process) return <div className="inline-process"><ProcessEntry process={process} className="process-inline" /></div>
+  if (message.role === 'tool' && meta.tool_call_id && hiddenToolResults?.has(meta.tool_call_id)) return null
   if (message.role === 'tool') return <details className="tool-result"><summary><span className={`status-dot ${meta.status === 'error' ? 'error' : ''}`} /> Tool result <ChevronDown size={14} /></summary><pre>{message.content}</pre></details>
+  const toolCalls = meta.tool_calls?.filter(call => !hiddenToolCalls?.has(call.id))
+  if (message.role === 'assistant' && !message.content && !message.attachments?.length && !meta.reasoning_content && !toolCalls?.length && (!meta.status || meta.status === 'ok')) return null
   return <article className={`message ${message.role}`}>
 		<div className="message-avatar">{message.role === 'assistant' && agent ? <AgentAvatar agent={agent} /> : message.role === 'assistant' ? <Sparkles size={16} /> : 'You'}</div>
     <div className="message-body">
       {message.attachments?.length ? <div className="message-images">{message.attachments.map(image => <a key={image.id} href={`/api/v1/attachments/${image.id}`} target="_blank" rel="noreferrer"><img src={`/api/v1/attachments/${image.id}`} alt={image.name} /></a>)}</div> : null}
       {meta.reasoning_content && <details className="reasoning"><summary><Sparkles size={14} /> Reasoning <ChevronDown size={14} /></summary><div>{meta.reasoning_content}</div></details>}
       {message.content && <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{message.content}</ReactMarkdown></div>}
-      {meta.tool_calls?.map(call => <details className="tool-call" key={call.id}><summary><span className="status-dot" /> {call.function.name}<ChevronDown size={14} /></summary><pre>{prettyJSON(call.function.arguments)}</pre></details>)}
+      {toolCalls?.map(call => <details className="tool-call" key={call.id}><summary><span className="status-dot" /> {call.function.name}<ChevronDown size={14} /></summary><pre>{prettyJSON(call.function.arguments)}</pre></details>)}
       {meta.status && meta.status !== 'ok' && <span className={`message-status ${meta.status}`}>{meta.status}</span>}
     </div>
   </article>
@@ -35,7 +42,26 @@ function prettyJSON(value: string) {
 
 function ToolTimeline({ tools }: { tools: ToolActivity[] }) {
   if (!tools.length) return null
-  return <div className="live-tools">{tools.map(tool => <details key={tool.id} className="tool-call" open={!tool.done}><summary>{tool.done ? <Check size={14} /> : <LoaderCircle className="spin" size={14} />} {tool.name}<ChevronDown size={14} /></summary><div className="tool-detail"><b>Arguments</b><pre>{typeof tool.arguments === 'string' ? tool.arguments : JSON.stringify(tool.arguments, null, 2)}</pre>{tool.done && <><b>Result{tool.truncated ? ' (preview)' : ''}</b><pre>{tool.content}</pre></>}</div></details>)}</div>
+	const grouped = aggregateProcessTools(tools)
+  return <div className="live-tools">{tools.map(tool => {
+    const process = grouped.processes.get(tool.id)
+    if (process) return <ProcessEntry key={tool.id} process={process} className="process-inline" />
+    if (grouped.hiddenCallIDs.has(tool.id)) return null
+    return <details key={tool.id} className="tool-call" open={!tool.done}><summary>{tool.done ? <Check size={14} /> : <LoaderCircle className="spin" size={14} />} {tool.name}<ChevronDown size={14} /></summary><div className="tool-detail"><b>Arguments</b><pre>{typeof tool.arguments === 'string' ? tool.arguments : JSON.stringify(tool.arguments, null, 2)}</pre>{tool.done && <><b>Result{tool.truncated ? ' (preview)' : ''}</b><pre>{tool.content}</pre></>}</div></details>
+  })}</div>
+}
+
+function messageToolContext(messages: Message[] = []) {
+  const calls = new Map<string, ToolCall>()
+  for (const message of messages) for (const call of message.metadata?.tool_calls || []) calls.set(call.id, call)
+	const activities: ToolActivity[] = []
+  for (const message of messages) {
+    const id = message.metadata?.tool_call_id
+    const call = id ? calls.get(id) : undefined
+		if (id && call) activities.push({ id, name: call.function.name, arguments: call.function.arguments, content: message.content, done: true })
+  }
+	const grouped = aggregateProcessTools(activities)
+  return { processes: grouped.processes, hiddenToolCalls: grouped.hiddenCallIDs, hiddenToolResults: grouped.hiddenResultIDs }
 }
 
 export default function Chat() {
@@ -65,6 +91,7 @@ export default function Chat() {
   const archivedSessions = useQuery({ queryKey: ['sessions', activeAgentID, 'archived'], queryFn: () => api.sessions(activeAgentID, true), enabled: Number.isFinite(activeAgentID) && showArchivedSessions })
   const session = useQuery({ queryKey: ['session', activeSessionID], queryFn: () => api.session(activeSessionID!), enabled: !!activeSessionID })
   const messages = useQuery({ queryKey: ['messages', activeSessionID], queryFn: () => api.messages(activeSessionID!), enabled: !!activeSessionID })
+  const messageTools = useMemo(() => messageToolContext(messages.data?.messages), [messages.data?.messages])
 
   useEffect(() => {
     if (!activeSessionID && sessions.data?.sessions.length) navigate(`/agents/${activeAgentID}/sessions/${sessions.data.sessions[0].id}`, { replace: true })
@@ -92,7 +119,7 @@ export default function Chat() {
     if (event.event === 'assistant.delta') setStreamMessage(current => ({ ...(current || streamSeed(activeSessionID!)), content: (current?.content || '') + String(event.data.delta || '') }))
     if (event.event === 'reasoning.delta') setStreamMessage(current => ({ ...(current || streamSeed(activeSessionID!)), metadata: { ...(current?.metadata || {}), reasoning_content: (current?.metadata?.reasoning_content || '') + String(event.data.delta || '') } }))
     if (event.event === 'tool.started') setTools(current => [...current, { id: String(event.data.id), name: String(event.data.name), arguments: event.data.arguments }])
-    if (event.event === 'tool.completed') setTools(current => current.map(tool => tool.id === event.data.id ? { ...tool, done: true, content: String(event.data.content || ''), truncated: Boolean(event.data.truncated) } : tool))
+    if (event.event === 'tool.completed') setTools(current => current.map(tool => tool.id === String(event.data.id) ? { ...tool, done: true, content: String(event.data.content || ''), truncated: Boolean(event.data.truncated) } : tool))
     if (event.event === 'run.failed') setError(String(event.data.message || 'The run failed.'))
   }
   const send = async () => {
@@ -129,7 +156,7 @@ export default function Chat() {
       </header>
       {!activeSessionID ? <div className="chat-empty"><div className="empty-orbit"><Sparkles /></div><h2>Start a fresh conversation</h2><p>Open a new session with {agent.data?.name || 'this agent'}.</p><button className="button primary" onClick={() => createSession.mutate()}><Plus size={16} /> New session</button></div> : <>
         <div className="message-scroll"><div className="message-column">
-		  {messages.isLoading ? <div className="conversation-skeleton"><div /><div /><div /></div> : !messages.data?.messages.length && !running ? <div className="chat-welcome">{agent.data && <AgentAvatar agent={agent.data} size="large" />}<h2>Talk to {agent.data?.name}</h2><p>{agent.data?.description || 'Send a message or attach an image to get started.'}</p></div> : messages.data?.messages.map(message => <MessageBubble key={message.id} message={message} agent={agent.data} />)}
+		  {messages.isLoading ? <div className="conversation-skeleton"><div /><div /><div /></div> : !messages.data?.messages.length && !running ? <div className="chat-welcome">{agent.data && <AgentAvatar agent={agent.data} size="large" />}<h2>Talk to {agent.data?.name}</h2><p>{agent.data?.description || 'Send a message or attach an image to get started.'}</p></div> : messages.data?.messages.map(message => <MessageBubble key={message.id} message={message} agent={agent.data} inlineProcesses={messageTools.processes} hiddenToolCalls={messageTools.hiddenToolCalls} hiddenToolResults={messageTools.hiddenToolResults} />)}
 		  {streamMessage && <><MessageBubble message={streamMessage} agent={agent.data} /><ToolTimeline tools={tools} /></>}
           {error && <div className="run-error"><span>Run interrupted</span><p>{error}</p></div>}
           <div ref={bottomRef} />

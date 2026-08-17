@@ -65,7 +65,8 @@ func (r *HTTPRuntime) GetProcess(ctx context.Context, target RuntimeTarget, id s
 
 func (r *HTTPRuntime) WriteStdin(ctx context.Context, target RuntimeTarget, id string, input StdinRequest) (Process, error) {
 	var output Process
-	err := r.request(ctx, target, http.MethodPost, "/v1/processes/"+url.PathEscape(id)+"/stdin", input, &output, execHTTPTimeout(ExecRequest{YieldTimeMS: input.YieldTimeMS}))
+	yield := StdinYieldTimeMS(input.Chars, input.YieldTimeMS, input.MaxYieldTimeMS)
+	err := r.request(ctx, target, http.MethodPost, "/v1/processes/"+url.PathEscape(id)+"/stdin", input, &output, time.Duration(yield)*time.Millisecond+30*time.Second)
 	return output, err
 }
 
@@ -83,10 +84,7 @@ func (r *HTTPRuntime) timeout() time.Duration {
 }
 
 func execHTTPTimeout(input ExecRequest) time.Duration {
-	yield := time.Duration(input.YieldTimeMS) * time.Millisecond
-	if yield <= 0 {
-		yield = 10 * time.Second
-	}
+	yield := time.Duration(ExecYieldTimeMS(input.YieldTimeMS)) * time.Millisecond
 	return yield + 30*time.Second
 }
 

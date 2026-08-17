@@ -26,7 +26,10 @@ func (*fakeControlPlane) Status(context.Context, Profile) (string, *string, erro
 	return "Ready", nil, nil
 }
 
-type fakeRuntime struct{ input ExecRequest }
+type fakeRuntime struct {
+	input      ExecRequest
+	stdinInput StdinRequest
+}
 
 func (f *fakeRuntime) Exec(_ context.Context, _ RuntimeTarget, input ExecRequest) (Process, error) {
 	f.input = input
@@ -40,8 +43,9 @@ func (*fakeRuntime) ListProcesses(context.Context, RuntimeTarget, *int64) ([]Pro
 func (*fakeRuntime) GetProcess(context.Context, RuntimeTarget, string) (Process, error) {
 	return Process{}, nil
 }
-func (*fakeRuntime) WriteStdin(context.Context, RuntimeTarget, string, StdinRequest) (Process, error) {
-	return Process{}, nil
+func (f *fakeRuntime) WriteStdin(_ context.Context, _ RuntimeTarget, id string, input StdinRequest) (Process, error) {
+	f.stdinInput = input
+	return Process{ID: id, TTY: boolPointer(true), Status: RunRunning, StartedAt: time.Now().UTC()}, nil
 }
 func (*fakeRuntime) Signal(context.Context, RuntimeTarget, string, string) (Process, error) {
 	return Process{}, nil
@@ -75,7 +79,7 @@ func TestServiceInjectsEncryptedAgentEnvironmentAndRedactsSecrets(t *testing.T) 
 	}
 	control := &fakeControlPlane{}
 	runtime := &fakeRuntime{}
-	cfg := config.SandboxConfig{Enabled: true, Namespace: "test", DefaultImage: "sandbox:test", DefaultCPULimitMillis: 1000, DefaultMemoryLimitMiB: 1024, DefaultEphemeralStorageMiB: 1024, DefaultWorkspaceStorageMiB: 2048, MaxCPULimitMillis: 4000, MaxMemoryLimitMiB: 4096, MaxEphemeralStorageMiB: 4096, MaxWorkspaceStorageMiB: 8192, MaxRunning: 2, RuntimePort: 8888}
+	cfg := config.SandboxConfig{Enabled: true, Namespace: "test", DefaultImage: "sandbox:test", DefaultCPULimitMillis: 1000, DefaultMemoryLimitMiB: 1024, DefaultEphemeralStorageMiB: 1024, DefaultWorkspaceStorageMiB: 2048, MaxCPULimitMillis: 4000, MaxMemoryLimitMiB: 4096, MaxEphemeralStorageMiB: 4096, MaxWorkspaceStorageMiB: 8192, MaxRunning: 2, RuntimePort: 8888, BackgroundTerminalMaxTimeoutMS: 300000}
 	service := NewServiceWithDependencies(database, cfg, box, control, runtime)
 	profile, err := service.Create(ctx, Write{Name: "shared", AgentIDs: []int64{agent.ID}})
 	if err != nil {
@@ -98,15 +102,34 @@ func TestServiceInjectsEncryptedAgentEnvironmentAndRedactsSecrets(t *testing.T) 
 	if stored.ValueCiphertext == "highly-secret" {
 		t.Fatal("secret was stored in plaintext")
 	}
-	process, err := service.StartProcess(ctx, agent.ID, session.ID, ExecRequest{Command: "mysql --password=highly-secret"})
+	process, err := service.StartProcess(ctx, agent.ID, session.ID, ExecRequest{Command: "mysql --password=highly-secret", TTY: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if runtime.input.Environment["MYSQL_PASSWORD"] != "highly-secret" || runtime.input.Environment["MYSQL_HOST"] != "database" {
 		t.Fatalf("runtime environment mismatch: %#v", runtime.input.Environment)
 	}
+	if runtime.input.YieldTimeMS != DefaultExecYieldTimeMS {
+		t.Fatalf("exec yield = %d, want %d", runtime.input.YieldTimeMS, DefaultExecYieldTimeMS)
+	}
 	if process.Command != "mysql --password=[REDACTED]" || process.Output != "connected with [REDACTED]" {
 		t.Fatalf("secret was not redacted: %#v", process)
+	}
+	if _, err := service.WriteProcessStdin(ctx, agent.ID, process.ID, StdinRequest{YieldTimeMS: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.stdinInput.YieldTimeMS != MinEmptyWriteYieldTimeMS || runtime.stdinInput.MaxYieldTimeMS != 300000 {
+		t.Fatalf("unexpected empty poll bounds: %#v", runtime.stdinInput)
+	}
+	if _, err := service.ListProcessesForSession(ctx, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	var run dbmodel.SandboxRun
+	if err := database.First(&run, "id = ?", process.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != RunLost || !run.TTY {
+		t.Fatalf("stale runtime process was not reconciled: %#v", run)
 	}
 }
 
