@@ -62,7 +62,7 @@ func (r *RuntimeRegistry) Get(ctx context.Context, id int64) (*agent.Agent, Agen
 		return entry.agent, profile, nil
 	}
 	client := llmopenai.New(profile.BaseURL, profile.APIKey, llmopenai.WithHTTPDebug(r.httpDebug))
-	scopedTools := newAgentToolRegistry(r.tools)
+	scopedTools := tools.NewRegistry(r.tools.ListAll()...)
 	scopedTools.Register(&getOwnProfileTool{agentID: id, store: r.store})
 	scopedTools.Register(&updateOwnProfileTool{
 		agentID: id, store: r.store, skills: r.skills, objects: r.objects, downloader: r.downloader,
@@ -92,21 +92,6 @@ func (r *RuntimeRegistry) Get(ctx context.Context, id int64) (*agent.Agent, Agen
 	r.entries[id] = runtimeEntry{updatedAt: profile.RuntimeRevision, providerID: profile.ProviderID, agent: runtime}
 	return runtime, profile, nil
 }
-
-func newAgentToolRegistry(registry *tools.Registry) *tools.Registry {
-	scoped := tools.NewRegistry()
-	if registry == nil {
-		return scoped
-	}
-	for _, tool := range registry.ListAll() {
-		if restricted, ok := tool.(tools.AgentRestrictedTool); ok && restricted.AgentRestricted() {
-			continue
-		}
-		scoped.Register(tool)
-	}
-	return scoped
-}
-
 func (r *RuntimeRegistry) Resolve(ctx context.Context, id int64) (*agent.Agent, error) {
 	runtime, _, err := r.Get(ctx, id)
 	return runtime, err

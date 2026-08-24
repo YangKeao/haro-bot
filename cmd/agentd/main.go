@@ -75,12 +75,8 @@ func main() {
 	guidelinesMgr := guidelines.NewManager(dbConn)
 
 	toolRegistry := tools.NewRegistry(
-		tools.NewListSkillSourcesTool(skillsMgr),
 		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
 		tools.NewSessionSummaryTool(store),
-		tools.NewInstallSkillTool(skillsMgr),
-		tools.NewRefreshSkillsTool(skillsMgr),
-		tools.NewDeleteSkillSourceTool(skillsMgr),
 		tools.NewUpdateGuidelinesTool(guidelinesMgr),
 	)
 	webStore := webui.NewStore(dbConn)
