@@ -362,6 +362,22 @@ test('shows every agent setting section on one page', async ({ page }) => {
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Agents')
 })
 
+test('keeps the skills section in view while selecting agent skills', async ({ page }) => {
+	await mockAPI(page, true)
+	await page.goto('/agents/1/edit')
+	const skillsHeading = page.getByRole('heading', { name: 'Skills', exact: true })
+	await page.getByRole('navigation', { name: 'Agent settings sections' }).getByText('Skills', { exact: true }).click()
+	await expect(page).toHaveURL(/#skills$/)
+	await expect(skillsHeading).toBeInViewport()
+
+	const option = page.locator('.skill-option').filter({ hasText: 'web-search' })
+	await expect(option.locator('input')).toBeChecked()
+	await option.click()
+	await expect(option.locator('input')).not.toBeChecked()
+	await expect.poll(() => page.evaluate(() => (globalThis as unknown as { scrollY: number }).scrollY)).toBe(0)
+	await expect(skillsHeading).toBeInViewport()
+})
+
 test('manages persistent sandboxes and exposes session processes', async ({ page }) => {
 	await mockAPI(page, true)
 	await page.goto('/sandboxes')

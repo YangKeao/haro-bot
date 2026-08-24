@@ -259,14 +259,16 @@ svg { flex: 0 0 auto; }
 .icon-picker svg { width: 17px; }
 .icon-picker small { font-size: 8px; }
 .skill-picker { display: grid; max-height: 400px; gap: 8px; overflow-y: auto; }
-.skill-option { display: flex; gap: 11px; padding: 13px; border: 1px solid var(--line-soft); border-radius: 11px; cursor: pointer; }
+.skill-option { position: relative; display: flex; gap: 11px; padding: 13px; border: 1px solid var(--line-soft); border-radius: 11px; cursor: pointer; }
 .skill-option:hover, .skill-option.selected { border-color: color-mix(in srgb, var(--accent) 36%, var(--line)); background: var(--accent-soft); }
-.skill-option > input { position: absolute; opacity: 0; }
+.skill-option > input { position: absolute; top: 13px; left: 13px; width: 20px; height: 20px; margin: 0; opacity: 0; }
 .skill-check { display: grid; flex: 0 0 auto; width: 20px; height: 20px; place-items: center; border: 1px solid var(--line); border-radius: 6px; color: white; }
 .skill-option.selected .skill-check { border-color: var(--accent); background: var(--accent); }
 .skill-option b { font-size: 11px; }
 .skill-option p { margin: 4px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
-.selection-summary { margin-top: 13px; color: var(--faint); font-size: 9px; }
+.selection-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 13px; color: var(--faint); font-size: 9px; }
+.selection-summary a { color: var(--accent-2); font-weight: 650; }
+.selection-summary a:hover { text-decoration: underline; }
 .settings-savebar { position: sticky; z-index: 20; bottom: 12px; display: flex; min-height: 66px; align-items: center; justify-content: space-between; gap: 20px; padding: 10px 12px 10px 16px; border: 1px solid var(--line); border-radius: 15px; background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: var(--shadow); backdrop-filter: blur(14px); }
 .settings-savebar b, .settings-savebar span { display: block; }
 .settings-savebar b { font-size: 11px; }
@@ -453,9 +455,9 @@ svg { flex: 0 0 auto; }
 .resource-field > span em { margin-left: auto; }
 .field-note { display: block; margin: 11px 0 0; color: var(--faint); font-size: 9px; line-height: 1.5; }
 .sandbox-agent-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.sandbox-agent-picker > label { display: grid; grid-template-columns: 34px minmax(0, 1fr) 22px; align-items: center; gap: 10px; padding: 11px; border: 1px solid var(--line-soft); border-radius: 11px; background: var(--panel-2); cursor: pointer; }
+.sandbox-agent-picker > label { position: relative; display: grid; grid-template-columns: 34px minmax(0, 1fr) 22px; align-items: center; gap: 10px; padding: 11px; border: 1px solid var(--line-soft); border-radius: 11px; background: var(--panel-2); cursor: pointer; }
 .sandbox-agent-picker > label.selected { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: var(--accent-soft); }
-.sandbox-agent-picker input { position: absolute; opacity: 0; }
+.sandbox-agent-picker input { position: absolute; top: 50%; right: 11px; width: 22px; height: 22px; margin: 0; opacity: 0; transform: translateY(-50%); }
 .sandbox-agent-picker span { min-width: 0; }
 .sandbox-agent-picker b, .sandbox-agent-picker small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sandbox-agent-picker b { font-size: 11px; }

@@ -190,12 +190,12 @@ export default function AgentForm() {
         </section>
 
         <section id="skills" className="form-section settings-section">
-          <div className="section-heading"><h2>Skills</h2><p>An empty selection is valid for a focused base agent.</p></div>
+          <div className="section-heading"><h2>Skills</h2><p>Selected skills give this agent reusable instructions and optional Sandbox scripts when a task matches. They do not run automatically.</p></div>
           <div className="skill-picker">{skills.isLoading ? <div className="skeleton tall" /> : skills.data?.skills.length ? skills.data.skills.map(skill => {
             const checked = selected.includes(skill.name)
             return <label key={skill.name} className={`skill-option ${checked ? 'selected' : ''}`}><input type="checkbox" checked={checked} onChange={() => setValue('skill_names', checked ? selected.filter(name => name !== skill.name) : [...selected, skill.name], { shouldDirty: true })} /><span className="skill-check">{checked && <Check size={15} />}</span><div><b>{skill.name}</b><p>{skill.description}</p></div></label>
           }) : <div className="empty-inline"><Sparkles /><div><b>No skills installed yet</b><p>You can save this agent without skills and add them later.</p></div></div>}</div>
-          <div className="selection-summary">{selected.length ? `${selected.length} skill${selected.length === 1 ? '' : 's'} selected` : 'No skills selected'}</div>
+          <div className="selection-summary"><span>{selected.length ? `${selected.length} skill${selected.length === 1 ? '' : 's'} selected` : 'No skills selected'}</span><Link to="/settings#skills">Manage installed skills</Link></div>
         </section>
 
         {id && <section id="lifecycle" className="form-section settings-section danger-section"><div className="section-heading"><h2>Lifecycle</h2><p>Archived agents keep their settings and conversations but leave the active workspace.</p></div><button type="button" className="button secondary" onClick={() => archive.mutate()} disabled={archive.isPending}>{existing.data?.archived_at ? <RotateCcw size={16} /> : <Archive size={16} />}{existing.data?.archived_at ? 'Restore agent' : 'Archive agent'}</button></section>}
