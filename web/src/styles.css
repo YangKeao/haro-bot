@@ -469,7 +469,10 @@ svg { flex: 0 0 auto; }
 .use-default-image { display: inline-flex; align-items: center; gap: 5px; width: fit-content; margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--accent-2); font-size: 9px; cursor: pointer; }
 .use-default-image svg { width: 12px; }
 .sandbox-runtime-card { padding: 15px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--panel-2); }
-.sandbox-runtime-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sandbox-runtime-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sandbox-runtime-status { display: flex; align-items: center; gap: 10px; }
+.sandbox-runtime-toolbar .button svg { width: 14px; }
+.runtime-terminal-disabled { display: inline-flex; cursor: not-allowed; }
 .sandbox-runtime-card > p { margin: 11px 0; color: var(--muted); font-size: 10px; }
 .sandbox-runtime-meta { display: flex; flex-wrap: wrap; gap: 7px 14px; color: var(--faint); font-size: 8px; }
 .sandbox-runtime-meta code { color: var(--muted); overflow-wrap: anywhere; }
@@ -737,6 +740,8 @@ svg { flex: 0 0 auto; }
 	.sandbox-header-actions .button { flex: 1; }
 	.sandbox-apply-alert { align-items: stretch; flex-direction: column; }
 	.sandbox-apply-alert .button { width: 100%; }
+	.sandbox-runtime-toolbar { align-items: stretch; flex-direction: column; }
+	.sandbox-runtime-toolbar .button, .runtime-terminal-disabled { width: 100%; }
 	.sandbox-lifecycle-actions { align-items: stretch; flex-direction: column; }
 	.sandbox-lifecycle-actions > div { flex-wrap: wrap; }
 	.sandbox-lifecycle-actions .button, .sandbox-lifecycle-actions .disabled-link { flex: 1; justify-content: center; }
