@@ -7,7 +7,6 @@ import (
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
-	"github.com/YangKeao/haro-bot/internal/skills"
 	"github.com/YangKeao/haro-bot/internal/tools"
 	"go.uber.org/zap"
 )
@@ -15,22 +14,19 @@ import (
 type DefaultToolRunner struct {
 	registry  *tools.Registry
 	store     memory.StoreAPI
-	skills    *skills.Manager
 	estimator *llm.TokenEstimator
 }
 
-func NewToolRunner(registry *tools.Registry, store memory.StoreAPI, skillsMgr *skills.Manager, estimator *llm.TokenEstimator) *DefaultToolRunner {
+func NewToolRunner(registry *tools.Registry, store memory.StoreAPI, estimator *llm.TokenEstimator) *DefaultToolRunner {
 	return &DefaultToolRunner{
 		registry:  registry,
 		store:     store,
-		skills:    skillsMgr,
 		estimator: estimator,
 	}
 }
 
-func (r *DefaultToolRunner) Run(ctx context.Context, sessionID int64, baseDir string, activeSkill *skills.Skill, calls []llm.ToolCall) ([]StoredMessage, *skills.Skill, error) {
+func (r *DefaultToolRunner) Run(ctx context.Context, sessionID int64, baseDir string, calls []llm.ToolCall) ([]StoredMessage, error) {
 	log := logging.L().Named("tool_runner")
-	currentSkill := activeSkill
 	out := make([]StoredMessage, 0, len(calls))
 	for _, call := range calls {
 		tool, ok := r.registry.Get(call.Function.Name)
@@ -42,11 +38,11 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID int64, baseDir st
 				Status:     "error",
 			})
 			if err != nil {
-				return nil, currentSkill, err
+				return nil, err
 			}
 			ctxMsg, err := newStoredMessage(entryID, toolMsg)
 			if err != nil {
-				return nil, currentSkill, err
+				return nil, err
 			}
 			out = append(out, ctxMsg)
 			continue
@@ -55,9 +51,6 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID int64, baseDir st
 		tc := tools.ToolContext{
 			SessionID: sessionID,
 			BaseDir:   baseDir,
-		}
-		if currentSkill != nil {
-			tc.BaseDir = currentSkill.Metadata.Dir
 		}
 		output, err := tool.Execute(ctx, tc, json.RawMessage(call.Function.Arguments))
 		status := "ok"
@@ -88,13 +81,13 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID int64, baseDir st
 			Status:     status,
 		})
 		if err != nil {
-			return nil, currentSkill, err
+			return nil, err
 		}
 		ctxMsg, err := newStoredMessage(entryID, toolMsg)
 		if err != nil {
-			return nil, currentSkill, err
+			return nil, err
 		}
 		out = append(out, ctxMsg)
 	}
-	return out, currentSkill, nil
+	return out, nil
 }

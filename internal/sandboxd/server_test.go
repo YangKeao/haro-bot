@@ -3,14 +3,62 @@ package sandboxd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/sandbox"
+	"github.com/YangKeao/haro-bot/internal/skillbundle"
 )
+
+func TestServerMaterializesSkillIdempotentlyAndExecutesScript(t *testing.T) {
+	workspace := t.TempDir()
+	runtime, err := New(workspace, "test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(runtime.Handler())
+	t.Cleanup(server.Close)
+
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: demo\ndescription: demo\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "scripts", "hello.sh"), []byte("#!/bin/sh\nprintf skill-ran\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archive, manifest, err := skillbundle.Archive(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := server.URL + "/v1/skills/" + manifest.Hash
+	requestSkill(t, endpoint, "wrong", archive, http.StatusUnauthorized, nil)
+	var materialized sandbox.SkillMaterialization
+	requestSkill(t, endpoint, "test-token", archive, http.StatusCreated, &materialized)
+	if materialized.Reused || materialized.SkillRoot != filepath.Join(workspace, ".haro", "skills", "sha256", manifest.Hash) {
+		t.Fatalf("unexpected materialization: %#v", materialized)
+	}
+	requestSkill(t, endpoint, "test-token", archive, http.StatusOK, &materialized)
+	if !materialized.Reused {
+		t.Fatal("second materialization did not reuse the verified bundle")
+	}
+	requestSkill(t, server.URL+"/v1/skills/"+strings.Repeat("f", 64), "test-token", archive, http.StatusBadRequest, nil)
+
+	input := sandbox.ExecRequest{ID: "skill-run", AgentID: 1, SessionID: 1, Command: fmt.Sprintf("%q", filepath.Join(materialized.SkillRoot, "scripts", "hello.sh")), YieldTimeMS: 2000}
+	var process sandbox.Process
+	requestJSON(t, server.URL+"/v1/processes", "test-token", input, http.StatusCreated, &process)
+	if process.Status != sandbox.RunExited || process.ExitCode == nil || *process.ExitCode != 0 || process.Output != "skill-ran" {
+		t.Fatalf("materialized script did not execute: %#v", process)
+	}
+}
 
 func TestServerExecutesInWorkspaceWithAgentEnvironment(t *testing.T) {
 	runtime, err := New(t.TempDir(), "test-token")
@@ -153,6 +201,29 @@ func requestJSON(t *testing.T, endpoint, token string, input any, wantStatus int
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != wantStatus {
+		t.Fatalf("status = %d, want %d", response.StatusCode, wantStatus)
+	}
+	if output != nil {
+		if err := json.NewDecoder(response.Body).Decode(output); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func requestSkill(t *testing.T, endpoint, token string, archive []byte, wantStatus int, output any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPut, endpoint, bytes.NewReader(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/gzip")
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

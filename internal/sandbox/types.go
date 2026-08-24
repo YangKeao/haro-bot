@@ -193,3 +193,8 @@ type ResizeRequest struct {
 	Columns uint16 `json:"columns"`
 	Rows    uint16 `json:"rows"`
 }
+
+type SkillMaterialization struct {
+	SkillRoot string `json:"skill_root"`
+	Reused    bool   `json:"reused"`
+}

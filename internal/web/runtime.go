@@ -62,12 +62,15 @@ func (r *RuntimeRegistry) Get(ctx context.Context, id int64) (*agent.Agent, Agen
 		return entry.agent, profile, nil
 	}
 	client := llmopenai.New(profile.BaseURL, profile.APIKey, llmopenai.WithHTTPDebug(r.httpDebug))
-	scopedTools := tools.NewRegistry(r.tools.List()...)
+	scopedTools := tools.NewRegistry(r.tools.ListAll()...)
 	scopedTools.Register(&getOwnProfileTool{agentID: id, store: r.store})
 	scopedTools.Register(&updateOwnProfileTool{
 		agentID: id, store: r.store, skills: r.skills, objects: r.objects, downloader: r.downloader,
 		invalidate: func() { r.Invalidate(id) },
 	})
+	readSkill := tools.NewReadSkillTool(r.skills, r.sandboxes, id, profile.SkillNames)
+	scopedTools.Register(readSkill)
+	scopedTools.Register(tools.NewActivateSkillCompatTool(readSkill))
 	if profile.SandboxID != nil && r.sandboxes != nil && r.sandboxes.Enabled() {
 		scopedTools.Register(tools.NewSandboxExecCommandTool(id, r.sandboxes))
 		scopedTools.Register(tools.NewSandboxWriteStdinTool(id, r.sandboxes))

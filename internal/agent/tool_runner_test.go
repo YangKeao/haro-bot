@@ -77,9 +77,9 @@ func TestToolRunnerTruncatesLargeToolOutput(t *testing.T) {
 
 	store := &toolRunnerStore{}
 	registry := tools.NewRegistry(&staticTool{name: "big_tool", output: output})
-	runner := NewToolRunner(registry, store, nil, estimator)
+	runner := NewToolRunner(registry, store, estimator)
 
-	msgs, _, err := runner.Run(context.Background(), 1, "", nil, []llm.ToolCall{{
+	msgs, err := runner.Run(context.Background(), 1, "", []llm.ToolCall{{
 		ID:   "call-1",
 		Type: "function",
 		Function: llm.ToolCallFn{
@@ -118,9 +118,9 @@ func TestToolRunnerKeepsSmallToolOutput(t *testing.T) {
 	}
 	store := &toolRunnerStore{}
 	registry := tools.NewRegistry(&staticTool{name: "small_tool", output: "short output"})
-	runner := NewToolRunner(registry, store, nil, estimator)
+	runner := NewToolRunner(registry, store, estimator)
 
-	msgs, _, err := runner.Run(context.Background(), 1, "", nil, []llm.ToolCall{{
+	msgs, err := runner.Run(context.Background(), 1, "", []llm.ToolCall{{
 		ID:   "call-1",
 		Type: "function",
 		Function: llm.ToolCallFn{

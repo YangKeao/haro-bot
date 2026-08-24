@@ -6,16 +6,14 @@ import (
 
 	"github.com/YangKeao/haro-bot/internal/logging"
 	"github.com/YangKeao/haro-bot/internal/memory"
-	"github.com/YangKeao/haro-bot/internal/skills"
 	"go.uber.org/zap"
 )
 
-func (s *Session) runLoop(ctx context.Context, run *RunState, hooks MiddlewareSet, activeSkill *skills.Skill) (string, error) {
+func (s *Session) runLoop(ctx context.Context, run *RunState, hooks MiddlewareSet) (string, error) {
 	log := logging.L().Named("agent_loop")
 	maxTurns := s.deps.maxToolTurns
 	for i := 0; i < maxTurns; i++ {
 		turn := newTurnState(run, i+1, run.Model, s.estimatorForModel(run.Model), s.toolsFor())
-		turn.ActiveSkill = activeSkill
 		log.Debug("loop turn",
 			zap.Int("turn", i+1),
 			zap.Int("max_turns", maxTurns),
@@ -69,7 +67,7 @@ func (s *Session) runLoop(ctx context.Context, run *RunState, hooks MiddlewareSe
 		}
 		log.Debug("assistant tool-call message stored", zap.Int64("session_id", s.id))
 
-		toolMsgs, updatedSkill, err := s.deps.toolRunner.Run(ctx, s.id, s.deps.defaultBaseDir, turn.ActiveSkill, msg.ToolCalls)
+		toolMsgs, err := s.deps.toolRunner.Run(ctx, s.id, s.deps.defaultBaseDir, msg.ToolCalls)
 		if err != nil {
 			return "", err
 		}
@@ -77,7 +75,6 @@ func (s *Session) runLoop(ctx context.Context, run *RunState, hooks MiddlewareSe
 			return "", err
 		}
 		log.Debug("tool run completed", zap.Int("tool_messages", len(toolMsgs)))
-		activeSkill = updatedSkill
 		run.Stored = append(run.Stored, assistantMsg)
 		run.Stored = append(run.Stored, toolMsgs...)
 	}

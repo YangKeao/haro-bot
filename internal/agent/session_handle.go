@@ -55,7 +55,7 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 			return "", err
 		}
 		snapshot.apply(run)
-		output, err := s.runLoop(ctx, run, middleware, nil)
+		output, err := s.runLoop(ctx, run, middleware)
 		if err != nil {
 			return "", err
 		}

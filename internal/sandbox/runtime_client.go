@@ -34,6 +34,10 @@ type Runtime interface {
 	Signal(context.Context, RuntimeTarget, string, string) (Process, error)
 }
 
+type SkillRuntime interface {
+	EnsureSkill(context.Context, RuntimeTarget, string, []byte) (SkillMaterialization, error)
+}
+
 type HTTPRuntime struct {
 	RequestTimeout time.Duration
 }
@@ -79,6 +83,44 @@ func (r *HTTPRuntime) Signal(ctx context.Context, target RuntimeTarget, id strin
 	var output Process
 	err := r.request(ctx, target, http.MethodPost, "/v1/processes/"+url.PathEscape(id)+"/signal", SignalRequest{Signal: signal}, &output, r.timeout())
 	return output, err
+}
+
+func (r *HTTPRuntime) EnsureSkill(ctx context.Context, target RuntimeTarget, hash string, archive []byte) (SkillMaterialization, error) {
+	var output SkillMaterialization
+	client, err := runtimeHTTPClient(target, r.timeout())
+	if err != nil {
+		return output, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, strings.TrimRight(target.BaseURL, "/")+"/v1/skills/"+url.PathEscape(hash), bytes.NewReader(archive))
+	if err != nil {
+		return output, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+target.Token)
+	req.Header.Set("Content-Type", "application/gzip")
+	resp, err := client.Do(req)
+	if err != nil {
+		return output, fmt.Errorf("sandbox runtime request: %w", err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return output, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var detail struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(data, &detail)
+		if detail.Error == "" {
+			detail.Error = strings.TrimSpace(string(data))
+		}
+		return output, fmt.Errorf("sandbox runtime: %s", detail.Error)
+	}
+	if err := json.Unmarshal(data, &output); err != nil {
+		return output, fmt.Errorf("decode sandbox runtime response: %w", err)
+	}
+	return output, nil
 }
 
 func (r *HTTPRuntime) timeout() time.Duration {

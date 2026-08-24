@@ -3,7 +3,6 @@ package prompt
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -80,7 +79,7 @@ func buildPromptWithInstructions(ctx context.Context, gl GuidelinesLoader, skill
 		}
 	}
 	if len(skillsList) > 0 {
-		b.WriteString("To use a skill, call the tool activate_skill with {name, goal}. Only activate when a skill is necessary.\n")
+		b.WriteString("To use a skill, call read_skill with its package locator. Only read a skill when it is necessary.\n")
 	}
 	return b.String()
 }
@@ -95,9 +94,7 @@ func buildSkillsXML(skillsList []skills.Metadata) string {
 		b.WriteString("  <skill>\n")
 		b.WriteString(fmt.Sprintf("    <name>%s</name>\n", xmlEscape(s.Name)))
 		b.WriteString(fmt.Sprintf("    <description>%s</description>\n", xmlEscape(s.Description)))
-		if loc := skillLocation(s.Dir); loc != "" {
-			b.WriteString(fmt.Sprintf("    <location>%s</location>\n", xmlEscape(loc)))
-		}
+		b.WriteString(fmt.Sprintf("    <package>%s</package>\n", xmlEscape(skills.Package(s))))
 		b.WriteString("  </skill>\n")
 	}
 	b.WriteString("</available_skills>")
@@ -110,28 +107,23 @@ func renderSkillsSection(skillsList []skills.Metadata) string {
 	}
 	lines := []string{
 		"## Skills",
-		"A skill is a set of local instructions to follow that is stored in a `SKILL.md` file. Below is the list of skills that can be used. Each entry includes a name, description, and file path so you can open the source for full instructions when using a specific skill.",
+		"A skill is an immutable package containing a `SKILL.md` file and optional scripts, references, and assets. Below are the skills available to this agent.",
 		"### Available skills",
 	}
 	for _, s := range skillsList {
-		path := skillLocation(s.Dir)
-		if path == "" {
-			path = filepath.Join(s.Dir, "SKILL.md")
-		}
-		path = strings.ReplaceAll(path, `\\`, `/`)
-		lines = append(lines, fmt.Sprintf("- %s: %s (file: %s)", s.Name, s.Description, path))
+		lines = append(lines, fmt.Sprintf("- %s: %s (package: %s)", s.Name, s.Description, skills.Package(s)))
 	}
 	lines = append(lines, "### How to use skills")
 	lines = append(lines,
-		"- Discovery: The list above is the skills available in this session (name + description + file path). Skill bodies live on disk at the listed paths.",
+		"- Discovery: The list above is the complete set of skills available to this agent. Package locators are immutable and agent-scoped.",
 		"- Trigger rules: If the user names a skill (with `$SkillName` or plain text) OR the task clearly matches a skill's description shown above, you must use that skill for that turn. Multiple mentions mean use them all. Do not carry skills across turns unless re-mentioned.",
-		"- Missing/blocked: If a named skill isn't in the list or the path can't be read, say so briefly and continue with the best fallback.",
+		"- Missing/blocked: If a named skill isn't in the list or its package can't be read, say so briefly and continue with the best fallback.",
 		"- How to use a skill (progressive disclosure):",
-		"  1) After deciding to use a skill, open its `SKILL.md`. Read only enough to follow the workflow.",
-		"  2) When `SKILL.md` references relative paths (e.g., `scripts/foo.py`), resolve them relative to the skill directory listed above first, and only consider other paths if needed.",
-		"  3) If `SKILL.md` points to extra folders such as `references/`, load only the specific files needed for the request; don't bulk-load everything.",
-		"  4) If `scripts/` exist, prefer running or patching them instead of retyping large code blocks.",
-		"  5) If `assets/` or templates exist, reuse them instead of recreating from scratch.",
+		"  1) After deciding to use a skill, call `read_skill` with its exact package locator. The default resource is the complete `SKILL.md` including frontmatter.",
+		"  2) Follow `next_cursor` until the selected resource is complete. Use `read_skill` with `resource` for specific referenced text files.",
+		"  3) If `skill_root` is returned, resolve relative script, reference, and asset paths beneath that sandbox directory.",
+		"  4) If `scripts/` exist, prefer running them from `skill_root` instead of retyping large code blocks. Dependencies are not installed automatically.",
+		"  5) If no `skill_root` is returned, follow the instructions that do not require bundled files and report the limitation when relevant.",
 		"- Coordination and sequencing:",
 		"  - If multiple skills apply, choose the minimal set that covers the request and state the order you'll use them.",
 		"  - Announce which skill(s) you're using and why (one short line). If you skip an obvious skill, say why.",
@@ -142,17 +134,6 @@ func renderSkillsSection(skillsList []skills.Metadata) string {
 		"- Safety and fallback: If a skill can't be applied cleanly (missing files, unclear instructions), state the issue, pick the next-best approach, and continue.",
 	)
 	return strings.Join(lines, "\n")
-}
-
-func skillLocation(dir string) string {
-	if dir == "" {
-		return ""
-	}
-	abs, err := filepath.Abs(filepath.Join(dir, "SKILL.md"))
-	if err != nil {
-		return ""
-	}
-	return abs
 }
 
 func xmlEscape(s string) string {

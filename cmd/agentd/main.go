@@ -79,7 +79,6 @@ func main() {
 		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
 		tools.NewSessionSummaryTool(store),
 		tools.NewInstallSkillTool(skillsMgr),
-		tools.NewActivateSkillTool(skillsMgr),
 		tools.NewRefreshSkillsTool(skillsMgr),
 		tools.NewDeleteSkillSourceTool(skillsMgr),
 		tools.NewUpdateGuidelinesTool(guidelinesMgr),
@@ -104,12 +103,12 @@ func main() {
 		log.Fatal("web server init failed", zap.Error(err))
 	}
 
-	imRuntime.Start(ctx)
-
 	if err := skillsMgr.RefreshAll(ctx); err != nil {
 		log.Warn("skills refresh failed", zap.Error(err))
 	}
 	go syncLoop(ctx, skillsMgr, cfg.SkillsSyncInterval)
+
+	imRuntime.Start(ctx)
 
 	// Create HTTP handler with health check and pprof
 	mux := http.NewServeMux()

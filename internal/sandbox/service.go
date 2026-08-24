@@ -13,6 +13,7 @@ import (
 
 	"github.com/YangKeao/haro-bot/internal/config"
 	dbmodel "github.com/YangKeao/haro-bot/internal/db"
+	"github.com/YangKeao/haro-bot/internal/skillbundle"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -644,6 +645,28 @@ func (s *Service) ProcessAgentID(ctx context.Context, processID string) (int64, 
 		return 0, err
 	}
 	return run.AgentID, nil
+}
+
+func (s *Service) EnsureSkill(ctx context.Context, agentID int64, hash, root string) (SkillMaterialization, error) {
+	if !skillbundle.ValidHash(hash) {
+		return SkillMaterialization{}, errors.New("invalid skill bundle hash")
+	}
+	archive, manifest, err := skillbundle.Archive(root)
+	if err != nil {
+		return SkillMaterialization{}, err
+	}
+	if manifest.Hash != hash {
+		return SkillMaterialization{}, errors.New("skill bundle hash mismatch")
+	}
+	_, target, err := s.targetForAgent(ctx, agentID)
+	if err != nil {
+		return SkillMaterialization{}, err
+	}
+	runtime, ok := s.runtime.(SkillRuntime)
+	if !ok {
+		return SkillMaterialization{}, errors.New("sandbox runtime does not support skill materialization")
+	}
+	return runtime.EnsureSkill(ctx, target, hash, archive)
 }
 
 func (s *Service) targetForAgent(ctx context.Context, agentID int64) (Profile, RuntimeTarget, error) {

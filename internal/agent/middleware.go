@@ -32,14 +32,13 @@ type RunState struct {
 }
 
 type TurnState struct {
-	Run         *RunState
-	Index       int
-	Model       string
-	Stored      []StoredMessage
-	Transient   TransientContext
-	Tools       []llm.Tool
-	Estimator   *llm.TokenEstimator
-	ActiveSkill *skills.Skill
+	Run       *RunState
+	Index     int
+	Model     string
+	Stored    []StoredMessage
+	Transient TransientContext
+	Tools     []llm.Tool
+	Estimator *llm.TokenEstimator
 }
 
 type LLMCall struct {

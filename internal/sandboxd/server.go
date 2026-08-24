@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/YangKeao/haro-bot/internal/sandbox"
+	"github.com/YangKeao/haro-bot/internal/skillbundle"
 	"github.com/creack/pty"
 )
 
@@ -25,6 +27,7 @@ const (
 	maxListOutputBytes  = 8 << 10
 	maxActiveProcesses  = 64
 	maxTrackedProcesses = 256
+	maxSkillCacheBytes  = 512 << 20
 )
 
 type Server struct {
@@ -32,6 +35,7 @@ type Server struct {
 	token     string
 
 	mu        sync.RWMutex
+	skillsMu  sync.Mutex
 	processes map[string]*managedProcess
 	pending   map[string]struct{}
 }
@@ -80,7 +84,115 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/processes/{processID}/stdin", s.handleStdin)
 	mux.HandleFunc("POST /v1/processes/{processID}/resize", s.handleResize)
 	mux.HandleFunc("POST /v1/processes/{processID}/signal", s.handleSignal)
+	mux.HandleFunc("PUT /v1/skills/{hash}", s.handleEnsureSkill)
 	return s.authenticate(mux)
+}
+
+func (s *Server) handleEnsureSkill(w http.ResponseWriter, r *http.Request) {
+	hash := strings.TrimSpace(r.PathValue("hash"))
+	if !skillbundle.ValidHash(hash) {
+		writeError(w, http.StatusBadRequest, "invalid skill bundle hash")
+		return
+	}
+	s.skillsMu.Lock()
+	defer s.skillsMu.Unlock()
+	parent := filepath.Join(s.workspace, ".haro", "skills", "sha256")
+	target := filepath.Join(parent, hash)
+	if manifest, err := skillbundle.Scan(target); err == nil && manifest.Hash == hash {
+		now := time.Now()
+		_ = os.Chtimes(target, now, now)
+		s.pruneSkillCache(parent, hash)
+		writeJSON(w, http.StatusOK, sandbox.SkillMaterialization{SkillRoot: target, Reused: true})
+		return
+	}
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	temp, err := os.MkdirTemp(parent, ".skill-")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer os.RemoveAll(temp)
+	manifest, err := skillbundle.ExtractArchive(http.MaxBytesReader(w, r.Body, skillbundle.MaxArchiveSize), temp)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if manifest.Hash != hash {
+		writeError(w, http.StatusBadRequest, "skill bundle hash mismatch")
+		return
+	}
+	if err := os.RemoveAll(target); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := os.Rename(temp, target); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.pruneSkillCache(parent, hash)
+	writeJSON(w, http.StatusCreated, sandbox.SkillMaterialization{SkillRoot: target})
+}
+
+func (s *Server) pruneSkillCache(parent, keepHash string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.pending) > 0 {
+		return
+	}
+	for _, process := range s.processes {
+		process.mu.Lock()
+		status := process.info.Status
+		process.mu.Unlock()
+		if status == sandbox.RunStarting || status == sandbox.RunRunning {
+			return
+		}
+	}
+	type cachedSkill struct {
+		path   string
+		hash   string
+		size   int64
+		usedAt time.Time
+	}
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return
+	}
+	var cached []cachedSkill
+	var total int64
+	for _, entry := range entries {
+		if !entry.IsDir() || !skillbundle.ValidHash(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(parent, entry.Name())
+		manifest, err := skillbundle.Scan(path)
+		if err != nil || manifest.Hash != entry.Name() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		total += manifest.TotalSize
+		cached = append(cached, cachedSkill{path: path, hash: entry.Name(), size: manifest.TotalSize, usedAt: info.ModTime()})
+	}
+	if total <= maxSkillCacheBytes {
+		return
+	}
+	sort.Slice(cached, func(i, j int) bool { return cached[i].usedAt.Before(cached[j].usedAt) })
+	for _, item := range cached {
+		if total <= maxSkillCacheBytes {
+			break
+		}
+		if item.hash == keepHash {
+			continue
+		}
+		if os.RemoveAll(item.path) == nil {
+			total -= item.size
+		}
+	}
 }
 
 func (s *Server) authenticate(next http.Handler) http.Handler {

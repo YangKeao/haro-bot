@@ -2,8 +2,6 @@ package skills
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"strings"
 
@@ -14,17 +12,16 @@ var (
 	errNoFrontmatter = errors.New("missing frontmatter")
 )
 
-func parseSkillFile(data []byte) (Frontmatter, string, string, error) {
+func parseSkillFile(data []byte) (Frontmatter, string, error) {
 	fm, body, err := splitFrontmatter(data)
 	if err != nil {
-		return Frontmatter{}, "", "", err
+		return Frontmatter{}, "", err
 	}
 	var meta Frontmatter
 	if err := yaml.Unmarshal(fm, &meta); err != nil {
-		return Frontmatter{}, "", "", err
+		return Frontmatter{}, "", err
 	}
-	hash := sha256.Sum256(data)
-	return meta, string(body), hex.EncodeToString(hash[:]), nil
+	return meta, string(body), nil
 }
 
 func splitFrontmatter(data []byte) ([]byte, []byte, error) {

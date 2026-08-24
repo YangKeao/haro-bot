@@ -14,6 +14,10 @@ type Tool interface {
 	Execute(ctx context.Context, tc ToolContext, args json.RawMessage) (string, error)
 }
 
+type HiddenTool interface {
+	Hidden() bool
+}
+
 type ToolContext struct {
 	SessionID int64
 	BaseDir   string
@@ -58,6 +62,14 @@ func (r *Registry) Get(name string) (Tool, bool) {
 }
 
 func (r *Registry) List() []Tool {
+	return r.list(false)
+}
+
+func (r *Registry) ListAll() []Tool {
+	return r.list(true)
+}
+
+func (r *Registry) list(includeHidden bool) []Tool {
 	if r == nil {
 		return nil
 	}
@@ -68,6 +80,9 @@ func (r *Registry) List() []Tool {
 	}
 	out := make([]Tool, 0, len(r.tools))
 	for _, t := range r.tools {
+		if hidden, ok := t.(HiddenTool); ok && hidden.Hidden() && !includeHidden {
+			continue
+		}
 		out = append(out, t)
 	}
 	r.mu.RUnlock()

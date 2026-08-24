@@ -10,8 +10,10 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/YangKeao/haro-bot/internal/logging"
+	"github.com/YangKeao/haro-bot/internal/skillbundle"
 	skillsgit "github.com/YangKeao/haro-bot/internal/skills/source/git"
 	"go.uber.org/zap"
 )
@@ -144,10 +146,11 @@ func (m *Manager) RefreshAll(ctx context.Context) error {
 	}
 	log.Info("refreshing skill sources", zap.Int("count", len(sources)))
 	merged := make(map[string]Metadata)
+	conflicts := make(map[string]struct{})
 	var firstErr error
 	for _, src := range sources {
 		log.Debug("refreshing source", zap.Int64("source_id", src.ID), zap.String("source_type", src.SourceType))
-		version, err := m.refreshSource(ctx, src, merged)
+		version, err := m.refreshSource(ctx, src, merged, conflicts)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -158,10 +161,18 @@ func (m *Manager) RefreshAll(ctx context.Context) error {
 		}
 		_ = m.store.UpdateSourceSync(ctx, src.ID, version, "")
 	}
-	m.mu.Lock()
-	m.skills = merged
-	m.mu.Unlock()
-	log.Info("skills refreshed", zap.Int("count", len(merged)))
+	if err := m.loadFromDB(ctx); err != nil {
+		if firstErr == nil {
+			firstErr = err
+		}
+	} else {
+		active := make(map[string]Metadata)
+		for _, meta := range m.List() {
+			active[meta.Name] = meta
+		}
+		m.gcBundles(active, 7*24*time.Hour)
+	}
+	log.Info("skills refreshed", zap.Int("count", len(m.List())))
 	return firstErr
 }
 
@@ -175,7 +186,7 @@ func (m *Manager) RefreshSource(ctx context.Context, sourceID int64) error {
 		return ErrSourceNotActive
 	}
 	merged := make(map[string]Metadata)
-	version, err := m.refreshSource(ctx, target, merged)
+	version, err := m.refreshSource(ctx, target, merged, make(map[string]struct{}))
 	if err != nil {
 		_ = m.store.UpdateSourceSync(ctx, target.ID, "", err.Error())
 		log.Warn("refresh source failed", zap.Int64("source_id", target.ID), zap.Error(err))
@@ -226,6 +237,7 @@ func (m *Manager) List() []Metadata {
 	for _, meta := range m.skills {
 		out = append(out, meta)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
@@ -239,14 +251,13 @@ func (m *Manager) loadFromDB(ctx context.Context) error {
 		return err
 	}
 	merged := make(map[string]Metadata)
+	conflicts := make(map[string]struct{})
 	for _, entry := range entries {
 		meta, ok := m.metadataFromEntry(entry)
 		if !ok {
 			continue
 		}
-		if _, exists := merged[meta.Name]; !exists {
-			merged[meta.Name] = meta
-		}
+		mergeMetadata(merged, conflicts, meta)
 	}
 	m.mu.Lock()
 	m.skills = merged
@@ -281,8 +292,16 @@ func (m *Manager) metadataFromEntry(entry RegistryEntry) (Metadata, bool) {
 	if strings.TrimSpace(entry.Name) == "" || strings.TrimSpace(entry.Description) == "" {
 		return Metadata{}, false
 	}
-	repoDir := filepath.Join(m.baseDir, fmt.Sprintf("source-%d", entry.SourceID))
-	dir, err := safeJoinAllowMissing(repoDir, entry.SkillPath)
+	dir := skillbundle.BundleDir(m.baseDir, entry.ContentHash)
+	manifest, err := skillbundle.Scan(dir)
+	if err != nil || manifest.Hash != entry.ContentHash {
+		repoDir := filepath.Join(m.baseDir, fmt.Sprintf("source-%d", entry.SourceID))
+		sourceDir, joinErr := safeJoinAllowMissing(repoDir, entry.SkillPath)
+		if joinErr != nil {
+			return Metadata{}, false
+		}
+		manifest, dir, err = skillbundle.Snapshot(m.baseDir, sourceDir)
+	}
 	if err != nil {
 		return Metadata{}, false
 	}
@@ -291,8 +310,50 @@ func (m *Manager) metadataFromEntry(entry RegistryEntry) (Metadata, bool) {
 		Description: entry.Description,
 		Dir:         dir,
 		Version:     entry.Version,
-		Hash:        entry.ContentHash,
+		Hash:        manifest.Hash,
 	}, true
+}
+
+func (m *Manager) Get(name string) (Metadata, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	meta, ok := m.skills[name]
+	return meta, ok
+}
+
+func Package(meta Metadata) string {
+	return "skill://" + meta.Name + "/" + meta.Hash
+}
+
+func (m *Manager) ReadResource(name, hash, resource string) (Metadata, []byte, error) {
+	meta, ok := m.Get(name)
+	if !ok {
+		return Metadata{}, nil, errors.New("skill not found")
+	}
+	if hash != meta.Hash || !skillbundle.ValidHash(hash) {
+		return Metadata{}, nil, errors.New("skill package is not current")
+	}
+	if resource == "" {
+		resource = "SKILL.md"
+	}
+	if !skillbundle.ValidResourcePath(resource) {
+		return Metadata{}, nil, errors.New("invalid skill resource path")
+	}
+	path, err := safeJoin(meta.Dir, filepath.FromSlash(resource))
+	if err != nil {
+		return Metadata{}, nil, err
+	}
+	if err := ensureNoSymlink(path); err != nil {
+		return Metadata{}, nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Metadata{}, nil, err
+	}
+	if int64(len(data)) > skillbundle.MaxFileSize {
+		return Metadata{}, nil, errors.New("skill resource is too large")
+	}
+	return meta, data, nil
 }
 
 func (m *Manager) Load(name string) (Skill, error) {
@@ -311,19 +372,18 @@ func (m *Manager) Load(name string) (Skill, error) {
 	if err != nil {
 		return Skill{}, err
 	}
-	_, body, hash, err := parseSkillFile(data)
+	_, body, err := parseSkillFile(data)
 	if err != nil {
 		log.Warn("load skill failed", zap.String("name", name), zap.Error(err))
 		return Skill{}, err
 	}
-	meta.Hash = hash
 	return Skill{
 		Metadata:     meta,
 		Instructions: body,
 	}, nil
 }
 
-func (m *Manager) refreshSource(ctx context.Context, src Source, merged map[string]Metadata) (string, error) {
+func (m *Manager) refreshSource(ctx context.Context, src Source, merged map[string]Metadata, conflicts map[string]struct{}) (string, error) {
 	log := logging.L().Named("skills")
 	if src.SourceType != sourceTypeGit {
 		return "", errors.New("unsupported source_type")
@@ -362,9 +422,7 @@ func (m *Manager) refreshSource(ctx context.Context, src Source, merged map[stri
 		return version, err
 	}
 	for _, meta := range metas {
-		if _, exists := merged[meta.Name]; !exists {
-			merged[meta.Name] = meta
-		}
+		mergeMetadata(merged, conflicts, meta)
 	}
 	return version, nil
 }
@@ -401,7 +459,7 @@ func (m *Manager) scanSource(_ context.Context, src Source, repoDir, root, versi
 		if err != nil {
 			return nil
 		}
-		fm, _, hash, err := parseSkillFile(data)
+		fm, _, err := parseSkillFile(data)
 		if err != nil {
 			return nil
 		}
@@ -426,12 +484,16 @@ func (m *Manager) scanSource(_ context.Context, src Source, repoDir, root, versi
 		if err != nil {
 			return nil
 		}
+		manifest, bundleDir, err := skillbundle.Snapshot(m.baseDir, absDir)
+		if err != nil {
+			return fmt.Errorf("bundle skill %s: %w", name, err)
+		}
 		meta := Metadata{
 			Name:        name,
 			Description: desc,
-			Dir:         absDir,
+			Dir:         bundleDir,
 			Version:     version,
-			Hash:        hash,
+			Hash:        manifest.Hash,
 		}
 		metas = append(metas, meta)
 		entries = append(entries, RegistryEntry{
@@ -440,7 +502,7 @@ func (m *Manager) scanSource(_ context.Context, src Source, repoDir, root, versi
 			Description: desc,
 			Version:     version,
 			SkillPath:   relPath,
-			ContentHash: hash,
+			ContentHash: manifest.Hash,
 			Status:      "active",
 		})
 		return nil
@@ -455,6 +517,47 @@ func (m *Manager) scanSource(_ context.Context, src Source, repoDir, root, versi
 		return metas[i].Name < metas[j].Name
 	})
 	return entries, metas, nil
+}
+
+func mergeMetadata(merged map[string]Metadata, conflicts map[string]struct{}, meta Metadata) {
+	if _, conflicted := conflicts[meta.Name]; conflicted {
+		return
+	}
+	if _, exists := merged[meta.Name]; exists {
+		delete(merged, meta.Name)
+		conflicts[meta.Name] = struct{}{}
+		logging.L().Named("skills").Warn("duplicate skill name excluded", zap.String("name", meta.Name))
+		return
+	}
+	merged[meta.Name] = meta
+}
+
+func (m *Manager) gcBundles(active map[string]Metadata, grace time.Duration) {
+	referenced := make(map[string]struct{}, len(active))
+	for _, meta := range active {
+		referenced[meta.Hash] = struct{}{}
+	}
+	root := filepath.Join(m.baseDir, "bundles", "sha256")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-grace)
+	for _, entry := range entries {
+		if !entry.IsDir() || !skillbundle.ValidHash(entry.Name()) {
+			continue
+		}
+		if _, ok := referenced[entry.Name()]; ok {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			logging.L().Named("skills").Warn("remove stale skill bundle failed", zap.String("hash", entry.Name()), zap.Error(err))
+		}
+	}
 }
 
 func (m *Manager) repoDirForSource(sourceID int64) string {
