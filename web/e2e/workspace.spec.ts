@@ -104,14 +104,25 @@ const session = {
 const archivedAgent = { ...agent, id: 2, name: 'Legacy Analyst', archived_at: '2026-08-13T01:00:00Z' }
 const archivedSession = { ...session, id: 11, title: 'Archived design review', archived_at: '2026-08-13T01:00:00Z' }
 const recentSession = {
-  ...session,
-  agent: { id: agent.id, name: agent.name, icon: agent.icon, color: agent.color, avatar_mode: agent.avatar_mode },
+	...session,
+	agent: { id: agent.id, name: agent.name, icon: agent.icon, color: agent.color, avatar_mode: agent.avatar_mode },
+}
+
+const activeSkillSource = {
+	id: 30003, url: 'https://github.com/example/skills.git', ref: 'master', subdir: '', skill_filters: ['web-search'],
+	status: 'active', version: 'abcdef1234567890', last_error: '',
+}
+
+const removedSkillSource = {
+	...activeSkillSource, id: 30002, ref: 'main', skill_filters: [], status: 'deleted', version: '',
 }
 
 async function mockAPI(page: Page, initiallyAuthenticated = false) {
-  let authenticated = initiallyAuthenticated
-  let agentArchived = true
-  let sessionArchived = true
+	let authenticated = initiallyAuthenticated
+	let agentArchived = true
+	let sessionArchived = true
+	let currentSkillSource = { ...activeSkillSource }
+	let removedSkillSourceStatus = 'deleted'
   await page.route('**/api/v1/**', async (route: Route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -175,8 +186,20 @@ async function mockAPI(page: Page, initiallyAuthenticated = false) {
 		if (path === '/api/v1/processes/process-1/signal' || path === '/api/v1/processes/process-1/stdin') return route.fulfill({ json: sandboxProcess })
 		if (path === '/api/v1/sessions/11/messages') return route.fulfill({ json: { messages: [] } })
 		if (path === '/api/v1/skills') return route.fulfill({ json: { skills: [{ name: 'web-search', description: 'Search public sources', version: '1', hash: 'abc' }] } })
-    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'not_found', message: path } }) })
-  })
+		if (path === '/api/v1/skill-sources' && request.method() === 'GET') {
+			return route.fulfill({ json: { sources: [currentSkillSource, { ...removedSkillSource, status: removedSkillSourceStatus }] } })
+		}
+		if (path === '/api/v1/skill-sources/30003' && request.method() === 'PUT') {
+			const input = request.postDataJSON()
+			currentSkillSource = { ...currentSkillSource, ...input, skill_filters: [...input.skill_filters].sort(), version: 'fedcba9876543210' }
+			return route.fulfill({ json: { source: currentSkillSource } })
+		}
+		if (path === '/api/v1/skill-sources/30002/restore') {
+			removedSkillSourceStatus = 'active'
+			return route.fulfill({ json: { source: { ...removedSkillSource, status: 'active' } } })
+		}
+		await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'not_found', message: path } }) })
+	})
 }
 
 test('signs in and opens an agent conversation', async ({ page }) => {
@@ -199,6 +222,26 @@ test('finds and restores archived agents', async ({ page }) => {
   await expect(page.getByText('Legacy Analyst')).toBeVisible()
   await page.getByRole('button', { name: 'Restore' }).click()
   await expect(page.getByRole('link', { name: /Legacy Analyst/ })).toBeVisible()
+})
+
+test('edits active skill sources and restores removed sources separately', async ({ page }) => {
+	await mockAPI(page, true)
+	await page.goto('/skills')
+	await expect(page.getByRole('link', { name: activeSkillSource.url })).toHaveCount(1)
+	await expect(page.getByText('1 active sources')).toBeVisible()
+
+	await page.getByRole('button', { name: /Removed sources/ }).click()
+	await expect(page.getByRole('link', { name: activeSkillSource.url })).toHaveCount(2)
+	await page.getByRole('button', { name: `Edit ${activeSkillSource.url}` }).click()
+	await page.getByLabel('Git ref').fill('release')
+	await page.getByLabel(/Skill filters/).fill('web-search, release-notes')
+	await page.getByRole('button', { name: /Save and sync/ }).click()
+	await expect(page.getByText('release', { exact: true })).toBeVisible()
+	await expect(page.getByText('Includes: release-notes, web-search')).toBeVisible()
+
+	await page.getByRole('button', { name: 'Restore' }).click()
+	await expect(page.getByText('2 active sources')).toBeVisible()
+	await expect(page.getByRole('button', { name: /Removed sources/ })).toHaveCount(0)
 })
 
 test('keeps agent and session navigation usable on mobile', async ({ page }) => {

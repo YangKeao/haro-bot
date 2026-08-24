@@ -1,4 +1,4 @@
-import type { AgentEnvironmentVariable, AgentEnvironmentWrite, AgentInput, AgentProfile, Attachment, Guideline, Message, ModelCatalog, ProviderInput, ProviderProfile, RecentSession, RunEvent, SandboxInput, SandboxProcess, SandboxProfile, SandboxPublicConfig, Session, Skill, SkillSource, TelegramIntegration } from './types'
+import type { AgentEnvironmentVariable, AgentEnvironmentWrite, AgentInput, AgentProfile, Attachment, Guideline, Message, ModelCatalog, ProviderInput, ProviderProfile, RecentSession, RunEvent, SandboxInput, SandboxProcess, SandboxProfile, SandboxPublicConfig, Session, Skill, SkillSource, SkillSourceInput, TelegramIntegration } from './types'
 
 export class APIError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -74,8 +74,10 @@ export const api = {
   updateGuideline: (content: string) => request<{ guidelines: Guideline }>('/api/v1/guidelines', { method: 'PUT', body: JSON.stringify({ content }) }),
   skills: () => request<{ skills: Skill[] }>('/api/v1/skills'),
   skillSources: () => request<{ sources: SkillSource[] }>('/api/v1/skill-sources?archived=true'),
-  addSkillSource: (input: { url: string; ref: string; subdir: string; skill_filters: string[] }) => request('/api/v1/skill-sources', { method: 'POST', body: JSON.stringify(input) }),
+  addSkillSource: (input: SkillSourceInput) => request<{ id: number }>('/api/v1/skill-sources', { method: 'POST', body: JSON.stringify(input) }),
+  updateSkillSource: (id: number, input: SkillSourceInput) => request<{ source: SkillSource }>(`/api/v1/skill-sources/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
   refreshSkillSource: (id: number) => request(`/api/v1/skill-sources/${id}/refresh`, { method: 'POST', body: '{}' }),
+  restoreSkillSource: (id: number) => request<{ source: SkillSource }>(`/api/v1/skill-sources/${id}/restore`, { method: 'POST', body: '{}' }),
   deleteSkillSource: (id: number) => request(`/api/v1/skill-sources/${id}`, { method: 'DELETE' }),
 }
 

@@ -180,7 +180,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	api.HandleFunc("GET /api/v1/skills", s.handleListSkills)
 	api.HandleFunc("GET /api/v1/skill-sources", s.handleListSkillSources)
 	api.HandleFunc("POST /api/v1/skill-sources", s.handleCreateSkillSource)
+	api.HandleFunc("PUT /api/v1/skill-sources/{sourceID}", s.handleUpdateSkillSource)
 	api.HandleFunc("POST /api/v1/skill-sources/{sourceID}/refresh", s.handleRefreshSkillSource)
+	api.HandleFunc("POST /api/v1/skill-sources/{sourceID}/restore", s.handleRestoreSkillSource)
 	api.HandleFunc("DELETE /api/v1/skill-sources/{sourceID}", s.handleDeleteSkillSource)
 
 	mux.Handle("/api/v1/", s.auth.require(api))

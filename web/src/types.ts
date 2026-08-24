@@ -138,10 +138,17 @@ export interface SkillSource {
   ref: string
   subdir: string
   skill_filters: string[]
-  status: string
+  status: 'active' | 'deleted'
   version: string
   last_sync_at?: string
   last_error?: string
+}
+
+export interface SkillSourceInput {
+  url: string
+  ref: string
+  subdir: string
+  skill_filters: string[]
 }
 
 export interface Guideline {

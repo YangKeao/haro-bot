@@ -4,7 +4,17 @@ import (
 	"bytes"
 	"os"
 	"testing"
+
+	"github.com/YangKeao/haro-bot/internal/skills"
 )
+
+func TestSkillSourceJSONUsesEmptyFilterArray(t *testing.T) {
+	result := skillSourceJSON(skills.Source{ID: 1, Status: "active"})
+	filters, ok := result["skill_filters"].([]string)
+	if !ok || filters == nil || len(filters) != 0 {
+		t.Fatalf("expected an empty filter array, got %#v", result["skill_filters"])
+	}
+}
 
 func TestNormalizeProviderInputRetainsOrClearsAPIKey(t *testing.T) {
 	key := "provider-secret"

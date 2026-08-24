@@ -21,6 +21,8 @@ const (
 	// TODO: support claude marketplace and clawdhub sources.
 )
 
+var ErrSourceNotActive = errors.New("skill source is not active")
+
 type Manager struct {
 	store     *Store
 	baseDir   string
@@ -45,9 +47,24 @@ func NewManager(store *Store, baseDir string, allowlist []string) *Manager {
 
 func (m *Manager) RegisterSource(ctx context.Context, src Source) (int64, error) {
 	log := logging.L().Named("skills")
+	var err error
+	src, err = m.normalizeSource(src)
+	if err != nil {
+		return 0, err
+	}
+	id, err := m.store.UpsertSource(ctx, src)
+	if err != nil {
+		log.Warn("register source failed", zap.Error(err), zap.String("source_type", src.SourceType), zap.String("url", src.URL))
+		return 0, err
+	}
+	log.Info("registered skill source", zap.Int64("source_id", id), zap.String("source_type", src.SourceType), zap.String("url", src.URL))
+	return id, nil
+}
+
+func (m *Manager) normalizeSource(src Source) (Source, error) {
 	src.SourceType = strings.ToLower(strings.TrimSpace(src.SourceType))
 	if src.SourceType == "" {
-		return 0, errors.New("source_type required")
+		return Source{}, errors.New("source_type required")
 	}
 	if src.InstallMethod == "" {
 		src.InstallMethod = src.SourceType
@@ -59,13 +76,13 @@ func (m *Manager) RegisterSource(ctx context.Context, src Source) (int64, error)
 	case sourceTypeGit:
 		src.URL = strings.TrimSpace(src.URL)
 		if src.URL == "" {
-			return 0, errors.New("url required")
+			return Source{}, errors.New("url required")
 		}
 		if strings.HasPrefix(strings.ToLower(src.URL), "file://") {
-			return 0, errors.New("file protocol not allowed")
+			return Source{}, errors.New("file protocol not allowed")
 		}
 		if len(m.allowlist) > 0 && !allowedRepo(src.URL, m.allowlist) {
-			return 0, errors.New("skills repo url not allowed")
+			return Source{}, errors.New("skills repo url not allowed")
 		}
 		src.Ref = strings.TrimSpace(src.Ref)
 		if src.Ref == "" {
@@ -74,19 +91,49 @@ func (m *Manager) RegisterSource(ctx context.Context, src Source) (int64, error)
 		src.SkillFilters = normalizeSkillFilters(src.SkillFilters)
 		cleanSubdir, err := normalizeSubdir(src.Subdir)
 		if err != nil {
-			return 0, err
+			return Source{}, err
 		}
 		src.Subdir = cleanSubdir
 	default:
-		return 0, errors.New("unsupported source_type")
+		return Source{}, errors.New("unsupported source_type")
 	}
-	id, err := m.store.UpsertSource(ctx, src)
+	return src, nil
+}
+
+func (m *Manager) UpdateSource(ctx context.Context, sourceID int64, src Source) error {
+	if m.store == nil {
+		return errors.New("store not configured")
+	}
+	existing, err := m.store.GetSource(ctx, sourceID)
 	if err != nil {
-		log.Warn("register source failed", zap.Error(err), zap.String("source_type", src.SourceType), zap.String("url", src.URL))
-		return 0, err
+		return err
 	}
-	log.Info("registered skill source", zap.Int64("source_id", id), zap.String("source_type", src.SourceType), zap.String("url", src.URL))
-	return id, nil
+	if existing.Status != "active" {
+		return ErrSourceNotActive
+	}
+	src.SourceType = existing.SourceType
+	src.InstallMethod = existing.InstallMethod
+	src.Status = existing.Status
+	src, err = m.normalizeSource(src)
+	if err != nil {
+		return err
+	}
+	if err := m.store.UpdateSource(ctx, sourceID, src); err != nil {
+		return err
+	}
+	logging.L().Named("skills").Info("updated skill source", zap.Int64("source_id", sourceID), zap.String("url", src.URL))
+	return nil
+}
+
+func (m *Manager) RestoreSource(ctx context.Context, sourceID int64) error {
+	if m.store == nil {
+		return errors.New("store not configured")
+	}
+	if err := m.store.RestoreSource(ctx, sourceID); err != nil {
+		return err
+	}
+	logging.L().Named("skills").Info("restored skill source", zap.Int64("source_id", sourceID))
+	return nil
 }
 
 func (m *Manager) RefreshAll(ctx context.Context) error {
@@ -120,25 +167,15 @@ func (m *Manager) RefreshAll(ctx context.Context) error {
 
 func (m *Manager) RefreshSource(ctx context.Context, sourceID int64) error {
 	log := logging.L().Named("skills")
-	sources, err := m.store.ListSources(ctx, true)
+	target, err := m.store.GetSource(ctx, sourceID)
 	if err != nil {
 		return err
 	}
-	var target *Source
-	for i := range sources {
-		if sources[i].ID == sourceID {
-			target = &sources[i]
-			break
-		}
-	}
-	if target == nil {
-		return errors.New("source not found")
-	}
 	if target.Status != "active" {
-		return errors.New("source not active")
+		return ErrSourceNotActive
 	}
 	merged := make(map[string]Metadata)
-	version, err := m.refreshSource(ctx, *target, merged)
+	version, err := m.refreshSource(ctx, target, merged)
 	if err != nil {
 		_ = m.store.UpdateSourceSync(ctx, target.ID, "", err.Error())
 		log.Warn("refresh source failed", zap.Int64("source_id", target.ID), zap.Error(err))
@@ -150,6 +187,13 @@ func (m *Manager) RefreshSource(ctx context.Context, sourceID int64) error {
 	}
 	log.Info("source refreshed", zap.Int64("source_id", target.ID), zap.Int("skills", len(merged)))
 	return nil
+}
+
+func (m *Manager) GetSource(ctx context.Context, sourceID int64) (Source, error) {
+	if m.store == nil {
+		return Source{}, errors.New("store not configured")
+	}
+	return m.store.GetSource(ctx, sourceID)
 }
 
 func (m *Manager) ListSources(ctx context.Context, includeDisabled bool) ([]Source, error) {

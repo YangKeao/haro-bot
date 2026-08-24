@@ -4,6 +4,8 @@ package skills_test
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/YangKeao/haro-bot/internal/skills"
@@ -136,5 +138,146 @@ func TestManagerDeleteSourceRemovesSkills(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("expected source registry entries removed, got %#v", entries)
+	}
+}
+
+func TestManagerUpdateSourceChangesRepositoryAndFilters(t *testing.T) {
+	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
+	t.Cleanup(cleanup)
+
+	firstRepo := testutil.CreateSkillRepo(t, "alpha-skill", "Alpha skill")
+	secondRepo := testutil.CreateSkillRepoWithSkills(t,
+		testutil.SkillSpec{Name: "beta-skill", Description: "Beta skill"},
+		testutil.SkillSpec{Name: "gamma-skill", Description: "Gamma skill"},
+	)
+	mgr := skills.NewManager(skills.NewStore(gdb), t.TempDir(), nil)
+	ctx := context.Background()
+	sourceID, err := mgr.RegisterSource(ctx, skills.Source{SourceType: "git", URL: firstRepo, Ref: "master"})
+	if err != nil {
+		t.Fatalf("register source: %v", err)
+	}
+	if err := mgr.RefreshSource(ctx, sourceID); err != nil {
+		t.Fatalf("refresh first source: %v", err)
+	}
+
+	if err := mgr.UpdateSource(ctx, sourceID, skills.Source{
+		URL:          secondRepo,
+		Ref:          " master ",
+		SkillFilters: []string{" beta-skill ", "beta-skill"},
+	}); err != nil {
+		t.Fatalf("update source: %v", err)
+	}
+	if err := mgr.RefreshSource(ctx, sourceID); err != nil {
+		t.Fatalf("refresh updated source: %v", err)
+	}
+
+	updated, err := mgr.GetSource(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get updated source: %v", err)
+	}
+	if updated.ID != sourceID || updated.URL != secondRepo || updated.Ref != "master" || len(updated.SkillFilters) != 1 || updated.SkillFilters[0] != "beta-skill" {
+		t.Fatalf("unexpected updated source: %#v", updated)
+	}
+	loaded := mgr.List()
+	if len(loaded) != 1 || loaded[0].Name != "beta-skill" {
+		t.Fatalf("expected only beta-skill after update, got %#v", loaded)
+	}
+}
+
+func TestManagerUpdateSourceRejectsDeletedIdentityConflict(t *testing.T) {
+	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
+	t.Cleanup(cleanup)
+
+	firstRepo := testutil.CreateSkillRepo(t, "alpha-skill", "Alpha skill")
+	secondRepo := testutil.CreateSkillRepo(t, "beta-skill", "Beta skill")
+	mgr := skills.NewManager(skills.NewStore(gdb), t.TempDir(), nil)
+	ctx := context.Background()
+	firstID, err := mgr.RegisterSource(ctx, skills.Source{SourceType: "git", URL: firstRepo, Ref: "master"})
+	if err != nil {
+		t.Fatalf("register first source: %v", err)
+	}
+	secondID, err := mgr.RegisterSource(ctx, skills.Source{SourceType: "git", URL: secondRepo, Ref: "master"})
+	if err != nil {
+		t.Fatalf("register second source: %v", err)
+	}
+	if err := mgr.DeleteSource(ctx, secondID); err != nil {
+		t.Fatalf("delete second source: %v", err)
+	}
+
+	err = mgr.UpdateSource(ctx, firstID, skills.Source{URL: secondRepo, Ref: "master"})
+	if !errors.Is(err, skills.ErrSourceConflict) {
+		t.Fatalf("expected source conflict, got %v", err)
+	}
+}
+
+func TestManagerRestoreSourceRefreshesDeletedSource(t *testing.T) {
+	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
+	t.Cleanup(cleanup)
+
+	repoDir := testutil.CreateSkillRepo(t, "restored-skill", "Restored skill")
+	mgr := skills.NewManager(skills.NewStore(gdb), t.TempDir(), nil)
+	ctx := context.Background()
+	sourceID, err := mgr.RegisterSource(ctx, skills.Source{SourceType: "git", URL: repoDir, Ref: "master"})
+	if err != nil {
+		t.Fatalf("register source: %v", err)
+	}
+	if err := mgr.RefreshSource(ctx, sourceID); err != nil {
+		t.Fatalf("refresh source: %v", err)
+	}
+	if err := mgr.DeleteSource(ctx, sourceID); err != nil {
+		t.Fatalf("delete source: %v", err)
+	}
+	if err := mgr.RestoreSource(ctx, sourceID); err != nil {
+		t.Fatalf("restore source: %v", err)
+	}
+	if err := mgr.RefreshSource(ctx, sourceID); err != nil {
+		t.Fatalf("refresh restored source: %v", err)
+	}
+
+	restored, err := mgr.GetSource(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get restored source: %v", err)
+	}
+	if restored.Status != "active" || len(mgr.List()) != 1 || mgr.List()[0].Name != "restored-skill" {
+		t.Fatalf("unexpected restored source or skills: source=%#v skills=%#v", restored, mgr.List())
+	}
+}
+
+func TestManagerUpdateSourceKeepsLastGoodSkillsWhenRefreshFails(t *testing.T) {
+	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
+	t.Cleanup(cleanup)
+
+	repoDir := testutil.CreateSkillRepo(t, "stable-skill", "Stable skill")
+	store := skills.NewStore(gdb)
+	mgr := skills.NewManager(store, t.TempDir(), nil)
+	ctx := context.Background()
+	sourceID, err := mgr.RegisterSource(ctx, skills.Source{SourceType: "git", URL: repoDir, Ref: "master"})
+	if err != nil {
+		t.Fatalf("register source: %v", err)
+	}
+	if err := mgr.RefreshSource(ctx, sourceID); err != nil {
+		t.Fatalf("refresh source: %v", err)
+	}
+
+	missingRepo := filepath.Join(t.TempDir(), "missing-repository")
+	if err := mgr.UpdateSource(ctx, sourceID, skills.Source{URL: missingRepo, Ref: "master"}); err != nil {
+		t.Fatalf("update source: %v", err)
+	}
+	if err := mgr.RefreshSource(ctx, sourceID); err == nil {
+		t.Fatal("expected refresh to fail")
+	}
+	updated, err := mgr.GetSource(ctx, sourceID)
+	if err != nil {
+		t.Fatalf("get failed source: %v", err)
+	}
+	if updated.URL != missingRepo || updated.LastError == "" {
+		t.Fatalf("expected failed source configuration and error to persist, got %#v", updated)
+	}
+	if loaded := mgr.List(); len(loaded) != 1 || loaded[0].Name != "stable-skill" {
+		t.Fatalf("expected last good in-memory skill, got %#v", loaded)
+	}
+	entries, err := store.ListSkillsBySource(ctx, sourceID)
+	if err != nil || len(entries) != 1 || entries[0].Name != "stable-skill" {
+		t.Fatalf("expected last good registry entry, entries=%#v err=%v", entries, err)
 	}
 }

@@ -587,15 +587,26 @@ svg { flex: 0 0 auto; }
 .skill-card span { display: inline-block; margin-top: 8px; color: var(--faint); font: 8px monospace; }
 .source-list { display: flex; flex-direction: column; gap: 7px; }
 .source-row { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 11px; background: var(--panel-2); }
-.source-row.archived { opacity: .54; }
+.source-row.removed { background: color-mix(in srgb, var(--panel-2) 70%, transparent); }
 .source-icon { width: 33px; height: 33px; background: var(--panel-3); color: var(--faint); }
 .source-main { min-width: 0; flex: 1; }
 .source-main > a { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: 5px; overflow: hidden; font-size: 10px; font-weight: 610; text-overflow: ellipsis; white-space: nowrap; }
 .source-main > div { display: flex; gap: 6px; margin-top: 6px; }
 .source-main span { padding: 3px 6px; border-radius: 5px; background: var(--panel-3); color: var(--faint); font-size: 8px; }
+.source-main .source-filters span { overflow: hidden; max-width: 100%; background: transparent; padding: 0; text-overflow: ellipsis; white-space: nowrap; }
+.source-main > small { display: block; margin-top: 7px; font-size: 9px; }
 .row-actions { display: flex; gap: 5px; }
 .row-actions .icon-button { width: 32px; height: 32px; background: transparent; }
 .row-actions .icon-button svg { width: 14px; }
+.source-action-error { margin-bottom: 0; }
+.removed-sources { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.removed-sources-toggle { display: flex; width: 100%; align-items: center; gap: 7px; padding: 8px 5px; border: 0; background: transparent; color: var(--faint); font-size: 10px; cursor: pointer; }
+.removed-sources-toggle:hover { color: var(--muted); }
+.removed-sources-toggle svg { width: 14px; }
+.removed-sources-toggle b { display: grid; min-width: 20px; height: 20px; place-items: center; border-radius: 999px; background: var(--panel-2); font-size: 8px; }
+.removed-sources-toggle svg:last-child { margin-left: auto; transition: transform .15s; }
+.removed-sources-toggle svg.open { transform: rotate(180deg); }
+.removed-source-list { margin-top: 7px; }
 .empty-inline { display: flex; align-items: flex-start; gap: 10px; padding: 17px; color: var(--faint); }
 .empty-inline.wide { grid-column: 1 / -1; justify-content: center; padding: 32px; }
 .empty-inline svg { width: 19px; }
@@ -727,6 +738,8 @@ svg { flex: 0 0 auto; }
 	.search-input { width: 100%; }
 	.source-row { align-items: flex-start; }
 	.source-main > div { flex-wrap: wrap; }
+	.source-row .row-actions { flex-direction: column; }
+	.source-row.removed { align-items: center; }
 	.model-catalog-list article { grid-template-columns: 1fr; }
 	.model-facts { align-items: flex-start; }
 	.model-catalog-heading, .integration-title { flex-direction: column; }

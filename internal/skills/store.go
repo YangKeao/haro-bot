@@ -18,6 +18,8 @@ type Store struct {
 	db *gorm.DB
 }
 
+var ErrSourceConflict = errors.New("a skill source with the same URL, ref, and subdirectory already exists")
+
 func NewStore(db *gorm.DB) *Store {
 	return &Store{db: db}
 }
@@ -96,33 +98,88 @@ func (s *Store) ListSources(ctx context.Context, includeDisabled bool) ([]Source
 	}
 	out := make([]Source, 0, len(records))
 	for _, r := range records {
-		version := ""
-		if r.Version != nil {
-			version = *r.Version
-		}
-		lastError := ""
-		if r.LastError != nil {
-			lastError = *r.LastError
-		}
-		skillFilters, err := unmarshalSkillFilters(r.SkillFilters)
+		source, err := sourceFromRecord(r)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Source{
-			ID:            r.ID,
-			SourceType:    r.SourceType,
-			InstallMethod: r.InstallMethod,
-			URL:           r.SourceURL,
-			Ref:           r.SourceRef,
-			Subdir:        r.SourceSubdir,
-			SkillFilters:  skillFilters,
-			Status:        r.Status,
-			Version:       version,
-			LastSyncAt:    r.LastSyncAt,
-			LastError:     lastError,
-		})
+		out = append(out, source)
 	}
 	return out, nil
+}
+
+func (s *Store) GetSource(ctx context.Context, id int64) (Source, error) {
+	if id <= 0 {
+		return Source{}, errors.New("source_id required")
+	}
+	var record dbmodel.SkillSource
+	if err := s.db.WithContext(ctx).First(&record, id).Error; err != nil {
+		return Source{}, err
+	}
+	return sourceFromRecord(record)
+}
+
+func (s *Store) UpdateSource(ctx context.Context, id int64, src Source) error {
+	if id <= 0 {
+		return errors.New("source_id required")
+	}
+	skillFiltersJSON, err := marshalSkillFilters(src.SkillFilters)
+	if err != nil {
+		return err
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing dbmodel.SkillSource
+		if err := tx.First(&existing, id).Error; err != nil {
+			return err
+		}
+		var conflicts int64
+		if err := tx.Model(&dbmodel.SkillSource{}).
+			Where("id <> ? AND source_type = ? AND source_url = ? AND source_ref = ? AND source_subdir = ?",
+				id, src.SourceType, src.URL, src.Ref, src.Subdir).
+			Count(&conflicts).Error; err != nil {
+			return err
+		}
+		if conflicts > 0 {
+			return ErrSourceConflict
+		}
+		result := tx.Model(&dbmodel.SkillSource{}).
+			Where("id = ?", id).
+			Updates(map[string]any{
+				"source_type":        src.SourceType,
+				"install_method":     src.InstallMethod,
+				"source_url":         src.URL,
+				"source_ref":         src.Ref,
+				"source_subdir":      src.Subdir,
+				"skill_filters_json": skillFiltersJSON,
+				"version":            nil,
+				"last_error":         nil,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		return nil
+	})
+}
+
+func (s *Store) RestoreSource(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return errors.New("source_id required")
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing dbmodel.SkillSource
+		if err := tx.First(&existing, id).Error; err != nil {
+			return err
+		}
+		if existing.Status == "active" {
+			return nil
+		}
+		return tx.Model(&dbmodel.SkillSource{}).
+			Where("id = ?", id).
+			Updates(map[string]any{
+				"status":     "active",
+				"version":    nil,
+				"last_error": nil,
+			}).Error
+	})
 }
 
 func (s *Store) DeleteSource(ctx context.Context, id int64) error {
@@ -257,6 +314,34 @@ func registryEntriesFromRecords(records []dbmodel.SkillRegistry) []RegistryEntry
 		})
 	}
 	return out
+}
+
+func sourceFromRecord(r dbmodel.SkillSource) (Source, error) {
+	version := ""
+	if r.Version != nil {
+		version = *r.Version
+	}
+	lastError := ""
+	if r.LastError != nil {
+		lastError = *r.LastError
+	}
+	skillFilters, err := unmarshalSkillFilters(r.SkillFilters)
+	if err != nil {
+		return Source{}, err
+	}
+	return Source{
+		ID:            r.ID,
+		SourceType:    r.SourceType,
+		InstallMethod: r.InstallMethod,
+		URL:           r.SourceURL,
+		Ref:           r.SourceRef,
+		Subdir:        r.SourceSubdir,
+		SkillFilters:  skillFilters,
+		Status:        r.Status,
+		Version:       version,
+		LastSyncAt:    r.LastSyncAt,
+		LastError:     lastError,
+	}, nil
 }
 
 func nullIfEmpty(v string) any {
