@@ -27,6 +27,8 @@ func NewDeleteSkillSourceTool(skillsMgr *skills.Manager) *DeleteSkillSourceTool 
 
 func (t *DeleteSkillSourceTool) Name() string { return "delete_skill_source" }
 
+func (t *DeleteSkillSourceTool) AgentRestricted() bool { return true }
+
 func (t *DeleteSkillSourceTool) Description() string {
 	return "Delete a registered skill source and remove its loaded skills."
 }

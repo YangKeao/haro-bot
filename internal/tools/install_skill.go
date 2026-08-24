@@ -41,7 +41,8 @@ func NewInstallSkillTool(skillsMgr *skills.Manager) *InstallSkillTool {
 	return &InstallSkillTool{skills: skillsMgr}
 }
 
-func (t *InstallSkillTool) Name() string { return "install_skill" }
+func (t *InstallSkillTool) Name() string          { return "install_skill" }
+func (t *InstallSkillTool) AgentRestricted() bool { return true }
 func (t *InstallSkillTool) Description() string {
 	return "Register and download a skill source (e.g. a git repository)."
 }

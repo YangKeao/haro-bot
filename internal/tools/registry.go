@@ -18,6 +18,13 @@ type HiddenTool interface {
 	Hidden() bool
 }
 
+// AgentRestrictedTool marks workspace-management tools that must not be
+// exposed to ordinary agent runtimes. Trusted application layers may still
+// instantiate them directly.
+type AgentRestrictedTool interface {
+	AgentRestricted() bool
+}
+
 type ToolContext struct {
 	SessionID int64
 	BaseDir   string

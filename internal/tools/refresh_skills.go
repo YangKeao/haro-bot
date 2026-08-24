@@ -35,6 +35,8 @@ func NewRefreshSkillsTool(skillsMgr *skills.Manager) *RefreshSkillsTool {
 
 func (t *RefreshSkillsTool) Name() string { return "refresh_skills" }
 
+func (t *RefreshSkillsTool) AgentRestricted() bool { return true }
+
 func (t *RefreshSkillsTool) Description() string {
 	return "Refresh all skill sources, or one specific source when source_id is provided."
 }

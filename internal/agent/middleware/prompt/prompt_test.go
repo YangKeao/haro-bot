@@ -43,6 +43,23 @@ func TestBuildSystemPromptClaudeXML(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptExplicitlyDeniesUnassignedSkills(t *testing.T) {
+	for _, format := range []string{"openai", "claude"} {
+		t.Run(format, func(t *testing.T) {
+			out := buildPrompt(context.Background(), nil, nil, format)
+			if !strings.Contains(out, "No skills are assigned to this agent") {
+				t.Fatalf("expected explicit empty skill assignment, got: %s", out)
+			}
+			if !strings.Contains(out, "do not list workspace-installed skills") {
+				t.Fatalf("expected global skill-list restriction, got: %s", out)
+			}
+			if strings.Contains(out, "To use a skill") {
+				t.Fatalf("unexpected skill activation instructions: %s", out)
+			}
+		})
+	}
+}
+
 func TestMiddlewareWithTypedNilGuidelinesLoader(t *testing.T) {
 	var gl *guidelines.Manager
 	mw := New(gl)

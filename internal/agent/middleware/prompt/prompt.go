@@ -71,7 +71,7 @@ func buildPromptWithInstructions(ctx context.Context, gl GuidelinesLoader, skill
 		b.WriteString("\n\n")
 	}
 
-	if len(skillsList) > 0 && !isClaudeFormat(format) {
+	if !isClaudeFormat(format) {
 		section := renderSkillsSection(skillsList)
 		if section != "" {
 			b.WriteString(section)
@@ -86,7 +86,7 @@ func buildPromptWithInstructions(ctx context.Context, gl GuidelinesLoader, skill
 
 func buildSkillsXML(skillsList []skills.Metadata) string {
 	if len(skillsList) == 0 {
-		return ""
+		return "<available_skills></available_skills>\nNo skills are assigned to this agent. The workspace may contain other installed skills, but they are unavailable unless explicitly assigned. If asked which skills are available, say that none are assigned; do not list workspace-installed skills."
 	}
 	var b strings.Builder
 	b.WriteString("<available_skills>\n")
@@ -103,7 +103,10 @@ func buildSkillsXML(skillsList []skills.Metadata) string {
 
 func renderSkillsSection(skillsList []skills.Metadata) string {
 	if len(skillsList) == 0 {
-		return ""
+		return strings.Join([]string{
+			"## Skills",
+			"No skills are assigned to this agent. The workspace may contain other installed skills, but they are unavailable unless explicitly assigned. If asked which skills are available, say that none are assigned; do not list workspace-installed skills.",
+		}, "\n")
 	}
 	lines := []string{
 		"## Skills",
@@ -115,7 +118,7 @@ func renderSkillsSection(skillsList []skills.Metadata) string {
 	}
 	lines = append(lines, "### How to use skills")
 	lines = append(lines,
-		"- Discovery: The list above is the complete set of skills available to this agent. Package locators are immutable and agent-scoped.",
+		"- Discovery: The list above is the complete set of skills available to this agent. Package locators are immutable and agent-scoped. Do not list or claim access to workspace-installed skills that are not shown above.",
 		"- Trigger rules: If the user names a skill (with `$SkillName` or plain text) OR the task clearly matches a skill's description shown above, you must use that skill for that turn. Multiple mentions mean use them all. Do not carry skills across turns unless re-mentioned.",
 		"- Missing/blocked: If a named skill isn't in the list or its package can't be read, say so briefly and continue with the best fallback.",
 		"- How to use a skill (progressive disclosure):",

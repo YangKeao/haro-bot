@@ -48,6 +48,8 @@ func NewListSkillSourcesTool(skillsMgr *skills.Manager) *ListSkillSourcesTool {
 
 func (t *ListSkillSourcesTool) Name() string { return "list_skill_sources" }
 
+func (t *ListSkillSourcesTool) AgentRestricted() bool { return true }
+
 func (t *ListSkillSourcesTool) Description() string {
 	return "List registered skill sources and the skills currently loaded from each source."
 }
