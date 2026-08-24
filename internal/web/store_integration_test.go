@@ -105,6 +105,23 @@ func TestStoreAgentSessionLifecycle(t *testing.T) {
 	if session.Title != "New session" || session.Channel == "" {
 		t.Fatalf("unexpected new session: %#v", session)
 	}
+	if err := store.AutoTitleSession(ctx, 42, session.ID, `请你调查 tidb\_enable\_check\_constraint 的行为`); err != nil {
+		t.Fatalf("auto-title session: %v", err)
+	}
+	autoTitled, err := store.GetSession(ctx, 42, session.ID)
+	if err != nil {
+		t.Fatalf("get auto-titled session: %v", err)
+	}
+	if autoTitled.Title != "请你调查 tidb_enable_check_constraint 的行为" {
+		t.Fatalf("escaped Markdown was stored in session title: %q", autoTitled.Title)
+	}
+	var storedSession dbmodel.Session
+	if err := database.First(&storedSession, session.ID).Error; err != nil {
+		t.Fatalf("read stored session title: %v", err)
+	}
+	if storedSession.Title != autoTitled.Title {
+		t.Fatalf("database title = %q, want %q", storedSession.Title, autoTitled.Title)
+	}
 	if _, err := store.GetSession(ctx, 7, session.ID); err == nil {
 		t.Fatal("another user unexpectedly accessed the session")
 	}

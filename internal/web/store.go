@@ -416,16 +416,35 @@ func (s *Store) RenameSession(ctx context.Context, userID, id int64, title strin
 }
 
 func (s *Store) AutoTitleSession(ctx context.Context, userID, id int64, content string) error {
-	title := strings.Join(strings.Fields(content), " ")
+	title := autoSessionTitle(content)
+	return s.db.WithContext(ctx).Model(&dbmodel.Session{}).
+		Where("id = ? AND user_id = ? AND title = ?", id, userID, "New session").
+		Updates(map[string]any{"title": title, "updated_at": time.Now()}).Error
+}
+
+func autoSessionTitle(content string) string {
+	title := strings.Join(strings.Fields(unescapeMarkdownPunctuation(content)), " ")
 	if len([]rune(title)) > 56 {
 		title = string([]rune(title)[:56]) + "…"
 	}
 	if title == "" {
-		title = "Image conversation"
+		return "Image conversation"
 	}
-	return s.db.WithContext(ctx).Model(&dbmodel.Session{}).
-		Where("id = ? AND user_id = ? AND title = ?", id, userID, "New session").
-		Updates(map[string]any{"title": title, "updated_at": time.Now()}).Error
+	return title
+}
+
+func unescapeMarkdownPunctuation(content string) string {
+	const escapable = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+	runes := []rune(content)
+	var out strings.Builder
+	out.Grow(len(content))
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '\\' && i+1 < len(runes) && strings.ContainsRune(escapable, runes[i+1]) {
+			i++
+		}
+		out.WriteRune(runes[i])
+	}
+	return out.String()
 }
 
 func (s *Store) SetSessionArchived(ctx context.Context, userID, id int64, archived bool) error {
