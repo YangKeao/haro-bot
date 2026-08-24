@@ -105,6 +105,7 @@ const archivedAgent = { ...agent, id: 2, name: 'Legacy Analyst', archived_at: '2
 const archivedSession = { ...session, id: 11, title: 'Archived design review', archived_at: '2026-08-13T01:00:00Z' }
 const recentSession = {
 	...session,
+	title: 'Investigate tidb\\_enable\\_check\\_constraint',
 	agent: { id: agent.id, name: agent.name, icon: agent.icon, color: agent.color, avatar_mode: agent.avatar_mode },
 }
 
@@ -211,7 +212,10 @@ test('signs in and opens an agent conversation', async ({ page }) => {
   await page.getByRole('button', { name: 'Open workspace' }).click()
 
   await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible()
-  await page.getByRole('link', { name: /Quarterly market brief/ }).click()
+  const recentLink = page.getByRole('link', { name: /Investigate tidb_enable_check_constraint/ })
+  await expect(recentLink).not.toContainText('\\')
+  if (process.env.REVIEW_SCREENSHOTS) await recentLink.screenshot({ path: '/tmp/haro-commonmark-title.png' })
+  await recentLink.click()
   await expect(page.getByRole('heading', { name: 'Quarterly market brief' })).toBeVisible()
   await expect(page.getByText('The strongest signal is sustained demand with moderating growth.')).toBeVisible()
 })

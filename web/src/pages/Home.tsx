@@ -7,6 +7,7 @@ import {
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { AgentProfile } from '../types'
+import InlineMarkdown from '../components/InlineMarkdown'
 
 const avatarIcons = {
   sparkles: Sparkles, bot: Bot, search: Search, research: Search, code: Code2,
@@ -46,7 +47,7 @@ export default function Home() {
       <div className="section-toolbar simple"><div><div className="section-kicker">Continue working</div><h2 id="recent-heading">Recent conversations</h2></div>{recent.data?.sessions.length ? <span className="section-count">{recent.data.sessions.length} recent</span> : null}</div>
       {recent.isLoading ? <div className="recent-list">{[1, 2, 3].map(item => <div className="recent-row skeleton" key={item} />)}</div> : recent.data?.sessions.length ? <div className="recent-list">{recent.data.sessions.map(session => <Link className="recent-row" key={session.id} to={`/agents/${session.agent_id}/sessions/${session.id}`}>
         <AgentAvatar agent={session.agent} />
-        <div className="recent-main"><b>{session.title}</b><span>{session.agent.name}</span></div>
+        <div className="recent-main"><b><InlineMarkdown>{session.title}</InlineMarkdown></b><span>{session.agent.name}</span></div>
         <time dateTime={session.updated_at}><Clock3 /> {formatRelative(session.updated_at)}</time>
         <ArrowRight className="recent-arrow" />
       </Link>)}</div> : <div className="recent-empty"><MessageCircle /><div><b>No conversations yet</b><p>Choose an agent below to begin your first session.</p></div></div>}

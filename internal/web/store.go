@@ -423,7 +423,7 @@ func (s *Store) AutoTitleSession(ctx context.Context, userID, id int64, content 
 }
 
 func autoSessionTitle(content string) string {
-	title := strings.Join(strings.Fields(unescapeMarkdownPunctuation(content)), " ")
+	title := strings.Join(strings.Fields(content), " ")
 	if len([]rune(title)) > 56 {
 		title = string([]rune(title)[:56]) + "…"
 	}
@@ -431,20 +431,6 @@ func autoSessionTitle(content string) string {
 		return "Image conversation"
 	}
 	return title
-}
-
-func unescapeMarkdownPunctuation(content string) string {
-	const escapable = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
-	runes := []rune(content)
-	var out strings.Builder
-	out.Grow(len(content))
-	for i := 0; i < len(runes); i++ {
-		if runes[i] == '\\' && i+1 < len(runes) && strings.ContainsRune(escapable, runes[i+1]) {
-			i++
-		}
-		out.WriteRune(runes[i])
-	}
-	return out.String()
 }
 
 func (s *Store) SetSessionArchived(ctx context.Context, userID, id int64, archived bool) error {

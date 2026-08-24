@@ -112,8 +112,8 @@ func TestStoreAgentSessionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get auto-titled session: %v", err)
 	}
-	if autoTitled.Title != "请你调查 tidb_enable_check_constraint 的行为" {
-		t.Fatalf("escaped Markdown was stored in session title: %q", autoTitled.Title)
+	if autoTitled.Title != `请你调查 tidb\_enable\_check\_constraint 的行为` {
+		t.Fatalf("CommonMark source was not preserved in session title: %q", autoTitled.Title)
 	}
 	var storedSession dbmodel.Session
 	if err := database.First(&storedSession, session.ID).Error; err != nil {

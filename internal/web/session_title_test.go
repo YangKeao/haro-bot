@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestAutoSessionTitleStoresPlainText(t *testing.T) {
+func TestAutoSessionTitlePreservesCommonMark(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
@@ -14,17 +14,12 @@ func TestAutoSessionTitleStoresPlainText(t *testing.T) {
 		{
 			name:    "underscores serialized by Markdown composer",
 			content: `请你调查 tidb\_enable\_check\_constraint 的行为`,
-			want:    "请你调查 tidb_enable_check_constraint 的行为",
+			want:    `请你调查 tidb\_enable\_check\_constraint 的行为`,
 		},
 		{
-			name:    "all CommonMark punctuation escapes",
+			name:    "CommonMark punctuation escapes",
 			content: `Explain \*literal\* \[label\] and escaped slash \\`,
-			want:    `Explain *literal* [label] and escaped slash \`,
-		},
-		{
-			name:    "non punctuation backslash is preserved",
-			content: `Open C:\Users\name`,
-			want:    `Open C:\Users\name`,
+			want:    `Explain \*literal\* \[label\] and escaped slash \\`,
 		},
 		{
 			name:    "blank message fallback",
@@ -41,9 +36,9 @@ func TestAutoSessionTitleStoresPlainText(t *testing.T) {
 	}
 }
 
-func TestAutoSessionTitleTruncatesAfterUnescaping(t *testing.T) {
-	content := strings.Repeat(`a\_`, 30)
-	want := strings.Repeat("a_", 28) + "…"
+func TestAutoSessionTitleTruncatesCommonMarkSource(t *testing.T) {
+	content := strings.Repeat("a", 57)
+	want := strings.Repeat("a", 56) + "…"
 	if got := autoSessionTitle(content); got != want {
 		t.Fatalf("autoSessionTitle() = %q, want %q", got, want)
 	}
