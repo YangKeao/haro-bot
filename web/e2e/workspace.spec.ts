@@ -180,6 +180,7 @@ async function mockAPI(page: Page, initiallyAuthenticated = false) {
 		{ id: 2, session_id: 10, role: 'assistant', content: '', metadata: { tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'exec_command', arguments: '{"cmd":"printf complete"}' } }] }, created_at: '2026-08-14T01:00:30Z' },
 		{ id: 3, session_id: 10, role: 'tool', content: 'Process ID: process-2\nStatus: exited\nWall time: 0.0420 seconds\nProcess exited with code 0\nOutput:\ncomplete', metadata: { tool_call_id: 'call-1', status: 'ok' }, created_at: '2026-08-14T01:00:31Z' },
 		{ id: 4, session_id: 10, role: 'assistant', content: 'The strongest signal is sustained demand with moderating growth.', created_at: '2026-08-14T01:01:00Z' },
+		{ id: 5, session_id: 10, role: 'assistant', content: '```sql\nSELECT * FROM users WHERE enabled = TRUE;\n```', created_at: '2026-08-14T01:01:30Z' },
       ] } })
     }
 		if (path === '/api/v1/sessions/10/processes') return route.fulfill({ json: { processes: [sandboxProcess, finishedProcess] } })
@@ -213,6 +214,30 @@ test('signs in and opens an agent conversation', async ({ page }) => {
   await page.getByRole('link', { name: /Quarterly market brief/ }).click()
   await expect(page.getByRole('heading', { name: 'Quarterly market brief' })).toBeVisible()
   await expect(page.getByText('The strongest signal is sustained demand with moderating growth.')).toBeVisible()
+})
+
+test('renders highlighted code blocks as a single dark surface', async ({ page }) => {
+	await mockAPI(page, true)
+	await page.goto('/agents/1/sessions/10')
+	const code = page.locator('.markdown pre code.hljs').filter({ hasText: 'SELECT * FROM users' })
+	await expect(code).toBeVisible()
+	if (process.env.REVIEW_SCREENSHOTS) await code.locator('..').screenshot({ path: '/tmp/haro-highlighted-code.png' })
+	const styles = await code.evaluate(element => {
+		type BrowserStyle = { backgroundColor: string; padding: string }
+		const browser = globalThis as unknown as { getComputedStyle: (target: unknown) => BrowserStyle }
+		const codeElement = element as unknown as { closest: (selector: string) => unknown }
+		const codeStyle = browser.getComputedStyle(element)
+		const preStyle = browser.getComputedStyle(codeElement.closest('pre'))
+		return {
+			codeBackground: codeStyle.backgroundColor,
+			codePadding: codeStyle.padding,
+			preBackground: preStyle.backgroundColor,
+		}
+	})
+	expect(styles.codeBackground).toBe('rgba(0, 0, 0, 0)')
+	expect(styles.codePadding).toBe('0px')
+	expect(styles.preBackground).toBe('rgb(38, 39, 34)')
+	expect(await code.locator('span').count()).toBeGreaterThan(0)
 })
 
 test('finds and restores archived agents', async ({ page }) => {
