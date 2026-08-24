@@ -15,6 +15,7 @@ const ProviderForm = lazy(() => import('./pages/ProviderForm'))
 const Integrations = lazy(() => import('./pages/Integrations'))
 const Sandboxes = lazy(() => import('./pages/Sandboxes'))
 const SandboxForm = lazy(() => import('./pages/SandboxForm'))
+const SandboxTerminal = lazy(() => import('./pages/SandboxTerminal'))
 
 function Login() {
   const [token, setToken] = useState('')
@@ -74,6 +75,7 @@ export function AppRoutes() {
     <Route path="sandboxes" element={<Sandboxes />} />
     <Route path="sandboxes/new" element={<SandboxForm />} />
     <Route path="sandboxes/:sandboxID/edit" element={<SandboxForm />} />
+    <Route path="sandboxes/:sandboxID/terminal" element={<SandboxTerminal />} />
     <Route path="settings/integrations" element={<Integrations />} />
     <Route path="*" element={<Navigate to="/" replace />} />
 	</Routes></Suspense>

@@ -24,10 +24,12 @@ import (
 
 type ControlPlane interface {
 	Apply(context.Context, Profile, RuntimeCredentials) error
+	SyncRuntimeHelper(context.Context, Profile) error
+	Restart(context.Context, Profile) error
 	SetOperatingMode(context.Context, Profile, string) error
 	Delete(context.Context, Profile) error
 	ResetWorkspace(context.Context, Profile) error
-	Status(context.Context, Profile) (string, *string, error)
+	Status(context.Context, Profile) (RuntimeDetails, error)
 }
 
 type KubernetesControlPlane struct {
@@ -36,6 +38,8 @@ type KubernetesControlPlane struct {
 	token  string
 	client *http.Client
 }
+
+var errSandboxNotFound = errors.New("Sandbox resource not found")
 
 func NewKubernetesControlPlane(cfg config.SandboxConfig) (*KubernetesControlPlane, error) {
 	base := strings.TrimRight(strings.TrimSpace(cfg.KubeAPIURL), "/")
@@ -74,7 +78,6 @@ func (k *KubernetesControlPlane) Apply(ctx context.Context, profile Profile, cre
 			return err
 		}
 	}
-	manifest := k.sandboxManifest(profile, credentials)
 	path := k.sandboxesPath()
 	var existing map[string]any
 	status, err := k.request(ctx, http.MethodGet, path+"/"+url.PathEscape(profile.KubernetesName), nil, &existing)
@@ -82,6 +85,10 @@ func (k *KubernetesControlPlane) Apply(ctx context.Context, profile Profile, cre
 		return err
 	}
 	if status == http.StatusNotFound {
+		if len(credentials.ServerCertPEM) == 0 {
+			return errors.New("runtime credentials are required when creating a Sandbox")
+		}
+		manifest := k.sandboxManifest(profile, credentials)
 		status, err = k.request(ctx, http.MethodPost, path, manifest, nil)
 		if err != nil {
 			return err
@@ -94,6 +101,8 @@ func (k *KubernetesControlPlane) Apply(ctx context.Context, profile Profile, cre
 	if status < 200 || status >= 300 {
 		return fmt.Errorf("get Sandbox returned HTTP %d", status)
 	}
+	runtimeGeneration := nestedString(existing, "spec", "podTemplate", "metadata", "annotations", "haro.yangkeao.io/runtime-generation")
+	manifest := k.sandboxManifestWithRuntimeGeneration(profile, runtimeGeneration)
 	patch := map[string]any{"spec": manifest["spec"]}
 	status, err = k.mergePatch(ctx, path+"/"+url.PathEscape(profile.KubernetesName), patch)
 	if err != nil {
@@ -101,6 +110,67 @@ func (k *KubernetesControlPlane) Apply(ctx context.Context, profile Profile, cre
 	}
 	if status < 200 || status >= 300 {
 		return fmt.Errorf("update Sandbox returned HTTP %d", status)
+	}
+	return nil
+}
+
+func (k *KubernetesControlPlane) SyncRuntimeHelper(ctx context.Context, profile Profile) error {
+	path := k.sandboxesPath() + "/" + url.PathEscape(profile.KubernetesName)
+	var existing map[string]any
+	status, err := k.request(ctx, http.MethodGet, path, nil, &existing)
+	if err != nil {
+		return err
+	}
+	if status == http.StatusNotFound {
+		return errSandboxNotFound
+	}
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("get Sandbox returned HTTP %d", status)
+	}
+	initContainers := nestedSlice(existing, "spec", "podTemplate", "spec", "initContainers")
+	found := false
+	for _, value := range initContainers {
+		container, _ := value.(map[string]any)
+		if nestedString(container, "name") == "runtime-helper" {
+			container["image"] = k.config.HelperImage
+			found = true
+		}
+	}
+	if !found {
+		return errors.New("Sandbox runtime-helper init container is missing")
+	}
+	patch := map[string]any{"spec": map[string]any{"podTemplate": map[string]any{"spec": map[string]any{"initContainers": initContainers}}}}
+	status, err = k.mergePatch(ctx, path, patch)
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("update Sandbox runtime helper returned HTTP %d", status)
+	}
+	return nil
+}
+
+func (k *KubernetesControlPlane) Restart(ctx context.Context, profile Profile) error {
+	sandboxObject, pods, err := k.sandboxPods(ctx, profile)
+	if err != nil {
+		return err
+	}
+	sandboxUID := nestedString(sandboxObject, "metadata", "uid")
+	for _, pod := range pods {
+		if !podOwnedBySandbox(pod, profile.KubernetesName, sandboxUID) {
+			continue
+		}
+		name := nestedString(pod, "metadata", "name")
+		if name == "" {
+			continue
+		}
+		status, err := k.request(ctx, http.MethodDelete, k.corePath("pods")+"/"+url.PathEscape(name), map[string]any{"propagationPolicy": "Background"}, nil)
+		if err != nil {
+			return err
+		}
+		if status != http.StatusNotFound && (status < 200 || status >= 300) {
+			return fmt.Errorf("delete Sandbox Pod returned HTTP %d", status)
+		}
 	}
 	return nil
 }
@@ -145,46 +215,101 @@ func (k *KubernetesControlPlane) ResetWorkspace(ctx context.Context, profile Pro
 	return nil
 }
 
-func (k *KubernetesControlPlane) Status(ctx context.Context, profile Profile) (string, *string, error) {
-	var object struct {
-		Status struct {
-			Conditions []struct {
-				Type, Status, Reason, Message string
-			} `json:"conditions"`
-		} `json:"status"`
-	}
-	status, err := k.request(ctx, http.MethodGet, k.sandboxesPath()+"/"+url.PathEscape(profile.KubernetesName), nil, &object)
+func (k *KubernetesControlPlane) Status(ctx context.Context, profile Profile) (RuntimeDetails, error) {
+	now := time.Now().UTC()
+	details := RuntimeDetails{State: "Starting", ObservedAt: now, Operation: profile.Operation, OperationStartedAt: profile.OperationStartedAt}
+	sandboxObject, pods, err := k.sandboxPods(ctx, profile)
 	if err != nil {
-		return "", nil, err
+		if errors.Is(err, errSandboxNotFound) {
+			details.State = "Not provisioned"
+			return details, nil
+		}
+		return RuntimeDetails{}, err
 	}
-	if status == http.StatusNotFound {
-		return "Not provisioned", nil, nil
+	sandboxUID := nestedString(sandboxObject, "metadata", "uid")
+
+	var pod map[string]any
+	for _, candidate := range pods {
+		if podOwnedBySandbox(candidate, profile.KubernetesName, sandboxUID) {
+			pod = candidate
+			break
+		}
 	}
-	if status < 200 || status >= 300 {
-		return "Error", stringPtr(fmt.Sprintf("Kubernetes API returned HTTP %d", status)), nil
+	if pod != nil {
+		details.Pod = podRuntimeStatus(pod)
 	}
-	state := "Starting"
-	var last *string
-	for _, condition := range object.Status.Conditions {
-		switch condition.Type {
-		case "Ready":
-			if condition.Status == "True" {
-				state = "Ready"
-			} else if condition.Message != "" {
-				last = stringPtr(condition.Message)
+	if profile.DesiredState == StateSuspended && details.Pod == nil {
+		details.State = "Suspended"
+	} else if details.Pod == nil {
+		details.State = "Starting"
+		details.Message = "Waiting for the Sandbox Pod to be created."
+	} else if details.Pod.DeletionTimestamp != nil {
+		details.State = "Restarting"
+		if profile.Operation == OperationPause {
+			details.State = "Pausing"
+		}
+		details.Message = "Waiting for the current Sandbox Pod to terminate."
+	} else if details.Pod.WaitingReason != "" {
+		details.Message = details.Pod.WaitingMessage
+		if details.Message == "" {
+			details.Message = details.Pod.WaitingReason
+		}
+		switch details.Pod.WaitingReason {
+		case "ImagePullBackOff", "ErrImagePull", "CrashLoopBackOff", "CreateContainerConfigError", "CreateContainerError":
+			details.State = "Error"
+		default:
+			details.State = "Starting"
+		}
+	} else if details.Pod.Phase == "Failed" || details.Pod.Phase == "Succeeded" {
+		details.State = "Error"
+		details.Message = "Sandbox Pod stopped with phase " + details.Pod.Phase + "."
+	} else if details.Pod.Ready {
+		details.State = "Ready"
+		details.Message = "Sandbox Pod is ready."
+	} else {
+		details.State = "Starting"
+		details.Message = "Waiting for the Sandbox runtime to become ready."
+	}
+	for _, value := range nestedSlice(sandboxObject, "status", "conditions") {
+		condition, _ := value.(map[string]any)
+		conditionType := nestedString(condition, "type")
+		conditionStatus := nestedString(condition, "status")
+		message := nestedString(condition, "message")
+		if conditionType == "Finished" && conditionStatus == "True" {
+			details.State = "Error"
+			if message != "" {
+				details.Message = message
 			}
-		case "Suspended":
-			if condition.Status == "True" {
-				state = "Suspended"
+		}
+		if conditionType == "Ready" && conditionStatus != "True" && message != "" && details.State == "Starting" {
+			details.Message = message
+		}
+	}
+
+	if profile.Operation != "" {
+		samePod := details.Pod != nil && profile.OperationPreviousPodUID != "" && details.Pod.UID == profile.OperationPreviousPodUID
+		switch profile.Operation {
+		case OperationApply:
+			if samePod {
+				details.State = "Applying"
+				details.Message = "Applying configuration and terminating the previous Pod."
 			}
-		case "Finished":
-			if condition.Status == "True" {
-				state = condition.Reason
-				last = stringPtr(condition.Message)
+		case OperationRestart:
+			if samePod {
+				details.State = "Restarting"
+				details.Message = "Terminating the previous Sandbox Pod."
+			}
+		case OperationStart:
+			if details.State != "Ready" {
+				details.State = "Starting"
+			}
+		case OperationPause:
+			if details.State != "Suspended" {
+				details.State = "Pausing"
 			}
 		}
 	}
-	return state, last, nil
+	return details, nil
 }
 
 func (k *KubernetesControlPlane) ensureRuntimeSecret(ctx context.Context, profile Profile, credentials RuntimeCredentials) error {
@@ -234,6 +359,11 @@ func (k *KubernetesControlPlane) ensureRuntimeSecret(ctx context.Context, profil
 }
 
 func (k *KubernetesControlPlane) sandboxManifest(profile Profile, credentials RuntimeCredentials) map[string]any {
+	runtimeDigest := sha256.Sum256(credentials.ServerCertPEM)
+	return k.sandboxManifestWithRuntimeGeneration(profile, hex.EncodeToString(runtimeDigest[:8]))
+}
+
+func (k *KubernetesControlPlane) sandboxManifestWithRuntimeGeneration(profile Profile, runtimeGeneration string) map[string]any {
 	workspaceClaim := map[string]any{
 		"metadata": map[string]any{"name": "workspace"},
 		"spec": map[string]any{
@@ -253,7 +383,6 @@ func (k *KubernetesControlPlane) sandboxManifest(profile Profile, credentials Ru
 		memoryRequest = 128
 	}
 	labels := map[string]string{"app.kubernetes.io/name": "haro-sandbox", "app.kubernetes.io/managed-by": "haro-bot", "haro.yangkeao.io/sandbox-id": strconv.FormatInt(profile.ID, 10)}
-	runtimeDigest := sha256.Sum256(credentials.ServerCertPEM)
 	falseValue := false
 	return map[string]any{
 		"apiVersion": "agents.x-k8s.io/v1beta1", "kind": "Sandbox",
@@ -264,7 +393,7 @@ func (k *KubernetesControlPlane) sandboxManifest(profile Profile, credentials Ru
 			"podTemplate": map[string]any{
 				"metadata": map[string]any{
 					"labels":      labels,
-					"annotations": map[string]string{"haro.yangkeao.io/runtime-generation": hex.EncodeToString(runtimeDigest[:8])},
+					"annotations": map[string]string{"haro.yangkeao.io/runtime-generation": runtimeGeneration},
 				},
 				"spec": map[string]any{
 					"runtimeClassName": k.config.RuntimeClass, "automountServiceAccountToken": falseValue, "terminationGracePeriodSeconds": 10,
@@ -305,6 +434,118 @@ func (k *KubernetesControlPlane) sandboxManifest(profile Profile, credentials Ru
 			},
 		},
 	}
+}
+
+func (k *KubernetesControlPlane) sandboxPods(ctx context.Context, profile Profile) (map[string]any, []map[string]any, error) {
+	var sandboxObject map[string]any
+	status, err := k.request(ctx, http.MethodGet, k.sandboxesPath()+"/"+url.PathEscape(profile.KubernetesName), nil, &sandboxObject)
+	if err != nil {
+		return nil, nil, err
+	}
+	if status == http.StatusNotFound {
+		return nil, nil, errSandboxNotFound
+	}
+	if status < 200 || status >= 300 {
+		return nil, nil, fmt.Errorf("get Sandbox returned HTTP %d", status)
+	}
+	selector := "haro.yangkeao.io/sandbox-id=" + strconv.FormatInt(profile.ID, 10)
+	var list struct {
+		Items []map[string]any `json:"items"`
+	}
+	status, err = k.request(ctx, http.MethodGet, k.corePath("pods")+"?labelSelector="+url.QueryEscape(selector), nil, &list)
+	if err != nil {
+		return nil, nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, nil, fmt.Errorf("list Sandbox Pods returned HTTP %d", status)
+	}
+	return sandboxObject, list.Items, nil
+}
+
+func podOwnedBySandbox(pod map[string]any, name, uid string) bool {
+	metadata, _ := pod["metadata"].(map[string]any)
+	owners, _ := metadata["ownerReferences"].([]any)
+	for _, value := range owners {
+		owner, _ := value.(map[string]any)
+		if nestedString(owner, "kind") == "Sandbox" && nestedString(owner, "name") == name && (uid == "" || nestedString(owner, "uid") == uid) {
+			return true
+		}
+	}
+	return false
+}
+
+func podRuntimeStatus(pod map[string]any) *PodRuntimeStatus {
+	result := &PodRuntimeStatus{
+		Name:  nestedString(pod, "metadata", "name"),
+		UID:   nestedString(pod, "metadata", "uid"),
+		Phase: nestedString(pod, "status", "phase"),
+	}
+	result.CreatedAt = parseKubernetesTime(nestedString(pod, "metadata", "creationTimestamp"))
+	result.DeletionTimestamp = parseKubernetesTime(nestedString(pod, "metadata", "deletionTimestamp"))
+	containers := nestedSlice(pod, "spec", "containers")
+	for _, value := range containers {
+		container, _ := value.(map[string]any)
+		if nestedString(container, "name") == "sandbox" {
+			result.Image = nestedString(container, "image")
+			break
+		}
+	}
+	statuses := nestedSlice(pod, "status", "containerStatuses")
+	for _, value := range statuses {
+		status, _ := value.(map[string]any)
+		if nestedString(status, "name") != "sandbox" {
+			continue
+		}
+		result.Ready, _ = status["ready"].(bool)
+		if count, ok := status["restartCount"].(float64); ok {
+			result.RestartCount = int32(count)
+		}
+		if imageID := nestedString(status, "imageID"); imageID != "" {
+			result.Image = imageID
+		}
+		result.StartedAt = parseKubernetesTime(nestedString(status, "state", "running", "startedAt"))
+		result.WaitingReason = nestedString(status, "state", "waiting", "reason")
+		result.WaitingMessage = nestedString(status, "state", "waiting", "message")
+		break
+	}
+	return result
+}
+
+func nestedString(value map[string]any, path ...string) string {
+	var current any = value
+	for _, part := range path {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		current = object[part]
+	}
+	result, _ := current.(string)
+	return result
+}
+
+func nestedSlice(value map[string]any, path ...string) []any {
+	var current any = value
+	for _, part := range path {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		current = object[part]
+	}
+	result, _ := current.([]any)
+	return result
+}
+
+func parseKubernetesTime(value string) *time.Time {
+	if value == "" {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return nil
+	}
+	return &parsed
 }
 
 func (k *KubernetesControlPlane) sandboxesPath() string {

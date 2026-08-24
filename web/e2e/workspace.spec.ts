@@ -51,13 +51,14 @@ const sandbox = {
 	pending_restart: true,
 	kubernetes_name: 'haro-data-lab-a1b2c3d4',
 	runtime_status: 'Ready',
+	runtime_details: { state: 'Ready', message: 'Sandbox Pod is ready.', observed_at: '2026-08-14T01:00:00Z', pod: { name: 'haro-data-lab-a1b2c3d4', uid: 'pod-1', image: 'sandbox:test', phase: 'Running', created_at: '2026-08-14T01:00:00Z', started_at: '2026-08-14T01:00:05Z', ready: true, restart_count: 0 } },
 	agent_ids: [1],
 	created_at: '2026-08-14T01:00:00Z',
 	updated_at: '2026-08-14T01:00:00Z',
 }
 
 const sandboxConfig = {
-	default_image: 'ghcr.io/yangkeao/haro-bot-sandbox:latest',
+	default_image: 'ghcr.io/yangkeao/haro-bot-sandbox@sha256:new-default',
 	defaults: { cpu_limit_millis: 2000, memory_limit_mib: 4096, ephemeral_storage_mib: 4096, workspace_storage_mib: 10240 },
 	maximums: { cpu_limit_millis: 8000, memory_limit_mib: 16384, ephemeral_storage_mib: 32768, workspace_storage_mib: 102400, running: 10 },
 }
@@ -148,8 +149,10 @@ async function mockAPI(page: Page, initiallyAuthenticated = false) {
 		if (path === '/api/v1/providers/1') return route.fulfill({ json: provider })
 		if (path === '/api/v1/providers/1/models') return route.fulfill({ json: modelCatalog })
 		if (path === '/api/v1/providers/1/models/refresh') return route.fulfill({ json: modelCatalog })
+		if (path === '/api/v1/sandboxes/events') return route.fulfill({ contentType: 'text/event-stream', body: `event: snapshot\ndata: ${JSON.stringify({ sandboxes: [sandbox] })}\n\n` })
 		if (path === '/api/v1/sandboxes') return route.fulfill({ json: { sandboxes: [sandbox], config: sandboxConfig } })
 		if (path === '/api/v1/sandboxes/1') return route.fulfill({ json: { sandbox, config: sandboxConfig } })
+		if (path === '/api/v1/sandboxes/1/apply' || path === '/api/v1/sandboxes/1/restart' || path === '/api/v1/sandboxes/1/start' || path === '/api/v1/sandboxes/1/pause') return route.fulfill({ status: 202, json: sandbox })
 		if (path === '/api/v1/agents/1/environment') return route.fulfill({ json: { variables: [{ name: 'MYSQL_HOST', value: 'database.internal', secret: false, has_value: true }, { name: 'MYSQL_PASSWORD', secret: true, has_value: true }] } })
 		if (path === '/api/v1/integrations/telegram') {
 			return route.fulfill({ json: { token_configured: true, agent_id: 1 } })
@@ -264,7 +267,13 @@ test('manages persistent sandboxes and exposes session processes', async ({ page
 	await page.getByRole('link', { name: /Data Lab/ }).click()
 	await expect(page.getByRole('heading', { name: 'Resources & persistence' })).toBeVisible()
 	await expect(page.getByText('Changes are not active yet')).toBeVisible()
-	await expect(page.getByRole('button', { name: 'Apply & restart' })).toBeEnabled()
+	await expect(page.getByRole('button', { name: 'Apply changes' })).toBeEnabled()
+	await expect(page.getByRole('button', { name: 'Restart' })).toBeEnabled()
+	await expect(page.getByRole('link', { name: 'Open terminal' })).toBeVisible()
+	await page.getByRole('button', { name: 'Update to default' }).click()
+	await expect(page.getByLabel('OCI image')).toHaveValue(sandboxConfig.default_image)
+	await expect(page.getByRole('button', { name: 'Save changes' }).first()).toBeEnabled()
+	await expect(page.getByRole('button', { name: 'Apply changes' })).toBeDisabled()
 	if (process.env.REVIEW_SCREENSHOTS) await page.screenshot({ path: '/tmp/haro-sandbox-form-desktop.png', fullPage: true })
 
 	await page.goto('/agents/1/sessions/10')
@@ -284,6 +293,31 @@ test('manages persistent sandboxes and exposes session processes', async ({ page
 		await page.waitForTimeout(350)
 		await page.screenshot({ path: '/tmp/haro-process-mobile.png', fullPage: true })
 	}
+})
+
+test('opens an interactive Sandbox terminal', async ({ page }) => {
+	await mockAPI(page, true)
+	const clientMessages: string[] = []
+	await page.routeWebSocket('**/api/v1/sandboxes/1/terminal', socket => {
+		socket.onMessage(message => {
+			const text = message.toString()
+			clientMessages.push(text)
+			const parsed = JSON.parse(text) as { type: string; data?: string }
+			if (parsed.type === 'input' && parsed.data) socket.send(JSON.stringify({ type: 'output', data: parsed.data }))
+		})
+		socket.send(JSON.stringify({ type: 'output', data: 'Connected to /workspace\r\n$ ' }))
+	})
+
+	await page.goto('/sandboxes/1/terminal')
+	await expect(page.getByRole('heading', { name: 'Data Lab' })).toBeVisible()
+	await expect(page.getByText('connected', { exact: true })).toBeVisible()
+	await expect(page.locator('.xterm-rows')).toContainText('Connected to /workspace')
+	await page.locator('.terminal-surface').click()
+	await page.keyboard.type('pwd')
+	await expect.poll(() => clientMessages.some(message => JSON.parse(message).type === 'resize')).toBeTruthy()
+	await expect.poll(() => clientMessages.map(message => JSON.parse(message).data || '').join('').includes('pwd')).toBeTruthy()
+	await page.getByRole('button', { name: 'Disconnect' }).click()
+	await expect(page.getByText('disconnected', { exact: true })).toBeVisible()
 })
 
 test('uses provider catalog metadata for agent runtime controls', async ({ page }) => {

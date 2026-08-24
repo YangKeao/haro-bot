@@ -94,25 +94,28 @@ type Agent struct {
 func (Agent) TableName() string { return "agents" }
 
 type Sandbox struct {
-	ID                         int64     `gorm:"primaryKey;autoIncrement"`
-	Name                       string    `gorm:"column:name;size:128"`
-	Description                string    `gorm:"column:description;type:text"`
-	Image                      string    `gorm:"column:image;type:text"`
-	CPULimitMillis             int       `gorm:"column:cpu_limit_millis"`
-	MemoryLimitMiB             int       `gorm:"column:memory_limit_mib"`
-	EphemeralStorageMiB        int       `gorm:"column:ephemeral_storage_mib"`
-	WorkspaceStorageMiB        int       `gorm:"column:workspace_storage_mib"`
-	DesiredState               string    `gorm:"column:desired_state;size:16"`
-	Revision                   int64     `gorm:"column:revision"`
-	AppliedRevision            int64     `gorm:"column:applied_revision"`
-	KubernetesName             string    `gorm:"column:kubernetes_name;size:63"`
-	RuntimeCAPEM               string    `gorm:"column:runtime_ca_pem;type:text"`
-	RuntimeClientCertPEM       string    `gorm:"column:runtime_client_cert_pem;type:text"`
-	RuntimeClientKeyCiphertext string    `gorm:"column:runtime_client_key_ciphertext;type:longtext"`
-	RuntimeTokenCiphertext     string    `gorm:"column:runtime_token_ciphertext;type:longtext"`
-	LastError                  *string   `gorm:"column:last_error;type:text"`
-	CreatedAt                  time.Time `gorm:"column:created_at"`
-	UpdatedAt                  time.Time `gorm:"column:updated_at"`
+	ID                         int64      `gorm:"primaryKey;autoIncrement"`
+	Name                       string     `gorm:"column:name;size:128"`
+	Description                string     `gorm:"column:description;type:text"`
+	Image                      string     `gorm:"column:image;type:text"`
+	CPULimitMillis             int        `gorm:"column:cpu_limit_millis"`
+	MemoryLimitMiB             int        `gorm:"column:memory_limit_mib"`
+	EphemeralStorageMiB        int        `gorm:"column:ephemeral_storage_mib"`
+	WorkspaceStorageMiB        int        `gorm:"column:workspace_storage_mib"`
+	DesiredState               string     `gorm:"column:desired_state;size:16"`
+	Revision                   int64      `gorm:"column:revision"`
+	AppliedRevision            int64      `gorm:"column:applied_revision"`
+	KubernetesName             string     `gorm:"column:kubernetes_name;size:63"`
+	RuntimeCAPEM               string     `gorm:"column:runtime_ca_pem;type:text"`
+	RuntimeClientCertPEM       string     `gorm:"column:runtime_client_cert_pem;type:text"`
+	RuntimeClientKeyCiphertext string     `gorm:"column:runtime_client_key_ciphertext;type:longtext"`
+	RuntimeTokenCiphertext     string     `gorm:"column:runtime_token_ciphertext;type:longtext"`
+	RuntimeOperation           string     `gorm:"column:runtime_operation;size:16"`
+	RuntimeOperationStartedAt  *time.Time `gorm:"column:runtime_operation_started_at"`
+	RuntimeOperationPodUID     string     `gorm:"column:runtime_operation_pod_uid;size:64"`
+	LastError                  *string    `gorm:"column:last_error;type:text"`
+	CreatedAt                  time.Time  `gorm:"column:created_at"`
+	UpdatedAt                  time.Time  `gorm:"column:updated_at"`
 }
 
 func (Sandbox) TableName() string { return "sandboxes" }

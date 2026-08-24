@@ -19,6 +19,8 @@ import (
 
 var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+var ErrOperationInProgress = errors.New("another Sandbox lifecycle operation is already in progress")
+
 type Service struct {
 	db      *gorm.DB
 	config  config.SandboxConfig
@@ -177,30 +179,49 @@ func (s *Service) Apply(ctx context.Context, id int64) (Profile, error) {
 	if err != nil {
 		return Profile{}, err
 	}
-	serviceNames := []string{profile.KubernetesName, profile.KubernetesName + "." + s.config.Namespace, profile.KubernetesName + "." + s.config.Namespace + ".svc", profile.KubernetesName + "." + s.config.Namespace + ".svc.cluster.local"}
-	credentials, err := GenerateRuntimeCredentials(serviceNames)
-	if err != nil {
+	if profile.Revision == profile.AppliedRevision {
+		return profile, nil
+	}
+	if err := s.beginOperation(ctx, profile, OperationApply); err != nil {
 		return Profile{}, err
 	}
-	clientKey, err := s.box.Encrypt(string(credentials.ClientKeyPEM), "sandbox:"+profile.KubernetesName+":client-key")
-	if err != nil {
+	if err := s.control.Apply(ctx, profile, RuntimeCredentials{}); err != nil {
+		s.failOperation(ctx, id, err)
 		return Profile{}, err
 	}
-	token, err := s.box.Encrypt(credentials.Token, "sandbox:"+profile.KubernetesName+":token")
-	if err != nil {
-		return Profile{}, err
-	}
-	if err := s.control.Apply(ctx, profile, credentials); err != nil {
-		s.setProvisionError(ctx, id, err)
-		return Profile{}, err
-	}
-	if err := s.db.WithContext(ctx).Model(&dbmodel.Sandbox{}).Where("id = ?", id).Updates(map[string]any{
-		"runtime_ca_pem": string(credentials.CAPEM), "runtime_client_cert_pem": string(credentials.ClientCertPEM),
-		"runtime_client_key_ciphertext": clientKey, "runtime_token_ciphertext": token,
-	}).Error; err != nil {
-		return Profile{}, err
+	if profile.DesiredState == StateRunning {
+		if err := s.control.Restart(ctx, profile); err != nil {
+			s.failOperation(ctx, id, err)
+			return Profile{}, err
+		}
 	}
 	if err := s.markApplied(ctx, id, profile.Revision); err != nil {
+		s.failOperation(ctx, id, err)
+		return Profile{}, err
+	}
+	if profile.DesiredState == StateSuspended {
+		s.clearOperation(ctx, id)
+	}
+	return s.Get(ctx, id)
+}
+
+func (s *Service) Restart(ctx context.Context, id int64) (Profile, error) {
+	profile, err := s.Get(ctx, id)
+	if err != nil {
+		return Profile{}, err
+	}
+	if profile.DesiredState != StateRunning {
+		return Profile{}, errors.New("sandbox must be running before it can be restarted")
+	}
+	if err := s.beginOperation(ctx, profile, OperationRestart); err != nil {
+		return Profile{}, err
+	}
+	if err := s.control.SyncRuntimeHelper(ctx, profile); err != nil {
+		s.failOperation(ctx, id, err)
+		return Profile{}, err
+	}
+	if err := s.control.Restart(ctx, profile); err != nil {
+		s.failOperation(ctx, id, err)
 		return Profile{}, err
 	}
 	return s.Get(ctx, id)
@@ -223,10 +244,28 @@ func (s *Service) SetOperatingMode(ctx context.Context, id int64, state string) 
 			return Profile{}, fmt.Errorf("running sandbox limit (%d) reached", s.config.MaxRunning)
 		}
 	}
+	if state == profile.DesiredState {
+		return profile, nil
+	}
+	operation := OperationStart
+	if state == StateSuspended {
+		operation = OperationPause
+	}
+	if err := s.beginOperation(ctx, profile, operation); err != nil {
+		return Profile{}, err
+	}
+	if state == StateRunning {
+		if err := s.control.SyncRuntimeHelper(ctx, profile); err != nil {
+			s.failOperation(ctx, id, err)
+			return Profile{}, err
+		}
+	}
 	if err := s.control.SetOperatingMode(ctx, profile, state); err != nil {
+		s.failOperation(ctx, id, err)
 		return Profile{}, err
 	}
 	if err := s.db.WithContext(ctx).Model(&dbmodel.Sandbox{}).Where("id = ?", id).Updates(map[string]any{"desired_state": state, "updated_at": time.Now()}).Error; err != nil {
+		s.failOperation(ctx, id, err)
 		return Profile{}, err
 	}
 	return s.Get(ctx, id)
@@ -247,6 +286,9 @@ func (s *Service) ResetWorkspace(ctx context.Context, id int64) error {
 	profile, err := s.Get(ctx, id)
 	if err != nil {
 		return err
+	}
+	if profile.Operation != "" || profile.RuntimeStatus != "Suspended" {
+		return errors.New("sandbox must be fully suspended before resetting its workspace")
 	}
 	return s.control.ResetWorkspace(ctx, profile)
 }
@@ -372,6 +414,7 @@ func (s *Service) StartProcess(ctx context.Context, agentID, sessionID int64, re
 		return Process{}, err
 	}
 	request.ID = uuid.NewString()
+	request.Kind = ""
 	request.AgentID, request.SessionID, request.Environment = agentID, sessionID, environment
 	request.YieldTimeMS = ExecYieldTimeMS(request.YieldTimeMS)
 	if strings.TrimSpace(request.Workdir) == "" {
@@ -402,6 +445,94 @@ func (s *Service) StartProcess(ctx context.Context, agentID, sessionID int64, re
 	process.TTY = boolPointer(request.TTY)
 	s.persistProcess(ctx, process, secrets)
 	return redactProcess(process, secrets), nil
+}
+
+func (s *Service) StartWebTerminal(ctx context.Context, sandboxID int64) (Process, error) {
+	profile, err := s.Get(ctx, sandboxID)
+	if err != nil {
+		return Process{}, err
+	}
+	if profile.RuntimeStatus != "Ready" {
+		return Process{}, fmt.Errorf("sandbox is %s; Web Terminal requires Ready", profile.RuntimeStatus)
+	}
+	profile, target, err := s.runtimeTarget(profile)
+	if err != nil {
+		return Process{}, err
+	}
+	request := ExecRequest{
+		ID: uuid.NewString(), Kind: "web_terminal", Command: "exec /bin/sh -l", Workdir: "/workspace",
+		TTY: true, Background: true, YieldTimeMS: MinYieldTimeMS,
+	}
+	process, err := s.runtime.Exec(ctx, target, request)
+	if err != nil {
+		return Process{}, err
+	}
+	process.SandboxID = profile.ID
+	return process, nil
+}
+
+func (s *Service) WriteWebTerminal(ctx context.Context, sandboxID int64, processID, chars string) (Process, error) {
+	_, target, process, err := s.webTerminalTarget(ctx, sandboxID, processID)
+	if err != nil {
+		return Process{}, err
+	}
+	input := StdinRequest{Chars: chars, MaxYieldTimeMS: 5_000}
+	if chars == "" {
+		input.YieldTimeMS = 5_000
+	} else {
+		input.YieldTimeMS = MinYieldTimeMS
+	}
+	updated, err := s.runtime.WriteStdin(ctx, target, process.ID, input)
+	if err != nil {
+		return Process{}, err
+	}
+	updated.SandboxID = sandboxID
+	return updated, nil
+}
+
+func (s *Service) GetWebTerminal(ctx context.Context, sandboxID int64, processID string) (Process, error) {
+	_, _, process, err := s.webTerminalTarget(ctx, sandboxID, processID)
+	if err != nil {
+		return Process{}, err
+	}
+	process.SandboxID = sandboxID
+	return process, nil
+}
+
+func (s *Service) ResizeWebTerminal(ctx context.Context, sandboxID int64, processID string, input ResizeRequest) error {
+	_, target, process, err := s.webTerminalTarget(ctx, sandboxID, processID)
+	if err != nil {
+		return err
+	}
+	return s.runtime.Resize(ctx, target, process.ID, input)
+}
+
+func (s *Service) StopWebTerminal(ctx context.Context, sandboxID int64, processID, signal string) (Process, error) {
+	_, target, process, err := s.webTerminalTarget(ctx, sandboxID, processID)
+	if err != nil {
+		return Process{}, err
+	}
+	updated, err := s.runtime.Signal(ctx, target, process.ID, signal)
+	if err != nil {
+		return Process{}, err
+	}
+	updated.SandboxID = sandboxID
+	return updated, nil
+}
+
+func (s *Service) webTerminalTarget(ctx context.Context, sandboxID int64, processID string) (Profile, RuntimeTarget, Process, error) {
+	profile, target, err := s.targetForSandbox(ctx, sandboxID)
+	if err != nil {
+		return Profile{}, RuntimeTarget{}, Process{}, err
+	}
+	process, err := s.runtime.GetProcess(ctx, target, processID)
+	if err != nil {
+		return Profile{}, RuntimeTarget{}, Process{}, err
+	}
+	if process.Kind != "web_terminal" {
+		return Profile{}, RuntimeTarget{}, Process{}, errors.New("process is not a Web Terminal")
+	}
+	return profile, target, process, nil
 }
 
 func (s *Service) ListProcessesForSession(ctx context.Context, sessionID int64) ([]Process, error) {
@@ -446,16 +577,20 @@ func (s *Service) ListProcessesForAgent(ctx context.Context, agentID int64) ([]P
 		return nil, err
 	}
 	live := make(map[string]struct{}, len(processes))
+	visible := make([]Process, 0, len(processes))
 	for i := range processes {
+		if processes[i].Kind == "web_terminal" {
+			continue
+		}
 		live[processes[i].ID] = struct{}{}
 		processes[i].SandboxID = profile.ID
 		secrets, _ := s.agentSecretValues(ctx, processes[i].AgentID)
 		s.persistProcess(ctx, processes[i], secrets)
-		processes[i] = redactProcess(processes[i], secrets)
+		visible = append(visible, redactProcess(processes[i], secrets))
 	}
 	s.reconcileLostProcesses(ctx, profile.ID, nil, live)
-	sort.Slice(processes, func(i, j int) bool { return processes[i].StartedAt.After(processes[j].StartedAt) })
-	return processes, nil
+	sort.Slice(visible, func(i, j int) bool { return visible[i].StartedAt.After(visible[j].StartedAt) })
+	return visible, nil
 }
 
 func (s *Service) WriteProcessStdin(ctx context.Context, actorAgentID int64, processID string, input StdinRequest) (Process, error) {
@@ -530,6 +665,25 @@ func (s *Service) targetForAgent(ctx context.Context, agentID int64) (Profile, R
 	if err != nil {
 		return Profile{}, RuntimeTarget{}, err
 	}
+	return s.runtimeTarget(profile)
+}
+
+func (s *Service) targetForSandbox(ctx context.Context, sandboxID int64) (Profile, RuntimeTarget, error) {
+	if !s.Enabled() {
+		return Profile{}, RuntimeTarget{}, errors.New("sandbox support is disabled")
+	}
+	var row dbmodel.Sandbox
+	if err := s.db.WithContext(ctx).First(&row, sandboxID).Error; err != nil {
+		return Profile{}, RuntimeTarget{}, err
+	}
+	profile, err := s.profileFromRow(ctx, row, false)
+	if err != nil {
+		return Profile{}, RuntimeTarget{}, err
+	}
+	return s.runtimeTarget(profile)
+}
+
+func (s *Service) runtimeTarget(profile Profile) (Profile, RuntimeTarget, error) {
 	if profile.DesiredState != StateRunning {
 		return Profile{}, RuntimeTarget{}, errors.New("sandbox is suspended")
 	}
@@ -582,21 +736,54 @@ func (s *Service) profileFromRow(ctx context.Context, row dbmodel.Sandbox, resol
 		LastError: row.LastError, AgentIDs: agentIDs, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 		RuntimeCAPEM: row.RuntimeCAPEM, RuntimeClientCertPEM: row.RuntimeClientCertPEM,
 		RuntimeClientKeyCiphertext: row.RuntimeClientKeyCiphertext, RuntimeTokenCiphertext: row.RuntimeTokenCiphertext,
+		Operation: row.RuntimeOperation, OperationStartedAt: row.RuntimeOperationStartedAt, OperationPreviousPodUID: row.RuntimeOperationPodUID,
 	}
 	if resolveStatus && s.Enabled() {
-		state, last, err := s.control.Status(ctx, profile)
+		details, err := s.control.Status(ctx, profile)
 		if err == nil {
-			profile.RuntimeStatus = state
-			if last != nil {
-				profile.LastError = last
+			if profile.Operation != "" && details.State == "Error" {
+				message := details.Message
+				if message == "" {
+					message = fmt.Sprintf("Sandbox %s operation failed", profile.Operation)
+				}
+				s.failOperation(ctx, profile.ID, errors.New(message))
+				profile.Operation = ""
+				profile.OperationStartedAt = nil
+				details.Operation = ""
+				details.OperationStartedAt = nil
+				profile.LastError = &message
+			} else if operationCompleted(profile, details) {
+				s.clearOperation(ctx, profile.ID)
+				profile.Operation = ""
+				profile.OperationStartedAt = nil
+				details.Operation = ""
+				details.OperationStartedAt = nil
+			}
+			if profile.OperationStartedAt != nil && time.Since(*profile.OperationStartedAt) > 5*time.Minute && details.State != "Ready" && details.State != "Suspended" {
+				message := fmt.Sprintf("Sandbox %s operation did not complete within five minutes", profile.Operation)
+				s.failOperation(ctx, profile.ID, errors.New(message))
+				profile.Operation = ""
+				profile.OperationStartedAt = nil
+				details.Operation = ""
+				details.OperationStartedAt = nil
+				details.State = "Error"
+				details.Message = message
+				profile.LastError = &message
+			}
+			profile.RuntimeStatus = details.State
+			profile.RuntimeDetails = &details
+			if details.State == "Error" && details.Message != "" {
+				profile.LastError = stringPtr(details.Message)
 			}
 		} else {
 			profile.RuntimeStatus = "Unavailable"
 			message := err.Error()
 			profile.LastError = &message
+			profile.RuntimeDetails = &RuntimeDetails{State: "Unavailable", Message: message, ObservedAt: time.Now().UTC(), Operation: profile.Operation, OperationStartedAt: profile.OperationStartedAt}
 		}
 	} else if !s.Enabled() {
 		profile.RuntimeStatus = "Disabled"
+		profile.RuntimeDetails = &RuntimeDetails{State: "Disabled", ObservedAt: time.Now().UTC()}
 	}
 	return profile, nil
 }
@@ -665,6 +852,59 @@ func bindAgents(tx *gorm.DB, sandboxID int64, agentIDs []int64) error {
 
 func (s *Service) markApplied(ctx context.Context, id, revision int64) error {
 	return s.db.WithContext(ctx).Model(&dbmodel.Sandbox{}).Where("id = ?", id).Updates(map[string]any{"applied_revision": revision, "last_error": nil, "updated_at": time.Now()}).Error
+}
+
+func (s *Service) beginOperation(ctx context.Context, profile Profile, operation string) error {
+	podUID := ""
+	if profile.RuntimeDetails != nil && profile.RuntimeDetails.Pod != nil {
+		podUID = profile.RuntimeDetails.Pod.UID
+	}
+	now := time.Now().UTC()
+	result := s.db.WithContext(ctx).Model(&dbmodel.Sandbox{}).
+		Where("id = ? AND runtime_operation = ''", profile.ID).
+		Updates(map[string]any{"runtime_operation": operation, "runtime_operation_started_at": now, "runtime_operation_pod_uid": podUID, "last_error": nil, "updated_at": now})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrOperationInProgress
+	}
+	profile.Operation = operation
+	profile.OperationStartedAt = &now
+	profile.OperationPreviousPodUID = podUID
+	return nil
+}
+
+func (s *Service) clearOperation(ctx context.Context, id int64) {
+	_ = s.db.WithContext(ctx).Model(&dbmodel.Sandbox{}).Where("id = ?", id).Updates(map[string]any{
+		"runtime_operation": "", "runtime_operation_started_at": nil, "runtime_operation_pod_uid": "", "updated_at": time.Now(),
+	}).Error
+}
+
+func (s *Service) failOperation(ctx context.Context, id int64, err error) {
+	if err == nil {
+		return
+	}
+	message := err.Error()
+	_ = s.db.WithContext(ctx).Model(&dbmodel.Sandbox{}).Where("id = ?", id).Updates(map[string]any{
+		"runtime_operation": "", "runtime_operation_started_at": nil, "runtime_operation_pod_uid": "", "last_error": message, "updated_at": time.Now(),
+	}).Error
+}
+
+func operationCompleted(profile Profile, details RuntimeDetails) bool {
+	if profile.Operation == "" {
+		return false
+	}
+	switch profile.Operation {
+	case OperationPause:
+		return details.State == "Suspended"
+	case OperationStart:
+		return details.State == "Ready"
+	case OperationApply, OperationRestart:
+		return details.State == "Ready" && details.Pod != nil && (profile.OperationPreviousPodUID == "" || details.Pod.UID != profile.OperationPreviousPodUID)
+	default:
+		return true
+	}
 }
 
 func (s *Service) setProvisionError(ctx context.Context, id int64, err error) {

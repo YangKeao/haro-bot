@@ -173,6 +173,28 @@ export interface SandboxProfile {
   pending_restart: boolean
   kubernetes_name: string
   runtime_status: string
+  runtime_details?: {
+    state: string
+    message?: string
+    observed_at: string
+    operation?: 'apply' | 'restart' | 'start' | 'pause'
+    operation_started_at?: string
+    pod?: {
+      name: string
+      uid: string
+      image?: string
+      phase?: string
+      created_at?: string
+      started_at?: string
+      deletion_timestamp?: string
+      ready: boolean
+      restart_count: number
+      waiting_reason?: string
+      waiting_message?: string
+    }
+  }
+  operation?: 'apply' | 'restart' | 'start' | 'pause'
+  operation_started_at?: string
   last_error?: string
   agent_ids: number[]
   created_at: string

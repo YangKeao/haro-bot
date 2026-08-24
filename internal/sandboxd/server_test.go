@@ -103,6 +103,39 @@ func TestServerReturnsOnlyUnreadOutputForEachInteraction(t *testing.T) {
 	}
 }
 
+func TestWebTerminalSupportsTTYInputAndResizeWithoutAgentSession(t *testing.T) {
+	runtime, err := New(t.TempDir(), "test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(runtime.Handler())
+	t.Cleanup(server.Close)
+
+	input := sandbox.ExecRequest{ID: "web-terminal", Kind: "web_terminal", Command: `IFS= read -r value; stty size; printf 'received:%s' "$value"; sleep 2`, TTY: true, Background: true}
+	var process sandbox.Process
+	requestJSON(t, server.URL+"/v1/processes", "test-token", input, http.StatusCreated, &process)
+	if process.Status != sandbox.RunRunning || process.Kind != "web_terminal" {
+		t.Fatalf("unexpected terminal process: %#v", process)
+	}
+	requestJSON(t, server.URL+"/v1/processes/web-terminal/resize", "test-token", sandbox.ResizeRequest{Columns: 91, Rows: 37}, http.StatusNoContent, nil)
+	started := time.Now()
+	requestJSON(t, server.URL+"/v1/processes/web-terminal/stdin", "test-token", sandbox.StdinRequest{Chars: "hello\n", YieldTimeMS: 2000}, http.StatusOK, &process)
+	if elapsed := time.Since(started); elapsed >= 200*time.Millisecond {
+		t.Fatalf("Web Terminal input waited for process output: %s", elapsed)
+	}
+	deadline := time.Now().Add(time.Second)
+	for (!strings.Contains(process.Output, "37 91") || !strings.Contains(process.Output, "received:hello")) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		requestJSON(t, server.URL+"/v1/processes/web-terminal", "test-token", nil, http.StatusOK, &process)
+	}
+	if !strings.Contains(process.Output, "37 91") || !strings.Contains(process.Output, "received:hello") {
+		t.Fatalf("TTY resize or input was not observed: %q", process.Output)
+	}
+	requestJSON(t, server.URL+"/v1/processes/web-terminal/signal", "test-token", sandbox.SignalRequest{Signal: "TERM"}, http.StatusOK, &process)
+
+	requestJSON(t, server.URL+"/v1/processes", "test-token", sandbox.ExecRequest{ID: "agent-process", Command: "true"}, http.StatusBadRequest, nil)
+}
+
 func requestJSON(t *testing.T, endpoint, token string, input any, wantStatus int, output any) {
 	t.Helper()
 	var body bytes.Buffer

@@ -42,6 +42,7 @@ type managedProcess struct {
 	info            sandbox.Process
 	command         *exec.Cmd
 	stdin           io.WriteCloser
+	terminal        *os.File
 	done            chan struct{}
 	readers         sync.WaitGroup
 	log             []byte
@@ -77,6 +78,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/processes", s.handleStart)
 	mux.HandleFunc("GET /v1/processes/{processID}", s.handleGet)
 	mux.HandleFunc("POST /v1/processes/{processID}/stdin", s.handleStdin)
+	mux.HandleFunc("POST /v1/processes/{processID}/resize", s.handleResize)
 	mux.HandleFunc("POST /v1/processes/{processID}/signal", s.handleSignal)
 	return s.authenticate(mux)
 }
@@ -100,7 +102,8 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	if strings.TrimSpace(input.ID) == "" || strings.TrimSpace(input.Command) == "" || input.AgentID <= 0 || input.SessionID <= 0 {
+	webTerminal := input.Kind == "web_terminal"
+	if strings.TrimSpace(input.ID) == "" || strings.TrimSpace(input.Command) == "" || (!webTerminal && (input.AgentID <= 0 || input.SessionID <= 0)) {
 		writeError(w, http.StatusBadRequest, "id, agent_id, session_id and command are required")
 		return
 	}
@@ -168,7 +171,7 @@ func (s *Server) start(input sandbox.ExecRequest) (*managedProcess, error) {
 	command.Env = buildEnvironment(input.Environment, s.workspace, input.TTY)
 	tty := input.TTY
 	process := &managedProcess{
-		info:    sandbox.Process{ID: input.ID, AgentID: input.AgentID, SessionID: input.SessionID, Command: input.Command, TTY: &tty, Status: sandbox.RunStarting, StartedAt: time.Now().UTC()},
+		info:    sandbox.Process{ID: input.ID, Kind: input.Kind, AgentID: input.AgentID, SessionID: input.SessionID, Command: input.Command, TTY: &tty, Status: sandbox.RunStarting, StartedAt: time.Now().UTC()},
 		command: command, done: make(chan struct{}),
 	}
 	if input.TTY {
@@ -177,6 +180,7 @@ func (s *Server) start(input sandbox.ExecRequest) (*managedProcess, error) {
 			return nil, err
 		}
 		process.stdin = terminal
+		process.terminal = terminal
 		process.info.PID = int64(command.Process.Pid)
 		process.info.Status = sandbox.RunRunning
 		s.register(process)
@@ -209,6 +213,35 @@ func (s *Server) start(input sandbox.ExecRequest) (*managedProcess, error) {
 	}
 	go process.wait()
 	return process, nil
+}
+
+func (s *Server) handleResize(w http.ResponseWriter, r *http.Request) {
+	process, ok := s.get(r.PathValue("processID"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "process not found")
+		return
+	}
+	var input sandbox.ResizeRequest
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.Columns < 2 || input.Rows < 2 || input.Columns > 1000 || input.Rows > 1000 {
+		writeError(w, http.StatusBadRequest, "terminal columns and rows must be between 2 and 1000")
+		return
+	}
+	process.mu.Lock()
+	terminal := process.terminal
+	status := process.info.Status
+	process.mu.Unlock()
+	if terminal == nil || (status != sandbox.RunStarting && status != sandbox.RunRunning) {
+		writeError(w, http.StatusConflict, "process is not an active TTY")
+		return
+	}
+	if err := pty.Setsize(terminal, &pty.Winsize{Cols: input.Columns, Rows: input.Rows}); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) register(process *managedProcess) {
@@ -319,6 +352,10 @@ func (s *Server) handleStdin(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		if process.info.Kind == "web_terminal" {
+			writeJSON(w, http.StatusOK, process.snapshot())
 			return
 		}
 	}

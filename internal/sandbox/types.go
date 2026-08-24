@@ -12,6 +12,11 @@ const (
 	RunFailed   = "failed"
 	RunLost     = "lost"
 
+	OperationApply   = "apply"
+	OperationRestart = "restart"
+	OperationStart   = "start"
+	OperationPause   = "pause"
+
 	DefaultExecYieldTimeMS                = 10_000
 	DefaultWriteYieldTimeMS               = 250
 	MinYieldTimeMS                        = 250
@@ -20,6 +25,29 @@ const (
 	DefaultBackgroundTerminalMaxTimeoutMS = 300_000
 	DefaultMaxOutputTokens                = 10_000
 )
+
+type PodRuntimeStatus struct {
+	Name              string     `json:"name"`
+	UID               string     `json:"uid"`
+	Image             string     `json:"image,omitempty"`
+	Phase             string     `json:"phase,omitempty"`
+	CreatedAt         *time.Time `json:"created_at,omitempty"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	DeletionTimestamp *time.Time `json:"deletion_timestamp,omitempty"`
+	Ready             bool       `json:"ready"`
+	RestartCount      int32      `json:"restart_count"`
+	WaitingReason     string     `json:"waiting_reason,omitempty"`
+	WaitingMessage    string     `json:"waiting_message,omitempty"`
+}
+
+type RuntimeDetails struct {
+	State              string            `json:"state"`
+	Message            string            `json:"message,omitempty"`
+	ObservedAt         time.Time         `json:"observed_at"`
+	Operation          string            `json:"operation,omitempty"`
+	OperationStartedAt *time.Time        `json:"operation_started_at,omitempty"`
+	Pod                *PodRuntimeStatus `json:"pod,omitempty"`
+}
 
 func ExecYieldTimeMS(requested int) int {
 	if requested <= 0 {
@@ -55,28 +83,32 @@ func clamp(value, minimum, maximum int) int {
 }
 
 type Profile struct {
-	ID                         int64     `json:"id"`
-	Name                       string    `json:"name"`
-	Description                string    `json:"description"`
-	Image                      string    `json:"image"`
-	CPULimitMillis             int       `json:"cpu_limit_millis"`
-	MemoryLimitMiB             int       `json:"memory_limit_mib"`
-	EphemeralStorageMiB        int       `json:"ephemeral_storage_mib"`
-	WorkspaceStorageMiB        int       `json:"workspace_storage_mib"`
-	DesiredState               string    `json:"desired_state"`
-	Revision                   int64     `json:"revision"`
-	AppliedRevision            int64     `json:"applied_revision"`
-	PendingRestart             bool      `json:"pending_restart"`
-	KubernetesName             string    `json:"kubernetes_name"`
-	RuntimeStatus              string    `json:"runtime_status"`
-	LastError                  *string   `json:"last_error,omitempty"`
-	AgentIDs                   []int64   `json:"agent_ids"`
-	CreatedAt                  time.Time `json:"created_at"`
-	UpdatedAt                  time.Time `json:"updated_at"`
-	RuntimeCAPEM               string    `json:"-"`
-	RuntimeClientCertPEM       string    `json:"-"`
-	RuntimeClientKeyCiphertext string    `json:"-"`
-	RuntimeTokenCiphertext     string    `json:"-"`
+	ID                         int64           `json:"id"`
+	Name                       string          `json:"name"`
+	Description                string          `json:"description"`
+	Image                      string          `json:"image"`
+	CPULimitMillis             int             `json:"cpu_limit_millis"`
+	MemoryLimitMiB             int             `json:"memory_limit_mib"`
+	EphemeralStorageMiB        int             `json:"ephemeral_storage_mib"`
+	WorkspaceStorageMiB        int             `json:"workspace_storage_mib"`
+	DesiredState               string          `json:"desired_state"`
+	Revision                   int64           `json:"revision"`
+	AppliedRevision            int64           `json:"applied_revision"`
+	PendingRestart             bool            `json:"pending_restart"`
+	KubernetesName             string          `json:"kubernetes_name"`
+	RuntimeStatus              string          `json:"runtime_status"`
+	RuntimeDetails             *RuntimeDetails `json:"runtime_details,omitempty"`
+	Operation                  string          `json:"operation,omitempty"`
+	OperationStartedAt         *time.Time      `json:"operation_started_at,omitempty"`
+	OperationPreviousPodUID    string          `json:"-"`
+	LastError                  *string         `json:"last_error,omitempty"`
+	AgentIDs                   []int64         `json:"agent_ids"`
+	CreatedAt                  time.Time       `json:"created_at"`
+	UpdatedAt                  time.Time       `json:"updated_at"`
+	RuntimeCAPEM               string          `json:"-"`
+	RuntimeClientCertPEM       string          `json:"-"`
+	RuntimeClientKeyCiphertext string          `json:"-"`
+	RuntimeTokenCiphertext     string          `json:"-"`
 }
 
 type Write struct {
@@ -106,6 +138,7 @@ type EnvironmentWrite struct {
 
 type Process struct {
 	ID              string     `json:"id"`
+	Kind            string     `json:"kind,omitempty"`
 	SandboxID       int64      `json:"sandbox_id"`
 	AgentID         int64      `json:"agent_id"`
 	SessionID       int64      `json:"session_id"`
@@ -133,6 +166,7 @@ type Process struct {
 
 type ExecRequest struct {
 	ID          string            `json:"id"`
+	Kind        string            `json:"kind,omitempty"`
 	AgentID     int64             `json:"agent_id"`
 	SessionID   int64             `json:"session_id"`
 	Command     string            `json:"command"`
@@ -153,4 +187,9 @@ type StdinRequest struct {
 	Chars          string `json:"chars"`
 	YieldTimeMS    int    `json:"yield_time_ms,omitempty"`
 	MaxYieldTimeMS int    `json:"max_yield_time_ms,omitempty"`
+}
+
+type ResizeRequest struct {
+	Columns uint16 `json:"columns"`
+	Rows    uint16 `json:"rows"`
 }

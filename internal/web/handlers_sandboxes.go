@@ -91,17 +91,21 @@ func (s *Server) handleUpdateSandbox(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleApplySandbox(w http.ResponseWriter, r *http.Request) {
-	s.withSandboxID(w, r, func(id int64) (sandbox.Profile, error) { return s.sandboxes.Apply(r.Context(), id) })
+	s.withSandboxIDStatus(w, r, http.StatusAccepted, func(id int64) (sandbox.Profile, error) { return s.sandboxes.Apply(r.Context(), id) })
+}
+
+func (s *Server) handleRestartSandbox(w http.ResponseWriter, r *http.Request) {
+	s.withSandboxIDStatus(w, r, http.StatusAccepted, func(id int64) (sandbox.Profile, error) { return s.sandboxes.Restart(r.Context(), id) })
 }
 
 func (s *Server) handleStartSandbox(w http.ResponseWriter, r *http.Request) {
-	s.withSandboxID(w, r, func(id int64) (sandbox.Profile, error) {
+	s.withSandboxIDStatus(w, r, http.StatusAccepted, func(id int64) (sandbox.Profile, error) {
 		return s.sandboxes.SetOperatingMode(r.Context(), id, sandbox.StateRunning)
 	})
 }
 
 func (s *Server) handlePauseSandbox(w http.ResponseWriter, r *http.Request) {
-	s.withSandboxID(w, r, func(id int64) (sandbox.Profile, error) {
+	s.withSandboxIDStatus(w, r, http.StatusAccepted, func(id int64) (sandbox.Profile, error) {
 		return s.sandboxes.SetOperatingMode(r.Context(), id, sandbox.StateSuspended)
 	})
 }
@@ -303,6 +307,10 @@ func (s *Server) handleProcessSignal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) withSandboxID(w http.ResponseWriter, r *http.Request, action func(int64) (sandbox.Profile, error)) {
+	s.withSandboxIDStatus(w, r, http.StatusOK, action)
+}
+
+func (s *Server) withSandboxIDStatus(w http.ResponseWriter, r *http.Request, status int, action func(int64) (sandbox.Profile, error)) {
 	if !s.requireSandboxes(w) {
 		return
 	}
@@ -316,7 +324,7 @@ func (s *Server) withSandboxID(w http.ResponseWriter, r *http.Request, action fu
 		writeSandboxError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, item)
+	writeJSON(w, status, item)
 }
 
 func (s *Server) requireSandboxes(w http.ResponseWriter) bool {
@@ -330,6 +338,10 @@ func (s *Server) requireSandboxes(w http.ResponseWriter) bool {
 func writeSandboxError(w http.ResponseWriter, err error) {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "resource not found")
+		return
+	}
+	if errors.Is(err, sandbox.ErrOperationInProgress) {
+		writeError(w, http.StatusConflict, "operation_in_progress", err.Error())
 		return
 	}
 	writeError(w, http.StatusBadRequest, "sandbox_error", err.Error())

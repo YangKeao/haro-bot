@@ -37,6 +37,7 @@ export const api = {
   createSandbox: (input: SandboxInput) => request<SandboxProfile>('/api/v1/sandboxes', { method: 'POST', body: JSON.stringify(input) }),
   updateSandbox: (id: number, input: SandboxInput) => request<SandboxProfile>(`/api/v1/sandboxes/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
   applySandbox: (id: number) => request<SandboxProfile>(`/api/v1/sandboxes/${id}/apply`, { method: 'POST', body: '{}' }),
+  restartSandbox: (id: number) => request<SandboxProfile>(`/api/v1/sandboxes/${id}/restart`, { method: 'POST', body: '{}' }),
   startSandbox: (id: number) => request<SandboxProfile>(`/api/v1/sandboxes/${id}/start`, { method: 'POST', body: '{}' }),
   pauseSandbox: (id: number) => request<SandboxProfile>(`/api/v1/sandboxes/${id}/pause`, { method: 'POST', body: '{}' }),
   resetSandboxWorkspace: (id: number, confirmName: string) => request<{ reset: boolean }>(`/api/v1/sandboxes/${id}/reset-workspace`, { method: 'POST', body: JSON.stringify({ confirm_name: confirmName }) }),

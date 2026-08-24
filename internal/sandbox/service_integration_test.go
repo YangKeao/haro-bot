@@ -19,11 +19,14 @@ func (f *fakeControlPlane) Apply(_ context.Context, profile Profile, credentials
 	f.applied = append(f.applied, profile)
 	return nil
 }
+
+func (f *fakeControlPlane) SyncRuntimeHelper(context.Context, Profile) error      { return nil }
+func (*fakeControlPlane) Restart(context.Context, Profile) error                  { return nil }
 func (*fakeControlPlane) SetOperatingMode(context.Context, Profile, string) error { return nil }
 func (*fakeControlPlane) Delete(context.Context, Profile) error                   { return nil }
 func (*fakeControlPlane) ResetWorkspace(context.Context, Profile) error           { return nil }
-func (*fakeControlPlane) Status(context.Context, Profile) (string, *string, error) {
-	return "Ready", nil, nil
+func (*fakeControlPlane) Status(context.Context, Profile) (RuntimeDetails, error) {
+	return RuntimeDetails{State: "Ready", ObservedAt: time.Now().UTC()}, nil
 }
 
 type fakeRuntime struct {
@@ -50,6 +53,7 @@ func (f *fakeRuntime) WriteStdin(_ context.Context, _ RuntimeTarget, id string, 
 func (*fakeRuntime) Signal(context.Context, RuntimeTarget, string, string) (Process, error) {
 	return Process{}, nil
 }
+func (*fakeRuntime) Resize(context.Context, RuntimeTarget, string, ResizeRequest) error { return nil }
 
 func TestServiceInjectsEncryptedAgentEnvironmentAndRedactsSecrets(t *testing.T) {
 	database, cleanup := testutil.NewTestDBWithMigrations(t)

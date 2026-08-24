@@ -25,7 +25,7 @@ type migration struct {
 	stmts   []string
 }
 
-const currentSchemaVersion int64 = 20
+const currentSchemaVersion int64 = 21
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -48,6 +48,7 @@ var migrations = []migration{
 	{version: 18, stmts: addRecentSessionsIndexSQL},
 	{version: 19, stmts: addSandboxesSQL},
 	{version: 20, stmts: addSandboxRunTTYSQL},
+	{version: 21, stmts: addSandboxRuntimeOperationSQL},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -445,6 +446,12 @@ var addSandboxesSQL = []string{
 
 var addSandboxRunTTYSQL = []string{
 	`ALTER TABLE sandbox_runs ADD COLUMN tty TINYINT(1) NOT NULL DEFAULT 0 AFTER command`,
+}
+
+var addSandboxRuntimeOperationSQL = []string{
+	`ALTER TABLE sandboxes ADD COLUMN runtime_operation VARCHAR(16) NOT NULL DEFAULT '' AFTER runtime_token_ciphertext`,
+	`ALTER TABLE sandboxes ADD COLUMN runtime_operation_started_at TIMESTAMP(6) NULL AFTER runtime_operation`,
+	`ALTER TABLE sandboxes ADD COLUMN runtime_operation_pod_uid VARCHAR(64) NOT NULL DEFAULT '' AFTER runtime_operation_started_at`,
 }
 
 var addMessageSoftDeleteSQL = []string{

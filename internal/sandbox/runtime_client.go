@@ -30,6 +30,7 @@ type Runtime interface {
 	ListProcesses(context.Context, RuntimeTarget, *int64) ([]Process, error)
 	GetProcess(context.Context, RuntimeTarget, string) (Process, error)
 	WriteStdin(context.Context, RuntimeTarget, string, StdinRequest) (Process, error)
+	Resize(context.Context, RuntimeTarget, string, ResizeRequest) error
 	Signal(context.Context, RuntimeTarget, string, string) (Process, error)
 }
 
@@ -68,6 +69,10 @@ func (r *HTTPRuntime) WriteStdin(ctx context.Context, target RuntimeTarget, id s
 	yield := StdinYieldTimeMS(input.Chars, input.YieldTimeMS, input.MaxYieldTimeMS)
 	err := r.request(ctx, target, http.MethodPost, "/v1/processes/"+url.PathEscape(id)+"/stdin", input, &output, time.Duration(yield)*time.Millisecond+30*time.Second)
 	return output, err
+}
+
+func (r *HTTPRuntime) Resize(ctx context.Context, target RuntimeTarget, id string, input ResizeRequest) error {
+	return r.request(ctx, target, http.MethodPost, "/v1/processes/"+url.PathEscape(id)+"/resize", input, nil, r.timeout())
 }
 
 func (r *HTTPRuntime) Signal(ctx context.Context, target RuntimeTarget, id string, signal string) (Process, error) {
