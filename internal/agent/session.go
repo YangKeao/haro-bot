@@ -43,7 +43,7 @@ func (s *Session) cancel() bool {
 
 func (s *Session) toolsFor() []llm.Tool {
 	var tools []llm.Tool
-	for _, t := range s.deps.toolRegistry.List() {
+	for _, t := range s.deps.toolRegistry.ListForSession(s.id) {
 		tools = append(tools, llm.Tool{
 			Type: "function",
 			Function: llm.FunctionSpec{

@@ -28,16 +28,18 @@ const (
 	maxActiveProcesses  = 64
 	maxTrackedProcesses = 256
 	maxSkillCacheBytes  = 512 << 20
+	maxMCPClients       = 64
 )
 
 type Server struct {
 	workspace string
 	token     string
 
-	mu        sync.RWMutex
-	skillsMu  sync.Mutex
-	processes map[string]*managedProcess
-	pending   map[string]struct{}
+	mu         sync.RWMutex
+	skillsMu   sync.Mutex
+	processes  map[string]*managedProcess
+	pending    map[string]struct{}
+	mcpClients map[string]*managedMCPClient
 }
 
 type managedProcess struct {
@@ -68,10 +70,11 @@ func New(workspace, token string) (*Server, error) {
 		return nil, err
 	}
 	return &Server{
-		workspace: workspace,
-		token:     strings.TrimSpace(token),
-		processes: make(map[string]*managedProcess),
-		pending:   make(map[string]struct{}),
+		workspace:  workspace,
+		token:      strings.TrimSpace(token),
+		processes:  make(map[string]*managedProcess),
+		pending:    make(map[string]struct{}),
+		mcpClients: make(map[string]*managedMCPClient),
 	}, nil
 }
 
@@ -85,6 +88,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/processes/{processID}/resize", s.handleResize)
 	mux.HandleFunc("POST /v1/processes/{processID}/signal", s.handleSignal)
 	mux.HandleFunc("PUT /v1/skills/{hash}", s.handleEnsureSkill)
+	mux.HandleFunc("POST /v1/mcp/tools", s.handleListMCPTools)
+	mux.HandleFunc("POST /v1/mcp/call", s.handleCallMCPTool)
+	mux.HandleFunc("DELETE /v1/mcp/sessions/{key}", s.handleCloseMCPSession)
 	return s.authenticate(mux)
 }
 

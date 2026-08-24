@@ -1,4 +1,4 @@
-FROM golang:1.22-bookworm AS builder
+FROM golang:1.25-bookworm AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -7,9 +7,9 @@ COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/haro-sandboxd ./cmd/haro-sandboxd
 
-FROM golang:1.22-bookworm AS go-runtime
+FROM golang:1.25-bookworm AS go-runtime
 
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -24,9 +24,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-venv \
     ripgrep \
+    sudo \
     unzip \
     wget \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install --global agent-browser@0.34.0 \
+    && agent-browser install --with-deps \
+    && mkdir -p /opt/agent-browser \
+    && cp -a /root/.agent-browser/browsers/. /opt/agent-browser/ \
+    && browser_path="$(find /opt/agent-browser -type f -name chrome -print -quit)" \
+    && test -n "${browser_path}" \
+    && ln -s "${browser_path}" /usr/local/bin/agent-browser-chrome \
+    && chmod -R a+rX /opt/agent-browser
 
 COPY --from=go-runtime /usr/local/go /usr/local/go
 COPY --from=builder /out/haro-sandboxd /usr/local/bin/haro-sandboxd
@@ -35,7 +44,10 @@ RUN ln -s /usr/local/go/bin/go /usr/local/bin/go \
 
 ENV PATH="/usr/local/go/bin:${PATH}" \
     HOME=/workspace/home \
-    LANG=C.UTF-8
+    LANG=C.UTF-8 \
+    AGENT_BROWSER_CONTENT_BOUNDARIES=1 \
+    AGENT_BROWSER_MAX_OUTPUT_CHARS=12000 \
+    AGENT_BROWSER_EXECUTABLE_PATH=/usr/local/bin/agent-browser-chrome
 WORKDIR /workspace
 
 # Agent Sandbox overrides the entrypoint with the injected runtime. This default

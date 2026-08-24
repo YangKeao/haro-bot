@@ -22,6 +22,7 @@ type WebConfig struct {
 	AccessToken   string
 	CookieSecure  bool
 	AssetsDir     string
+	PublicURL     string
 	ObjectStorage ObjectStorageConfig
 }
 
@@ -70,6 +71,7 @@ type Config struct {
 	SkillsSyncInterval  time.Duration
 	BraveSearchAPIKey   string
 	ToolMaxTurns        int
+	SecretKey           string
 	Log                 LogConfig
 	Web                 WebConfig
 	Sandbox             SandboxConfig
@@ -102,6 +104,7 @@ type fileConfig struct {
 		AccessToken   string `toml:"access_token"`
 		CookieSecure  bool   `toml:"cookie_secure"`
 		AssetsDir     string `toml:"assets_dir"`
+		PublicURL     string `toml:"public_url"`
 		ObjectStorage struct {
 			Endpoint       string `toml:"endpoint"`
 			Region         string `toml:"region"`
@@ -263,6 +266,10 @@ func (r fileConfig) toConfig() Config {
 	webUseSSL := envBool("HARO_WEB_OBJECT_STORAGE_USE_SSL", r.Web.ObjectStorage.UseSSL)
 	webForcePathStyle := envBool("HARO_WEB_OBJECT_STORAGE_FORCE_PATH_STYLE", r.Web.ObjectStorage.ForcePathStyle)
 	syncInterval := parseDurationDefault(r.Skills.SyncInterval, 10*time.Minute)
+	secretKey := strings.TrimSpace(os.Getenv("HARO_SECRET_KEY"))
+	if secretKey == "" {
+		secretKey = strings.TrimSpace(os.Getenv("HARO_SANDBOX_SECRET_KEY"))
+	}
 	return Config{
 		ServerAddr:          strDefault(os.Getenv("HARO_SERVER_ADDR"), r.Server.Addr),
 		TiDBDSN:             r.DB.TiDBDSN,
@@ -273,11 +280,13 @@ func (r fileConfig) toConfig() Config {
 		SkillsSyncInterval:  syncInterval,
 		BraveSearchAPIKey:   r.Brave.SearchAPIKey,
 		ToolMaxTurns:        r.Tool.MaxTurns,
+		SecretKey:           secretKey,
 		Log:                 r.Log,
 		Web: WebConfig{
 			AccessToken:  strings.TrimSpace(strDefault(os.Getenv("HARO_WEB_ACCESS_TOKEN"), r.Web.AccessToken)),
 			CookieSecure: r.Web.CookieSecure,
 			AssetsDir:    r.Web.AssetsDir,
+			PublicURL:    strings.TrimRight(strings.TrimSpace(strDefault(os.Getenv("HARO_WEB_PUBLIC_URL"), r.Web.PublicURL)), "/"),
 			ObjectStorage: ObjectStorageConfig{
 				Endpoint:       strings.TrimSpace(strDefault(os.Getenv("HARO_WEB_OBJECT_STORAGE_ENDPOINT"), r.Web.ObjectStorage.Endpoint)),
 				Region:         strDefault(os.Getenv("HARO_WEB_OBJECT_STORAGE_REGION"), r.Web.ObjectStorage.Region),
@@ -296,7 +305,7 @@ func (r fileConfig) toConfig() Config {
 			HelperImage:  strDefault(os.Getenv("HARO_SANDBOX_HELPER_IMAGE"), r.Sandbox.HelperImage),
 			StorageClass: strings.TrimSpace(strDefault(os.Getenv("HARO_SANDBOX_STORAGE_CLASS"), r.Sandbox.StorageClass)),
 			KubeAPIURL:   strings.TrimSpace(r.Sandbox.KubeAPIURL), KubeTokenFile: r.Sandbox.KubeTokenFile, KubeCAFile: r.Sandbox.KubeCAFile,
-			EncryptionKey:         strings.TrimSpace(os.Getenv("HARO_SANDBOX_SECRET_KEY")),
+			EncryptionKey:         secretKey,
 			DefaultCPULimitMillis: r.Sandbox.DefaultCPULimitMillis, DefaultMemoryLimitMiB: r.Sandbox.DefaultMemoryLimitMiB,
 			DefaultEphemeralStorageMiB: r.Sandbox.DefaultEphemeralStorageMiB, DefaultWorkspaceStorageMiB: r.Sandbox.DefaultWorkspaceStorageMiB,
 			MaxCPULimitMillis: r.Sandbox.MaxCPULimitMillis, MaxMemoryLimitMiB: r.Sandbox.MaxMemoryLimitMiB,

@@ -59,6 +59,12 @@ type MessageMetadata struct {
 	Status               string         `json:"status,omitempty"`
 	InheritedFromSession *int64         `json:"inherited_from_session,omitempty"`
 	AttachmentIDs        []string       `json:"attachment_ids,omitempty"`
+	ToolName             string         `json:"tool_name,omitempty"`
+	MCPServer            string         `json:"mcp_server,omitempty"`
+	DisplayContent       string         `json:"display_content,omitempty"`
+	StructuredContent    any            `json:"structured_content,omitempty"`
+	ObservationKey       string         `json:"observation_key,omitempty"`
+	ArtifactIDs          []string       `json:"artifact_ids,omitempty"`
 }
 
 // Summary is a session summary snapshot used to compact the view window.
@@ -177,16 +183,17 @@ func (s *store) AddMessageAndGetID(ctx context.Context, sessionID int64, role, c
 		if err := tx.Create(&msg).Error; err != nil {
 			return err
 		}
-		if metadata == nil || len(metadata.AttachmentIDs) == 0 {
+		if metadata == nil || (len(metadata.AttachmentIDs) == 0 && len(metadata.ArtifactIDs) == 0) {
 			return nil
 		}
+		attachmentIDs := append(append([]string(nil), metadata.AttachmentIDs...), metadata.ArtifactIDs...)
 		result := tx.Model(&dbmodel.Attachment{}).
-			Where("id IN ? AND session_id = ? AND message_id IS NULL AND deleted_at IS NULL", metadata.AttachmentIDs, sessionID).
+			Where("id IN ? AND session_id = ? AND message_id IS NULL AND deleted_at IS NULL", attachmentIDs, sessionID).
 			Update("message_id", msg.ID)
 		if result.Error != nil {
 			return result.Error
 		}
-		if result.RowsAffected != int64(len(metadata.AttachmentIDs)) {
+		if result.RowsAffected != int64(len(attachmentIDs)) {
 			return errors.New("one or more attachments are invalid or already used")
 		}
 		return nil

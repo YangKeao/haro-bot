@@ -46,6 +46,7 @@ type AgentProfile struct {
 	ProviderDefaultReasoningEffort string     `json:"provider_default_reasoning_effort,omitempty"`
 	EffectiveContextWindowPercent  int        `json:"effective_context_window_percent"`
 	SkillNames                     []string   `json:"skill_names"`
+	MCPServerIDs                   []int64    `json:"mcp_server_ids"`
 	ArchivedAt                     *time.Time `json:"archived_at,omitempty"`
 	CreatedAt                      time.Time  `json:"created_at"`
 	UpdatedAt                      time.Time  `json:"updated_at"`
@@ -69,6 +70,7 @@ type AgentWrite struct {
 	AutoCompactTokenLimitOverride *int
 	EffectiveContextWindowPercent int
 	SkillNames                    []string
+	MCPServerIDs                  []int64
 }
 
 func (s *Store) ListAgents(ctx context.Context, includeArchived bool) ([]AgentProfile, error) {
@@ -126,7 +128,10 @@ func (s *Store) CreateAgent(ctx context.Context, input AgentWrite) (AgentProfile
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
-		return replaceAgentSkills(tx, row.ID, input.SkillNames)
+		if err := replaceAgentSkills(tx, row.ID, input.SkillNames); err != nil {
+			return err
+		}
+		return replaceAgentMCPServers(tx, row.ID, input.MCPServerIDs)
 	})
 	if err != nil {
 		return AgentProfile{}, err
@@ -161,7 +166,10 @@ func (s *Store) UpdateAgent(ctx context.Context, id int64, input AgentWrite) (Ag
 		if result.RowsAffected == 0 {
 			return gorm.ErrRecordNotFound
 		}
-		return replaceAgentSkills(tx, id, input.SkillNames)
+		if err := replaceAgentSkills(tx, id, input.SkillNames); err != nil {
+			return err
+		}
+		return replaceAgentMCPServers(tx, id, input.MCPServerIDs)
 	})
 	if err != nil {
 		return AgentProfile{}, err
@@ -219,6 +227,17 @@ func (s *Store) agentFromRow(ctx context.Context, row dbmodel.Agent) (AgentProfi
 	for _, skill := range skillRows {
 		skills = append(skills, skill.SkillName)
 	}
+	var mcpRows []dbmodel.AgentMCPServer
+	if err := s.db.WithContext(ctx).Where("agent_id = ? AND enabled = ?", row.ID, true).Order("server_id ASC").Find(&mcpRows).Error; err != nil {
+		return AgentProfile{}, err
+	}
+	mcpServerIDs := make([]int64, 0, len(mcpRows))
+	for _, binding := range mcpRows {
+		mcpServerIDs = append(mcpServerIDs, binding.ServerID)
+		if binding.UpdatedAt.After(row.UpdatedAt) {
+			row.UpdatedAt = binding.UpdatedAt
+		}
+	}
 	avatarURL := ""
 	if row.AvatarObjectKey != "" {
 		avatarURL = fmt.Sprintf("/api/v1/agents/%d/avatar?v=%d", row.ID, row.UpdatedAt.UnixNano())
@@ -258,9 +277,29 @@ func (s *Store) agentFromRow(ctx context.Context, row dbmodel.Agent) (AgentProfi
 		ResolvedContextWindow: resolvedContext, ResolvedAutoCompactTokenLimit: resolvedAutoCompact,
 		ProviderDefaultReasoningEffort: providerDefaultReasoning,
 		EffectiveContextWindowPercent:  row.EffectiveContextWindowPercent,
-		SkillNames:                     skills, ArchivedAt: row.ArchivedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		SkillNames:                     skills, MCPServerIDs: mcpServerIDs, ArchivedAt: row.ArchivedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 		RuntimeRevision: runtimeRevision,
 	}, nil
+}
+
+func replaceAgentMCPServers(tx *gorm.DB, agentID int64, ids []int64) error {
+	if err := tx.Where("agent_id = ?", agentID).Delete(&dbmodel.AgentMCPServer{}).Error; err != nil {
+		return err
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		if err := tx.Create(&dbmodel.AgentMCPServer{AgentID: agentID, ServerID: id, Enabled: true}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func replaceAgentSkills(tx *gorm.DB, agentID int64, names []string) error {

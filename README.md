@@ -60,10 +60,13 @@ See `config.example.toml` for all settings. The main settings are:
 | `web.access_token` | Single-user web sign-in token; use a long random value |
 | `web.cookie_secure` | Require HTTPS when sending the authentication cookie |
 | `web.assets_dir` | Vite production build directory |
+| `web.public_url` / `HARO_WEB_PUBLIC_URL` | Public origin used for MCP OAuth callbacks |
 | `web.object_storage.*` | Private S3-compatible attachment storage |
 | `telegram.token` | Telegram bot token; leave empty to disable Telegram startup |
 | `skills.*` | Local skill directory and Git source policy |
 | `sandbox.*` | Optional Kubernetes Agent Sandbox control plane, image, runtime class, and resource limits |
+
+MCP servers are managed in the web Settings page. Streamable HTTP servers connect from `agentd`; stdio servers run inside the assigned Agent Sandbox. Every Agent with a Sandbox also receives the fixed `agent-browser` core MCP profile. MCP credentials and OAuth tokens are encrypted with `HARO_SECRET_KEY` (the legacy `HARO_SANDBOX_SECRET_KEY` remains a fallback).
 
 Providers are global connection records containing an OpenAI-compatible Base URL, optional API key, and prompt format. Agents select a Provider and keep their own model, reasoning override, instructions, context overrides, skills, and visual identity. Haro reads `/models` and caches any capability metadata the Provider exposes; ID-only responses and manual model/runtime values remain supported. Provider keys are stored in the database but are never returned by the web API or written to logs; protect database access accordingly.
 

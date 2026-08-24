@@ -691,6 +691,44 @@ func (s *Service) targetForAgent(ctx context.Context, agentID int64) (Profile, R
 	return s.runtimeTarget(profile)
 }
 
+func (s *Service) ListMCPTools(ctx context.Context, agentID int64, input MCPServerRequest) ([]MCPTool, error) {
+	_, target, err := s.targetForAgent(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	runtime, ok := s.runtime.(MCPRuntime)
+	if !ok {
+		return nil, errors.New("sandbox runtime does not support MCP")
+	}
+	input.AgentID = agentID
+	return runtime.ListMCPTools(ctx, target, input)
+}
+
+func (s *Service) CallMCPTool(ctx context.Context, agentID int64, input MCPCallRequest) (MCPCallResult, error) {
+	_, target, err := s.targetForAgent(ctx, agentID)
+	if err != nil {
+		return MCPCallResult{}, err
+	}
+	runtime, ok := s.runtime.(MCPRuntime)
+	if !ok {
+		return MCPCallResult{}, errors.New("sandbox runtime does not support MCP")
+	}
+	input.Server.AgentID = agentID
+	return runtime.CallMCPTool(ctx, target, input)
+}
+
+func (s *Service) CloseMCPSession(ctx context.Context, agentID int64, key string) error {
+	_, target, err := s.targetForAgent(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	runtime, ok := s.runtime.(MCPRuntime)
+	if !ok {
+		return errors.New("sandbox runtime does not support MCP")
+	}
+	return runtime.CloseMCPSession(ctx, target, key)
+}
+
 func (s *Service) targetForSandbox(ctx context.Context, sandboxID int64) (Profile, RuntimeTarget, error) {
 	if !s.Enabled() {
 		return Profile{}, RuntimeTarget{}, errors.New("sandbox support is disabled")

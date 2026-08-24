@@ -17,6 +17,7 @@ import (
 
 	"github.com/YangKeao/haro-bot/internal/config"
 	"github.com/YangKeao/haro-bot/internal/guidelines"
+	"github.com/YangKeao/haro-bot/internal/mcpmanager"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/sandbox"
 	"github.com/YangKeao/haro-bot/internal/skills"
@@ -33,6 +34,7 @@ type Server struct {
 	guidelines              *guidelines.Manager
 	skills                  *skills.Manager
 	sandboxes               *sandbox.Service
+	mcp                     *mcpmanager.Manager
 	userID                  int64
 	telegramTokenConfigured bool
 	assetsDir               string
@@ -51,6 +53,7 @@ type ServerDeps struct {
 	Guidelines              *guidelines.Manager
 	Skills                  *skills.Manager
 	Sandboxes               *sandbox.Service
+	MCP                     *mcpmanager.Manager
 	UserID                  int64
 	Logger                  *zap.Logger
 	TelegramTokenConfigured bool
@@ -79,7 +82,7 @@ func NewServer(ctx context.Context, deps ServerDeps) (*Server, error) {
 	}
 	return &Server{
 		cfg: deps.Config, store: deps.Store, conversation: deps.Conversation, objects: deps.Objects,
-		runtimes: deps.Runtimes, guidelines: deps.Guidelines, skills: deps.Skills, sandboxes: deps.Sandboxes, userID: deps.UserID,
+		runtimes: deps.Runtimes, guidelines: deps.Guidelines, skills: deps.Skills, sandboxes: deps.Sandboxes, mcp: deps.MCP, userID: deps.UserID,
 		assetsDir: assetsDir, log: log.Named("web"), auth: newAuthenticator(deps.Config.AccessToken, deps.Config.CookieSecure),
 		telegramTokenConfigured: deps.TelegramTokenConfigured,
 		runs:                    make(map[int64]context.CancelFunc),
@@ -115,6 +118,7 @@ func (s *Server) cancelRun(sessionID int64) bool {
 
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/login", s.auth.login)
+	mux.HandleFunc("GET /api/v1/mcp/oauth/callback", s.handleMCPOAuthCallback)
 
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/v1/auth/session", s.handleAuthSession)
@@ -129,6 +133,15 @@ func (s *Server) Register(mux *http.ServeMux) {
 	api.HandleFunc("POST /api/v1/agents/{agentID}/restore", s.handleRestoreAgent)
 	api.HandleFunc("GET /api/v1/agents/{agentID}/environment", s.handleGetAgentEnvironment)
 	api.HandleFunc("PUT /api/v1/agents/{agentID}/environment", s.handleUpdateAgentEnvironment)
+	api.HandleFunc("GET /api/v1/agents/{agentID}/mcp-servers/{serverID}/connection", s.handleGetMCPConnection)
+	api.HandleFunc("PUT /api/v1/agents/{agentID}/mcp-servers/{serverID}/credentials", s.handlePutMCPCredentials)
+	api.HandleFunc("POST /api/v1/agents/{agentID}/mcp-servers/{serverID}/oauth/start", s.handleStartMCPOAuth)
+
+	api.HandleFunc("GET /api/v1/mcp-servers", s.handleListMCPServers)
+	api.HandleFunc("POST /api/v1/mcp-servers", s.handleCreateMCPServer)
+	api.HandleFunc("GET /api/v1/mcp-servers/{serverID}", s.handleGetMCPServer)
+	api.HandleFunc("PUT /api/v1/mcp-servers/{serverID}", s.handleUpdateMCPServer)
+	api.HandleFunc("DELETE /api/v1/mcp-servers/{serverID}", s.handleDeleteMCPServer)
 
 	api.HandleFunc("GET /api/v1/sandboxes", s.handleListSandboxes)
 	api.HandleFunc("GET /api/v1/sandboxes/events", s.handleSandboxEvents)

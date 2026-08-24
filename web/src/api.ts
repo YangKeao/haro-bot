@@ -1,4 +1,4 @@
-import type { AgentEnvironmentVariable, AgentEnvironmentWrite, AgentInput, AgentProfile, Attachment, Guideline, Message, ModelCatalog, ProviderInput, ProviderProfile, RecentSession, RunEvent, SandboxInput, SandboxProcess, SandboxProfile, SandboxPublicConfig, Session, Skill, SkillSource, SkillSourceInput, TelegramIntegration } from './types'
+import type { AgentEnvironmentVariable, AgentEnvironmentWrite, AgentInput, AgentProfile, Attachment, Guideline, MCPConnection, MCPServer, MCPServerInput, Message, ModelCatalog, ProviderInput, ProviderProfile, RecentSession, RunEvent, SandboxInput, SandboxProcess, SandboxProfile, SandboxPublicConfig, Session, Skill, SkillSource, SkillSourceInput, TelegramIntegration } from './types'
 
 export class APIError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -32,6 +32,13 @@ export const api = {
   archiveAgent: (id: number, restore = false) => request(`/api/v1/agents/${id}/${restore ? 'restore' : 'archive'}`, { method: 'POST', body: '{}' }),
   agentEnvironment: (id: number) => request<{ variables: AgentEnvironmentVariable[] }>(`/api/v1/agents/${id}/environment`),
   updateAgentEnvironment: (id: number, variables: AgentEnvironmentWrite[]) => request<{ variables: AgentEnvironmentVariable[] }>(`/api/v1/agents/${id}/environment`, { method: 'PUT', body: JSON.stringify({ variables }) }),
+  mcpServers: (disabled = true) => request<{ servers: MCPServer[] }>(`/api/v1/mcp-servers?disabled=${disabled}`),
+  createMCPServer: (input: MCPServerInput) => request<MCPServer>('/api/v1/mcp-servers', { method: 'POST', body: JSON.stringify(input) }),
+  updateMCPServer: (id: number, input: MCPServerInput) => request<MCPServer>(`/api/v1/mcp-servers/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+  deleteMCPServer: (id: number) => request<void>(`/api/v1/mcp-servers/${id}`, { method: 'DELETE' }),
+  mcpConnection: (agentID: number, serverID: number) => request<MCPConnection>(`/api/v1/agents/${agentID}/mcp-servers/${serverID}/connection`),
+  updateMCPCredentials: (agentID: number, serverID: number, environment: Record<string, string>, headers: Record<string, string>) => request<MCPConnection>(`/api/v1/agents/${agentID}/mcp-servers/${serverID}/credentials`, { method: 'PUT', body: JSON.stringify({ environment, headers }) }),
+  startMCPOAuth: (agentID: number, serverID: number) => request<{ authorization_url: string }>(`/api/v1/agents/${agentID}/mcp-servers/${serverID}/oauth/start`, { method: 'POST', body: '{}' }),
   sandboxes: () => request<{ sandboxes: SandboxProfile[]; config: SandboxPublicConfig }>('/api/v1/sandboxes'),
   sandbox: (id: number) => request<{ sandbox: SandboxProfile; config: SandboxPublicConfig }>(`/api/v1/sandboxes/${id}`),
   createSandbox: (input: SandboxInput) => request<SandboxProfile>('/api/v1/sandboxes', { method: 'POST', body: JSON.stringify(input) }),

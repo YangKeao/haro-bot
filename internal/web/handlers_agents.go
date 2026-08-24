@@ -23,6 +23,7 @@ type agentInput struct {
 	AutoCompactTokenLimitOverride *int     `json:"auto_compact_token_limit_override"`
 	EffectiveContextWindowPercent int      `json:"effective_context_window_percent"`
 	SkillNames                    []string `json:"skill_names"`
+	MCPServerIDs                  []int64  `json:"mcp_server_ids"`
 }
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +209,9 @@ func (s *Server) setAgentArchived(w http.ResponseWriter, r *http.Request, archiv
 		return
 	}
 	s.runtimes.Invalidate(id)
+	if archived && s.mcp != nil {
+		s.mcp.CloseAgent(r.Context(), id)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"archived": archived})
 }
 
@@ -279,7 +283,7 @@ func normalizeAgentInput(input agentInput) (AgentWrite, error) {
 		Instructions: strings.TrimSpace(input.Instructions), Model: input.Model,
 		ReasoningEffortOverride: input.ReasoningEffortOverride, ContextWindowOverride: input.ContextWindowOverride,
 		AutoCompactTokenLimitOverride: input.AutoCompactTokenLimitOverride, EffectiveContextWindowPercent: input.EffectiveContextWindowPercent,
-		SkillNames: input.SkillNames,
+		SkillNames: input.SkillNames, MCPServerIDs: input.MCPServerIDs,
 	}, nil
 }
 

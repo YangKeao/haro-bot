@@ -52,7 +52,15 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID int64, baseDir st
 			SessionID: sessionID,
 			BaseDir:   baseDir,
 		}
-		output, err := tool.Execute(ctx, tc, json.RawMessage(call.Function.Arguments))
+		var result tools.ToolResult
+		var output string
+		var err error
+		if rich, ok := tool.(tools.RichTool); ok {
+			result, err = rich.ExecuteRich(ctx, tc, json.RawMessage(call.Function.Arguments))
+			output = result.ModelText
+		} else {
+			output, err = tool.Execute(ctx, tc, json.RawMessage(call.Function.Arguments))
+		}
 		status := "ok"
 		if err != nil {
 			status = "error"
@@ -76,14 +84,21 @@ func (r *DefaultToolRunner) Run(ctx context.Context, sessionID int64, baseDir st
 			output = truncated
 		}
 		toolMsg := llm.Message{Role: "tool", ToolCallID: call.ID, Content: output}
-		entryID, err := r.store.AddMessageAndGetID(ctx, sessionID, "tool", output, &memory.MessageMetadata{
-			ToolCallID: call.ID,
-			Status:     status,
-		})
+		metadata := &memory.MessageMetadata{
+			ToolCallID:        call.ID,
+			Status:            status,
+			ToolName:          result.ToolName,
+			MCPServer:         result.MCPServer,
+			DisplayContent:    result.DisplayText,
+			StructuredContent: result.StructuredContent,
+			ObservationKey:    result.ObservationKey,
+			ArtifactIDs:       result.ArtifactIDs,
+		}
+		entryID, err := r.store.AddMessageAndGetID(ctx, sessionID, "tool", output, metadata)
 		if err != nil {
 			return nil, err
 		}
-		ctxMsg, err := newStoredMessage(entryID, toolMsg)
+		ctxMsg, err := newStoredMessage(entryID, toolMsg, metadata)
 		if err != nil {
 			return nil, err
 		}

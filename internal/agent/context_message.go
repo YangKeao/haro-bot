@@ -10,8 +10,9 @@ import (
 
 // StoredMessage is a persisted conversation entry loaded from or written to the store.
 type StoredMessage struct {
-	EntryID int64
-	Message llm.Message
+	EntryID  int64
+	Message  llm.Message
+	Metadata *memory.MessageMetadata
 }
 
 // TransientMessage is runtime-only context that is never persisted directly.
@@ -29,14 +30,18 @@ func newTransientMessage(msg llm.Message) TransientMessage {
 	return TransientMessage{Message: msg}
 }
 
-func newStoredMessage(entryID int64, msg llm.Message) (StoredMessage, error) {
+func newStoredMessage(entryID int64, msg llm.Message, metadata ...*memory.MessageMetadata) (StoredMessage, error) {
 	if entryID <= 0 {
 		return StoredMessage{}, fmt.Errorf("stored message requires positive entry id, got %d", entryID)
 	}
-	return StoredMessage{
+	stored := StoredMessage{
 		EntryID: entryID,
 		Message: msg,
-	}, nil
+	}
+	if len(metadata) > 0 {
+		stored.Metadata = metadata[0]
+	}
+	return stored, nil
 }
 
 func storedMessagesToLLM(messages []StoredMessage) []llm.Message {
@@ -65,7 +70,7 @@ func composeLLMMessages(stored []StoredMessage, transient TransientContext) []ll
 func toStoredMessages(msgs []memory.Message) ([]StoredMessage, error) {
 	out := make([]StoredMessage, 0, len(msgs))
 	for _, msg := range msgs {
-		stored, err := newStoredMessage(msg.ID, toLLMMessage(msg))
+		stored, err := newStoredMessage(msg.ID, toLLMMessage(msg), msg.Metadata)
 		if err != nil {
 			return nil, err
 		}

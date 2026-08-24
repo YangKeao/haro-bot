@@ -18,6 +18,28 @@ type HiddenTool interface {
 	Hidden() bool
 }
 
+type SessionVisibleTool interface {
+	VisibleForSession(sessionID int64) bool
+}
+
+type SessionLifecycleTool interface {
+	ResetSession(sessionID int64)
+}
+
+type RichTool interface {
+	ExecuteRich(ctx context.Context, tc ToolContext, args json.RawMessage) (ToolResult, error)
+}
+
+type ToolResult struct {
+	ModelText         string
+	DisplayText       string
+	ToolName          string
+	MCPServer         string
+	StructuredContent any
+	ObservationKey    string
+	ArtifactIDs       []string
+}
+
 type ToolContext struct {
 	SessionID int64
 	BaseDir   string
@@ -63,6 +85,26 @@ func (r *Registry) Get(name string) (Tool, bool) {
 
 func (r *Registry) List() []Tool {
 	return r.list(false)
+}
+
+func (r *Registry) ListForSession(sessionID int64) []Tool {
+	all := r.list(false)
+	out := all[:0]
+	for _, tool := range all {
+		if visible, ok := tool.(SessionVisibleTool); ok && !visible.VisibleForSession(sessionID) {
+			continue
+		}
+		out = append(out, tool)
+	}
+	return out
+}
+
+func (r *Registry) ResetSession(sessionID int64) {
+	for _, tool := range r.ListAll() {
+		if lifecycle, ok := tool.(SessionLifecycleTool); ok {
+			lifecycle.ResetSession(sessionID)
+		}
+	}
 }
 
 func (r *Registry) ListAll() []Tool {

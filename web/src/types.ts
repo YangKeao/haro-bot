@@ -19,6 +19,7 @@ export interface AgentProfile {
   resolved_auto_compact_token_limit: number
   effective_context_window_percent: number
   skill_names: string[]
+  mcp_server_ids?: number[]
   archived_at?: string
   created_at: string
   updated_at: string
@@ -113,6 +114,43 @@ export interface MessageMetadata {
   tool_calls?: ToolCall[]
   status?: string
   attachment_ids?: string[]
+  artifact_ids?: string[]
+  tool_name?: string
+  mcp_server?: string
+  display_content?: string
+  structured_content?: unknown
+  observation_key?: string
+}
+
+export interface MCPServer {
+  id: number
+  name: string
+  description: string
+  transport: 'stdio' | 'http'
+  command?: string
+  args?: string[]
+  url?: string
+  oauth_enabled: boolean
+  oauth_authorization_endpoint?: string
+  oauth_token_endpoint?: string
+  oauth_registration_endpoint?: string
+  oauth_client_id?: string
+  oauth_client_secret_set: boolean
+  oauth_scopes?: string
+  enabled: boolean
+  last_error?: string
+  last_refresh_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export type MCPServerInput = Omit<MCPServer, 'id' | 'oauth_client_secret_set' | 'last_error' | 'last_refresh_at' | 'created_at' | 'updated_at'> & { oauth_client_secret?: string }
+
+export interface MCPConnection {
+  server_id: number
+  credential_set: boolean
+  oauth_connected: boolean
+  expires_at?: string
 }
 
 export interface Message {

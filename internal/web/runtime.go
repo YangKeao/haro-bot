@@ -11,6 +11,7 @@ import (
 	"github.com/YangKeao/haro-bot/internal/guidelines"
 	"github.com/YangKeao/haro-bot/internal/llm"
 	llmopenai "github.com/YangKeao/haro-bot/internal/llm/openai"
+	"github.com/YangKeao/haro-bot/internal/mcpmanager"
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/sandbox"
 	"github.com/YangKeao/haro-bot/internal/skills"
@@ -32,6 +33,7 @@ type RuntimeRegistry struct {
 	downloader   *avatarDownloader
 	guidelines   *guidelines.Manager
 	sandboxes    *sandbox.Service
+	mcp          *mcpmanager.Manager
 	baseDir      string
 	maxToolTurns int
 	httpDebug    bool
@@ -40,10 +42,10 @@ type RuntimeRegistry struct {
 	entries map[int64]runtimeEntry
 }
 
-func NewRuntimeRegistry(store *Store, conversation memory.StoreAPI, skillsManager *skills.Manager, registry *tools.Registry, objects *ObjectStore, guidelinesManager *guidelines.Manager, sandboxes *sandbox.Service, baseDir string, maxToolTurns int, httpDebug bool) *RuntimeRegistry {
+func NewRuntimeRegistry(store *Store, conversation memory.StoreAPI, skillsManager *skills.Manager, registry *tools.Registry, objects *ObjectStore, guidelinesManager *guidelines.Manager, sandboxes *sandbox.Service, mcpManager *mcpmanager.Manager, baseDir string, maxToolTurns int, httpDebug bool) *RuntimeRegistry {
 	return &RuntimeRegistry{
 		store: store, conversation: conversation, skills: skillsManager, tools: registry, objects: objects, downloader: newAvatarDownloader(),
-		guidelines: guidelinesManager, sandboxes: sandboxes, baseDir: baseDir, maxToolTurns: maxToolTurns,
+		guidelines: guidelinesManager, sandboxes: sandboxes, mcp: mcpManager, baseDir: baseDir, maxToolTurns: maxToolTurns,
 		httpDebug: httpDebug, entries: make(map[int64]runtimeEntry),
 	}
 }
@@ -74,6 +76,9 @@ func (r *RuntimeRegistry) Get(ctx context.Context, id int64) (*agent.Agent, Agen
 	if profile.SandboxID != nil && r.sandboxes != nil && r.sandboxes.Enabled() {
 		scopedTools.Register(tools.NewSandboxExecCommandTool(id, r.sandboxes))
 		scopedTools.Register(tools.NewSandboxWriteStdinTool(id, r.sandboxes))
+	}
+	if r.mcp != nil {
+		r.mcp.RegisterTools(ctx, id, profile.SandboxID != nil && r.sandboxes != nil && r.sandboxes.Enabled(), scopedTools)
 	}
 	reasoningEffort := ""
 	if profile.ReasoningEffortOverride != nil {
@@ -110,5 +115,11 @@ func (r *RuntimeRegistry) InvalidateProvider(providerID int64) {
 			delete(r.entries, id)
 		}
 	}
+	r.mu.Unlock()
+}
+
+func (r *RuntimeRegistry) InvalidateAll() {
+	r.mu.Lock()
+	r.entries = make(map[int64]runtimeEntry)
 	r.mu.Unlock()
 }

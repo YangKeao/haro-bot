@@ -25,7 +25,7 @@ type migration struct {
 	stmts   []string
 }
 
-const currentSchemaVersion int64 = 21
+const currentSchemaVersion int64 = 22
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -49,6 +49,7 @@ var migrations = []migration{
 	{version: 19, stmts: addSandboxesSQL},
 	{version: 20, stmts: addSandboxRunTTYSQL},
 	{version: 21, stmts: addSandboxRuntimeOperationSQL},
+	{version: 22, stmts: addMCPServersSQL},
 }
 
 func applyMigrations(db *gorm.DB) error {
@@ -452,6 +453,73 @@ var addSandboxRuntimeOperationSQL = []string{
 	`ALTER TABLE sandboxes ADD COLUMN runtime_operation VARCHAR(16) NOT NULL DEFAULT '' AFTER runtime_token_ciphertext`,
 	`ALTER TABLE sandboxes ADD COLUMN runtime_operation_started_at TIMESTAMP(6) NULL AFTER runtime_operation`,
 	`ALTER TABLE sandboxes ADD COLUMN runtime_operation_pod_uid VARCHAR(64) NOT NULL DEFAULT '' AFTER runtime_operation_started_at`,
+}
+
+var addMCPServersSQL = []string{
+	`CREATE TABLE mcp_servers (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(128) NOT NULL,
+  description TEXT,
+  transport VARCHAR(16) NOT NULL,
+  command TEXT,
+  args_json JSON,
+  url TEXT,
+  oauth_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  oauth_authorization_endpoint TEXT,
+  oauth_token_endpoint TEXT,
+  oauth_registration_endpoint TEXT,
+  oauth_issuer TEXT,
+  oauth_resource TEXT,
+  oauth_client_id TEXT,
+  oauth_client_secret_ciphertext LONGTEXT,
+  oauth_scopes TEXT,
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  last_error TEXT,
+  last_refresh_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_mcp_servers_name (name)
+)`,
+	`CREATE TABLE agent_mcp_servers (
+  agent_id BIGINT NOT NULL,
+  server_id BIGINT NOT NULL,
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  allowed_tools_json JSON,
+  denied_tools_json JSON,
+  allowed_domains_json JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (agent_id, server_id),
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+  FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+)`,
+	`CREATE TABLE agent_mcp_credentials (
+  agent_id BIGINT NOT NULL,
+  server_id BIGINT NOT NULL,
+  environment_ciphertext LONGTEXT,
+  headers_ciphertext LONGTEXT,
+  access_token_ciphertext LONGTEXT,
+  refresh_token_ciphertext LONGTEXT,
+  token_type VARCHAR(32),
+  expires_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (agent_id, server_id),
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+  FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+)`,
+	`CREATE TABLE mcp_oauth_states (
+  state VARCHAR(128) PRIMARY KEY,
+  agent_id BIGINT NOT NULL,
+  server_id BIGINT NOT NULL,
+  code_verifier_ciphertext LONGTEXT NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_mcp_oauth_states_expiry (expires_at),
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+  FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+)`,
 }
 
 var addMessageSoftDeleteSQL = []string{

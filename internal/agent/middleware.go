@@ -18,8 +18,9 @@ type MiddlewareSet struct {
 }
 
 type RunState struct {
-	SessionID int64
-	Model     string
+	SessionID        int64
+	TurnStartEntryID int64
+	Model            string
 
 	PromptFormat string
 	Prompt       string

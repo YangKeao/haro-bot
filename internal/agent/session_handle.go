@@ -26,10 +26,12 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 	}()
 
 	log.Info("handle start", zap.Int64("session_id", s.id), zap.Int64("user_id", userID), zap.String("channel", channel))
-	if _, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "user", input, metadata); err != nil {
+	userEntryID, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "user", input, metadata)
+	if err != nil {
 		log.Error("add user message failed", zap.Int64("session_id", s.id), zap.Error(err))
 		return "", err
 	}
+	s.deps.toolRegistry.ResetSession(s.id)
 
 	middleware := mergeMiddlewareSets(s.deps.middleware, extraHooks)
 	availableSkills := s.deps.skills.List()
@@ -44,6 +46,7 @@ func (s *Session) Handle(ctx context.Context, userID int64, channel string, inpu
 	}
 	run := &RunState{
 		SessionID:         s.id,
+		TurnStartEntryID:  userEntryID,
 		Model:             model,
 		PromptFormat:      s.deps.promptFormat,
 		AvailableSkills:   availableSkills,

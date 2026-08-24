@@ -21,7 +21,7 @@ type SecretBox struct {
 func NewSecretBox(encodedKey string) (*SecretBox, error) {
 	encodedKey = strings.TrimSpace(encodedKey)
 	if encodedKey == "" {
-		return nil, errors.New("HARO_SANDBOX_SECRET_KEY is required when sandbox support is enabled")
+		return nil, errors.New("HARO_SECRET_KEY (or HARO_SANDBOX_SECRET_KEY) is required for encrypted credentials")
 	}
 	key, err := decodeSecretKey(encodedKey)
 	if err != nil {
@@ -46,7 +46,7 @@ func decodeSecretKey(value string) ([]byte, error) {
 			return key, nil
 		}
 	}
-	return nil, errors.New("HARO_SANDBOX_SECRET_KEY must encode exactly 32 bytes as base64 or hex")
+	return nil, errors.New("HARO_SECRET_KEY must encode exactly 32 bytes as base64 or hex")
 }
 
 func (b *SecretBox) Encrypt(value string, aad string) (string, error) {

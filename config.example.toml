@@ -5,6 +5,8 @@ addr = ":8080"
 access_token = "replace-with-a-long-random-token"
 cookie_secure = false
 assets_dir = "./web/dist"
+# Public origin used for MCP OAuth callbacks (required only for OAuth MCP servers).
+public_url = "http://localhost:8080"
 
 [web.object_storage]
 endpoint = "127.0.0.1:9000"

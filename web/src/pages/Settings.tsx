@@ -1,15 +1,17 @@
 import { useEffect } from 'react'
-import { BookOpenText, Cloud, Library, Palette, Send } from 'lucide-react'
+import { BookOpenText, Cable, Cloud, Library, Palette, Send } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { accents, useAppearance } from '../components/AppearanceContext'
 import Guidelines from './Guidelines'
 import Integrations from './Integrations'
 import Providers from './Providers'
 import Skills from './Skills'
+import MCPServers from './MCPServers'
 
 const sections = [
   { id: 'appearance', label: 'Appearance', Icon: Palette },
   { id: 'providers', label: 'Providers', Icon: Cloud },
+  { id: 'mcp', label: 'MCP servers', Icon: Cable },
   { id: 'guidelines', label: 'Guidelines', Icon: BookOpenText },
   { id: 'skills', label: 'Skills', Icon: Library },
   { id: 'integrations', label: 'Integrations', Icon: Send },
@@ -35,6 +37,7 @@ export default function Settings() {
           <div className="settings-card appearance-card"><div className="section-heading"><h3>Accent color</h3><p>The preference is applied immediately and stored locally.</p></div><div className="appearance-options" role="radiogroup" aria-label="Accent color">{accents.map(item => <button key={item.value} role="radio" aria-checked={accent === item.value} className={accent === item.value ? 'selected' : ''} onClick={() => setAccent(item.value)}><span className="accent-swatch large" style={{ background: item.color }} /><span>{item.label}</span>{accent === item.value && <b>Selected</b>}</button>)}</div></div>
         </section>
         <section id="providers" className="settings-hub-section"><Providers embedded /></section>
+        <section id="mcp" className="settings-hub-section"><MCPServers embedded /></section>
         <section id="guidelines" className="settings-hub-section"><Guidelines embedded /></section>
         <section id="skills" className="settings-hub-section"><Skills embedded /></section>
         <section id="integrations" className="settings-hub-section"><Integrations embedded /></section>

@@ -159,6 +159,72 @@ type AgentSkill struct {
 
 func (AgentSkill) TableName() string { return "agent_skills" }
 
+type MCPServer struct {
+	ID                          int64          `gorm:"primaryKey;autoIncrement"`
+	Name                        string         `gorm:"column:name;size:128"`
+	Description                 string         `gorm:"column:description;type:text"`
+	Transport                   string         `gorm:"column:transport;size:16"`
+	Command                     string         `gorm:"column:command;type:text"`
+	ArgsJSON                    datatypes.JSON `gorm:"column:args_json;type:json"`
+	URL                         string         `gorm:"column:url;type:text"`
+	OAuthEnabled                bool           `gorm:"column:oauth_enabled"`
+	OAuthAuthorizationEndpoint  string         `gorm:"column:oauth_authorization_endpoint;type:text"`
+	OAuthTokenEndpoint          string         `gorm:"column:oauth_token_endpoint;type:text"`
+	OAuthRegistrationEndpoint   string         `gorm:"column:oauth_registration_endpoint;type:text"`
+	OAuthIssuer                 string         `gorm:"column:oauth_issuer;type:text"`
+	OAuthResource               string         `gorm:"column:oauth_resource;type:text"`
+	OAuthClientID               string         `gorm:"column:oauth_client_id;type:text"`
+	OAuthClientSecretCiphertext string         `gorm:"column:oauth_client_secret_ciphertext;type:longtext"`
+	OAuthScopes                 string         `gorm:"column:oauth_scopes;type:text"`
+	Enabled                     bool           `gorm:"column:enabled"`
+	LastError                   *string        `gorm:"column:last_error;type:text"`
+	LastRefreshAt               *time.Time     `gorm:"column:last_refresh_at"`
+	CreatedAt                   time.Time      `gorm:"column:created_at"`
+	UpdatedAt                   time.Time      `gorm:"column:updated_at"`
+}
+
+func (MCPServer) TableName() string { return "mcp_servers" }
+
+type AgentMCPServer struct {
+	AgentID        int64          `gorm:"primaryKey;column:agent_id"`
+	ServerID       int64          `gorm:"primaryKey;column:server_id"`
+	Enabled        bool           `gorm:"column:enabled"`
+	AllowedTools   datatypes.JSON `gorm:"column:allowed_tools_json;type:json"`
+	DeniedTools    datatypes.JSON `gorm:"column:denied_tools_json;type:json"`
+	AllowedDomains datatypes.JSON `gorm:"column:allowed_domains_json;type:json"`
+	CreatedAt      time.Time      `gorm:"column:created_at"`
+	UpdatedAt      time.Time      `gorm:"column:updated_at"`
+}
+
+func (AgentMCPServer) TableName() string { return "agent_mcp_servers" }
+
+type AgentMCPCredential struct {
+	AgentID                int64      `gorm:"primaryKey;column:agent_id"`
+	ServerID               int64      `gorm:"primaryKey;column:server_id"`
+	EnvironmentCiphertext  string     `gorm:"column:environment_ciphertext;type:longtext"`
+	HeadersCiphertext      string     `gorm:"column:headers_ciphertext;type:longtext"`
+	AccessTokenCiphertext  string     `gorm:"column:access_token_ciphertext;type:longtext"`
+	RefreshTokenCiphertext string     `gorm:"column:refresh_token_ciphertext;type:longtext"`
+	TokenType              string     `gorm:"column:token_type;size:32"`
+	ExpiresAt              *time.Time `gorm:"column:expires_at"`
+	CreatedAt              time.Time  `gorm:"column:created_at"`
+	UpdatedAt              time.Time  `gorm:"column:updated_at"`
+}
+
+func (AgentMCPCredential) TableName() string { return "agent_mcp_credentials" }
+
+type MCPOAuthState struct {
+	State                  string    `gorm:"primaryKey;column:state;size:128"`
+	AgentID                int64     `gorm:"column:agent_id"`
+	ServerID               int64     `gorm:"column:server_id"`
+	CodeVerifierCiphertext string    `gorm:"column:code_verifier_ciphertext;type:longtext"`
+	RedirectURI            string    `gorm:"column:redirect_uri;type:text"`
+	ExpiresAt              time.Time `gorm:"column:expires_at"`
+	CreatedAt              time.Time `gorm:"column:created_at"`
+}
+
+func (MCPOAuthState) TableName() string { return "mcp_oauth_states" }
+
 type TelegramIntegration struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement:false"`
 	AgentID   *int64    `gorm:"column:agent_id"`

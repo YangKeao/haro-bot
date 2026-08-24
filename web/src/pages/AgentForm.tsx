@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Archive, ArrowLeft, Bot, Box, BrainCircuit, Check, CircleAlert, Cloud, Code2, ImagePlus, KeyRound, LoaderCircle,
+  Archive, ArrowLeft, Bot, Box, BrainCircuit, Cable, Check, CircleAlert, Cloud, Code2, ImagePlus, KeyRound, LoaderCircle,
 	RefreshCw, RotateCcw, Save, Search, Settings2, Sparkles, Trash2, WandSparkles,
 } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -10,12 +10,13 @@ import { api, APIError } from '../api'
 import type { AgentInput, AgentProfile } from '../types'
 import MarkdownEditor from '../components/MarkdownEditor'
 import AgentEnvironmentEditor from '../components/AgentEnvironmentEditor'
+import MCPConnectionEditor from '../components/MCPConnectionEditor'
 import { AgentAvatar } from './Home'
 
 const defaults: AgentInput = {
   name: '', description: '', icon: 'sparkles', color: '#2563eb', avatar_mode: 'icon', instructions: '',
   provider_id: 0, model: '', reasoning_effort_override: null, context_window_override: null, auto_compact_token_limit_override: null,
-  effective_context_window_percent: 95, skill_names: [], sandbox_id: null,
+  effective_context_window_percent: 95, skill_names: [], mcp_server_ids: [], sandbox_id: null,
 }
 
 const iconOptions = [
@@ -31,6 +32,7 @@ const sections = [
   { id: 'runtime', label: 'Runtime & context', Icon: Settings2 },
   { id: 'sandbox', label: 'Sandbox', Icon: Box },
   { id: 'environment', label: 'Environment', Icon: KeyRound },
+  { id: 'tools', label: 'Tools & MCP', Icon: Cable },
   { id: 'skills', label: 'Skills', Icon: Sparkles },
 ]
 
@@ -40,7 +42,7 @@ function valuesFromProfile(profile: AgentProfile): AgentInput {
     avatar_mode: profile.avatar_mode || 'icon', instructions: profile.instructions, provider_id: profile.provider_id,
     model: profile.model, reasoning_effort_override: profile.reasoning_effort_override,
     context_window_override: profile.context_window_override, auto_compact_token_limit_override: profile.auto_compact_token_limit_override,
-    effective_context_window_percent: profile.effective_context_window_percent, skill_names: profile.skill_names, sandbox_id: profile.sandbox_id,
+    effective_context_window_percent: profile.effective_context_window_percent, skill_names: profile.skill_names, mcp_server_ids: profile.mcp_server_ids || [], sandbox_id: profile.sandbox_id,
   }
 }
 
@@ -57,6 +59,7 @@ export default function AgentForm() {
   const providers = useQuery({ queryKey: ['providers'], queryFn: () => api.providers(false) })
   const skills = useQuery({ queryKey: ['skills'], queryFn: api.skills })
   const sandboxes = useQuery({ queryKey: ['sandboxes'], queryFn: api.sandboxes, retry: false })
+  const mcpServers = useQuery({ queryKey: ['mcp-servers'], queryFn: () => api.mcpServers(false) })
   const { register, handleSubmit, reset, watch, setValue, control, formState: { errors, isDirty } } = useForm<AgentInput>({ defaultValues: defaults })
 
   useEffect(() => {
@@ -91,6 +94,7 @@ export default function AgentForm() {
     onSuccess: () => { client.invalidateQueries({ queryKey: ['agents'] }); client.invalidateQueries({ queryKey: ['recent-sessions'] }); existing.refetch() },
   })
   const selected = watch('skill_names') || []
+  const selectedMCP = watch('mcp_server_ids') || []
   const name = watch('name')
   const color = watch('color')
   const icon = watch('icon')
@@ -187,6 +191,18 @@ export default function AgentForm() {
         <section id="environment" className="form-section settings-section">
           <div className="section-heading"><h2>Environment variables</h2><p>Configure database credentials and runtime settings for this agent without exposing them in its instructions.</p></div>
           <AgentEnvironmentEditor agentID={id} sandboxID={sandboxID} />
+        </section>
+
+        <section id="tools" className="form-section settings-section">
+          <div className="section-heading"><h2>Tools & MCP</h2><p>MCP tool schemas are discovered on demand through <code>tool_search</code>, so large catalogs do not consume the model context until needed.</p></div>
+          {sandboxID && <div className="inline-alert"><Cable /><div><b>agent-browser core is automatic</b><p>This Agent's Sandbox provides an isolated browser session per chat. It does not need a Skill or a separate assignment.</p></div></div>}
+          <div className="skill-picker">{mcpServers.isLoading ? <div className="skeleton tall" /> : mcpServers.data?.servers.length ? mcpServers.data.servers.map(server => {
+            const checked = selectedMCP.includes(server.id)
+            const needsSandbox = server.transport === 'stdio' && !sandboxID
+            return <label key={server.id} className={`skill-option ${checked ? 'selected' : ''} ${needsSandbox ? 'disabled' : ''}`}><input type="checkbox" disabled={needsSandbox} checked={checked} onChange={() => setValue('mcp_server_ids', checked ? selectedMCP.filter(value => value !== server.id) : [...selectedMCP, server.id], { shouldDirty: true })} /><span className="skill-check">{checked && <Check size={15} />}</span><div><b>{server.name}</b><p>{server.description || `${server.transport} MCP server`}{needsSandbox ? ' · requires a Sandbox' : ''}</p></div></label>
+          }) : <div className="empty-inline"><Cable /><div><b>No custom MCP servers</b><p>Add one in workspace Settings. Agents with a Sandbox still receive agent-browser automatically.</p></div></div>}</div>
+          <div className="selection-summary"><span>{selectedMCP.length ? `${selectedMCP.length} custom server${selectedMCP.length === 1 ? '' : 's'} selected` : 'No custom MCP servers selected'}</span><Link to="/settings#mcp">Manage MCP servers</Link></div>
+          {id && selectedMCP.length > 0 && <div className="mcp-connections">{mcpServers.data?.servers.filter(server => selectedMCP.includes(server.id)).map(server => <MCPConnectionEditor key={server.id} agentID={id} server={server} />)}</div>}
         </section>
 
         <section id="skills" className="form-section settings-section">

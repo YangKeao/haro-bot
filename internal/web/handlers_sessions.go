@@ -144,6 +144,9 @@ func (s *Server) setSessionArchived(w http.ResponseWriter, r *http.Request, arch
 		writeStoreError(w, err)
 		return
 	}
+	if archived && s.mcp != nil {
+		s.mcp.CloseChat(r.Context(), session.AgentID, sessionID)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"archived": archived})
 }
 
