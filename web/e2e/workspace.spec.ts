@@ -188,6 +188,8 @@ async function mockAPI(page: Page, initiallyAuthenticated = false) {
 		if (path === '/api/v1/processes/process-1/signal' || path === '/api/v1/processes/process-1/stdin') return route.fulfill({ json: sandboxProcess })
 		if (path === '/api/v1/sessions/11/messages') return route.fulfill({ json: { messages: [] } })
 		if (path === '/api/v1/skills') return route.fulfill({ json: { skills: [{ name: 'web-search', description: 'Search public sources', version: '1', hash: 'abc' }] } })
+		if (path === '/api/v1/guidelines') return route.fulfill({ json: { guidelines: { id: 1, content: 'Be precise.', version: 1, is_active: true, created_at: '2026-08-14T01:00:00Z', updated_at: '2026-08-14T01:00:00Z' } } })
+		if (path === '/api/v1/guidelines/history') return route.fulfill({ json: { history: [] } })
 		if (path === '/api/v1/skill-sources' && request.method() === 'GET') {
 			return route.fulfill({ json: { sources: [currentSkillSource, { ...removedSkillSource, status: removedSkillSourceStatus }] } })
 		}
@@ -250,7 +252,7 @@ test('finds and restores archived agents', async ({ page }) => {
   await page.getByRole('button', { name: 'Archived' }).click()
   await expect(page.getByText('Legacy Analyst')).toBeVisible()
   await page.getByRole('button', { name: 'Restore' }).click()
-  await expect(page.getByRole('link', { name: /Legacy Analyst/ })).toBeVisible()
+  await expect(page.locator('.nav-rail .primary-agent-row').filter({ hasText: 'Legacy Analyst' })).toBeVisible()
 })
 
 test('edits active skill sources and restores removed sources separately', async ({ page }) => {
@@ -279,30 +281,55 @@ test('keeps agent and session navigation usable on mobile', async ({ page }) => 
   await page.goto('/agents/1/sessions/10')
 	const chatBounds = await page.locator('.chat-panel').boundingBox()
 	expect(chatBounds?.width).toBeGreaterThanOrEqual(389)
+	if (process.env.REVIEW_SCREENSHOTS) await page.screenshot({ path: '/tmp/haro-chat-mobile.png', fullPage: true })
 
-  await page.getByRole('button', { name: 'Open agents' }).click()
-  await expect(page.getByRole('complementary').filter({ hasText: 'Agents' })).toBeVisible()
-  await page.getByRole('button', { name: 'Close agents' }).click()
+  await page.getByRole('button', { name: 'Open navigation' }).click()
+  const navigationDrawer = page.getByRole('dialog').filter({ hasText: 'Haro' })
+  await expect(navigationDrawer.getByText('Agents', { exact: true })).toBeVisible()
+  await expect(navigationDrawer.getByRole('link', { name: /Research Atlas/ })).toBeVisible()
+	if (process.env.REVIEW_SCREENSHOTS) { await page.waitForTimeout(250); await page.screenshot({ path: '/tmp/haro-navigation-mobile.png', fullPage: true }) }
+  await navigationDrawer.getByRole('button', { name: 'Close navigation' }).click()
   await page.getByRole('button', { name: 'Open conversations' }).click()
-  await expect(page.getByText('Conversations', { exact: true })).toBeVisible()
-  await expect(page.getByText('Quarterly market brief').first()).toBeVisible()
-  await page.getByRole('button', { name: 'Archived conversations' }).click()
-  await expect(page.getByText('Archived design review')).toBeVisible()
-  await page.getByRole('button', { name: 'Restore Archived design review' }).click()
+  const conversationDrawer = page.getByRole('dialog').filter({ hasText: 'Conversations' })
+  await expect(conversationDrawer.getByText('Quarterly market brief')).toBeVisible()
+	if (process.env.REVIEW_SCREENSHOTS) { await page.waitForTimeout(250); await page.screenshot({ path: '/tmp/haro-conversations-mobile.png', fullPage: true }) }
+  await conversationDrawer.getByRole('button', { name: 'Archived conversations' }).click()
+  await expect(conversationDrawer.getByText('Archived design review')).toBeVisible()
+  await conversationDrawer.getByRole('button', { name: 'Restore Archived design review' }).click()
   await page.waitForURL(/\/agents\/1\/sessions\/11$/)
+})
+
+test('keeps the conversation context visible on tablet but hides it on agent settings', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await mockAPI(page, true)
+  await page.goto('/agents/1/sessions/10')
+  await expect(page.locator('.desktop-conversation-sidebar')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open conversations' })).toBeHidden()
+  const chatBounds = await page.locator('.chat-panel').boundingBox()
+  expect(chatBounds?.width).toBeGreaterThan(700)
+  if (process.env.REVIEW_SCREENSHOTS) await page.screenshot({ path: '/tmp/haro-chat-tablet.png', fullPage: true })
+
+  await page.goto('/agents/1/edit')
+  await expect(page.locator('.desktop-conversation-sidebar')).toHaveCount(0)
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Research Atlas')
 })
 
 test('uses labeled navigation and persists appearance preferences', async ({ page }) => {
   await mockAPI(page, true)
   await page.goto('/')
   await expect(page.getByRole('link', { name: 'Home', exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'New agent' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Guidelines' })).toBeVisible()
+  await expect(page.locator('.nav-rail').getByRole('link', { name: 'New agent' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Guidelines' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Sandboxes' })).toBeVisible()
-  await page.getByRole('button', { name: 'Appearance' }).click()
-  await page.getByRole('menuitem', { name: /Dusty rose/ }).click()
+  if (process.env.REVIEW_SCREENSHOTS) await page.screenshot({ path: '/tmp/haro-navigation-desktop.png', fullPage: true })
+  await page.getByRole('link', { name: 'Settings' }).click()
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible()
+  for (const heading of ['Appearance', 'Providers', 'Global guideline', 'Skills library', 'Integrations']) {
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeAttached()
+  }
+  if (process.env.REVIEW_SCREENSHOTS) await page.screenshot({ path: '/tmp/haro-settings-desktop.png', fullPage: true })
+  await page.getByRole('radio', { name: /Dusty rose/ }).click()
   await expect(page.locator('html')).toHaveAttribute('data-accent', 'rose')
-  await expect(page.getByRole('button', { name: 'Collapse navigation' })).toHaveCount(0)
   await page.reload()
   await expect(page.locator('html')).toHaveAttribute('data-accent', 'rose')
 })
@@ -313,8 +340,11 @@ test('uses a labeled navigation drawer on mobile', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible()
   await page.getByRole('button', { name: 'Open navigation' }).click()
-  await expect(page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: 'Providers' })).toBeVisible()
-  await expect(page.getByText('Accent color')).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('link', { name: 'Home' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Mobile workspace settings' }).getByRole('link', { name: 'Settings' })).toBeVisible()
+  await expect(page.getByRole('dialog').getByRole('link', { name: /Research Atlas/ })).toBeVisible()
+  await expect(page.getByText('Accent color')).toHaveCount(0)
+  if (process.env.REVIEW_SCREENSHOTS) await page.screenshot({ path: '/tmp/haro-navigation-mobile.png', fullPage: true })
   await page.getByRole('button', { name: 'Close navigation' }).click()
 })
 
@@ -328,6 +358,8 @@ test('shows every agent setting section on one page', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Save changes' }).first()).toBeDisabled()
   await expect(page.getByText('No pending changes')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Markdown' })).toBeAttached()
+  await expect(page.locator('.desktop-conversation-sidebar')).toHaveCount(0)
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Agents')
 })
 
 test('manages persistent sandboxes and exposes session processes', async ({ page }) => {
@@ -397,11 +429,16 @@ test('opens an interactive Sandbox terminal', async ({ page }) => {
 test('uses provider catalog metadata for agent runtime controls', async ({ page }) => {
 	await mockAPI(page, true)
 	await page.goto('/providers')
+	await page.waitForURL(/\/settings#providers$/)
 	await expect(page.getByRole('heading', { name: 'Providers' })).toBeVisible()
 	await expect(page.getByRole('link', { name: /Codex OAuth/ })).toContainText('1 models')
 	await page.getByRole('link', { name: /Codex OAuth/ }).click()
+	await page.waitForURL(/\/settings\/providers\/1\/edit$/)
+	await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Settings/Providers/Codex OAuth')
 	await expect(page.getByText('GPT-5.6 Sol', { exact: true })).toBeVisible()
 	await expect(page.getByText('200,000 context')).toBeVisible()
+	await page.getByRole('link', { name: 'Back to providers' }).click()
+	await page.waitForURL(/\/settings#providers$/)
 
 	await page.goto('/agents/1/edit')
 	await expect(page.getByRole('combobox').first()).toHaveValue('1')

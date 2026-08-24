@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { ArrowRight, LoaderCircle, LockKeyhole, Sparkles } from 'lucide-react'
 import { api, APIError } from './api'
 import Shell from './components/Shell'
@@ -8,11 +8,8 @@ import Shell from './components/Shell'
 const Home = lazy(() => import('./pages/Home'))
 const AgentForm = lazy(() => import('./pages/AgentForm'))
 const Chat = lazy(() => import('./pages/Chat'))
-const Guidelines = lazy(() => import('./pages/Guidelines'))
-const Skills = lazy(() => import('./pages/Skills'))
-const Providers = lazy(() => import('./pages/Providers'))
 const ProviderForm = lazy(() => import('./pages/ProviderForm'))
-const Integrations = lazy(() => import('./pages/Integrations'))
+const Settings = lazy(() => import('./pages/Settings'))
 const Sandboxes = lazy(() => import('./pages/Sandboxes'))
 const SandboxForm = lazy(() => import('./pages/SandboxForm'))
 const SandboxTerminal = lazy(() => import('./pages/SandboxTerminal'))
@@ -67,16 +64,24 @@ export function AppRoutes() {
     <Route path="agents/new" element={<AgentForm />} />
     <Route path="agents/:agentID/edit" element={<AgentForm />} />
     <Route path="agents/:agentID/sessions/:sessionID?" element={<Chat />} />
-    <Route path="guidelines" element={<Guidelines />} />
-    <Route path="skills" element={<Skills />} />
-    <Route path="providers" element={<Providers />} />
-    <Route path="providers/new" element={<ProviderForm />} />
-    <Route path="providers/:providerID/edit" element={<ProviderForm />} />
+    <Route path="settings" element={<Settings />} />
+    <Route path="settings/providers/new" element={<ProviderForm />} />
+    <Route path="settings/providers/:providerID/edit" element={<ProviderForm />} />
     <Route path="sandboxes" element={<Sandboxes />} />
     <Route path="sandboxes/new" element={<SandboxForm />} />
     <Route path="sandboxes/:sandboxID/edit" element={<SandboxForm />} />
     <Route path="sandboxes/:sandboxID/terminal" element={<SandboxTerminal />} />
-    <Route path="settings/integrations" element={<Integrations />} />
+    <Route path="guidelines" element={<Navigate to="/settings#guidelines" replace />} />
+    <Route path="skills" element={<Navigate to="/settings#skills" replace />} />
+    <Route path="providers" element={<Navigate to="/settings#providers" replace />} />
+    <Route path="providers/new" element={<Navigate to="/settings/providers/new" replace />} />
+    <Route path="providers/:providerID/edit" element={<LegacyProviderRedirect />} />
+    <Route path="settings/integrations" element={<Navigate to="/settings#integrations" replace />} />
     <Route path="*" element={<Navigate to="/" replace />} />
 	</Routes></Suspense>
+}
+
+function LegacyProviderRedirect() {
+  const { providerID } = useParams()
+  return <Navigate to={`/settings/providers/${providerID}/edit`} replace />
 }

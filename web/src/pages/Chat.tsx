@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Bot, Check, ChevronDown, LoaderCircle, MessageSquarePlus, MoreHorizontal, PanelLeft, Paperclip, Pencil, Plus, RotateCcw, Send, Settings2, Sparkles, Square, X } from 'lucide-react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Archive, Check, ChevronDown, LoaderCircle, MoreHorizontal, Paperclip, Pencil, Plus, Send, Sparkles, Square, X } from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -77,19 +77,14 @@ export default function Chat() {
   const [tools, setTools] = useState<ToolActivity[]>([])
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string>()
-  const [agentsOpen, setAgentsOpen] = useState(false)
-  const [sessionsOpen, setSessionsOpen] = useState(false)
-  const [showArchivedSessions, setShowArchivedSessions] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const abortRef = useRef<AbortController | undefined>(undefined)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const agents = useQuery({ queryKey: ['agents'], queryFn: () => api.agents() })
   const agent = useQuery({ queryKey: ['agent', activeAgentID], queryFn: () => api.agent(activeAgentID), enabled: Number.isFinite(activeAgentID) })
   const sessions = useQuery({ queryKey: ['sessions', activeAgentID], queryFn: () => api.sessions(activeAgentID), enabled: Number.isFinite(activeAgentID) })
-  const archivedSessions = useQuery({ queryKey: ['sessions', activeAgentID, 'archived'], queryFn: () => api.sessions(activeAgentID, true), enabled: Number.isFinite(activeAgentID) && showArchivedSessions })
   const session = useQuery({ queryKey: ['session', activeSessionID], queryFn: () => api.session(activeSessionID!), enabled: !!activeSessionID })
   const messages = useQuery({ queryKey: ['messages', activeSessionID], queryFn: () => api.messages(activeSessionID!), enabled: !!activeSessionID })
   const messageTools = useMemo(() => messageToolContext(messages.data?.messages), [messages.data?.messages])
@@ -100,10 +95,9 @@ export default function Chat() {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: running ? 'smooth' : 'auto' }) }, [messages.data, streamMessage?.content, tools, running])
   useEffect(() => { setPending([]); setDraft(''); setError(undefined); setTools([]); setStreamMessage(undefined) }, [activeSessionID])
 
-  const createSession = useMutation({ mutationFn: () => api.createSession(activeAgentID), onSuccess: item => { client.invalidateQueries({ queryKey: ['sessions', activeAgentID] }); client.invalidateQueries({ queryKey: ['recent-sessions'] }); navigate(`/agents/${activeAgentID}/sessions/${item.id}`); setSessionsOpen(false) } })
+  const createSession = useMutation({ mutationFn: () => api.createSession(activeAgentID), onSuccess: item => { client.invalidateQueries({ queryKey: ['sessions', activeAgentID] }); client.invalidateQueries({ queryKey: ['recent-sessions'] }); navigate(`/agents/${activeAgentID}/sessions/${item.id}`) } })
   const rename = useMutation({ mutationFn: () => api.renameSession(activeSessionID!, renameValue.trim()), onSuccess: () => { setRenaming(false); client.invalidateQueries({ queryKey: ['sessions', activeAgentID] }); client.invalidateQueries({ queryKey: ['session', activeSessionID] }); client.invalidateQueries({ queryKey: ['recent-sessions'] }) } })
   const archive = useMutation({ mutationFn: () => api.archiveSession(activeSessionID!), onSuccess: () => { client.invalidateQueries({ queryKey: ['sessions', activeAgentID] }); client.invalidateQueries({ queryKey: ['recent-sessions'] }); navigate(`/agents/${activeAgentID}/sessions`) } })
-  const restoreSession = useMutation({ mutationFn: (id: number) => api.archiveSession(id, true), onSuccess: (_, id) => { client.invalidateQueries({ queryKey: ['sessions', activeAgentID] }); client.invalidateQueries({ queryKey: ['recent-sessions'] }); navigate(`/agents/${activeAgentID}/sessions/${id}`); setShowArchivedSessions(false); setSessionsOpen(false) } })
   const upload = useMutation({ mutationFn: (file: File) => api.upload(activeSessionID!, file), onSuccess: image => setPending(items => [...items, image]), onError: e => setError(e instanceof APIError ? e.message : 'Image upload failed') })
 
   const chooseImages = (event: ChangeEvent<HTMLInputElement>) => {
@@ -140,18 +134,8 @@ export default function Chat() {
   }
   const stop = async () => { if (!activeSessionID) return; await api.cancel(activeSessionID).catch(() => undefined); abortRef.current?.abort() }
 	return <main className="workspace-page">
-    <aside className={`agents-panel ${agentsOpen ? 'mobile-open' : ''}`}>
-      <div className="panel-title"><span>Agents</span><Link to="/agents/new" className="small-icon-button" aria-label="New agent"><Plus /></Link><button className="mobile-close" onClick={() => setAgentsOpen(false)} aria-label="Close agents"><X /></button></div>
-		<div className="agent-list">{agents.data?.agents.map(item => <Link key={item.id} to={`/agents/${item.id}/sessions`} className={`agent-row ${item.id === activeAgentID ? 'active' : ''}`} onClick={() => setAgentsOpen(false)}><AgentAvatar agent={item} /><div><b>{item.name}</b><span>{item.model}</span></div></Link>)}</div>
-      <Link to={`/agents/${activeAgentID}/edit`} className="panel-settings"><Settings2 size={16} /> Agent settings</Link>
-    </aside>
-    <aside className={`sessions-panel ${sessionsOpen ? 'mobile-open' : ''}`}>
-      <div className="session-panel-head"><div><div className="eyebrow">Conversations</div><h2>{agent.data?.name || 'Agent'}</h2></div><button className="small-icon-button" onClick={() => createSession.mutate()} aria-label="New session"><MessageSquarePlus /></button><button className="mobile-close" onClick={() => setSessionsOpen(false)} aria-label="Close conversations"><X /></button></div>
-      <div className="session-list">{sessions.isLoading ? [1, 2, 3].map(i => <div className="session-row skeleton" key={i} />) : sessions.data?.sessions.length ? sessions.data.sessions.map(item => <Link key={item.id} to={`/agents/${activeAgentID}/sessions/${item.id}`} className={`session-row ${item.id === activeSessionID ? 'active' : ''}`} onClick={() => setSessionsOpen(false)}><span className="session-icon"><Bot size={15} /></span><div><b><InlineMarkdown>{item.title}</InlineMarkdown></b><span>{formatRelative(item.updated_at)}</span></div></Link>) : <div className="panel-empty"><MessageSquarePlus /><p>No conversations yet.</p><button className="button small secondary" onClick={() => createSession.mutate()}>Start one</button></div>}</div>
-      <div className="archived-session-block"><button className="archived-session-toggle" onClick={() => setShowArchivedSessions(value => !value)}><Archive size={14} /> Archived conversations <ChevronDown className={showArchivedSessions ? 'open' : ''} size={14} /></button>{showArchivedSessions && <div className="archived-session-list">{archivedSessions.isLoading ? <div className="session-row skeleton" /> : archivedSessions.data?.sessions.length ? archivedSessions.data.sessions.map(item => <div className="archived-session-row" key={item.id}><div><b><InlineMarkdown>{item.title}</InlineMarkdown></b><span>{formatRelative(item.updated_at)}</span></div><button onClick={() => restoreSession.mutate(item.id)} disabled={restoreSession.isPending} aria-label={`Restore ${item.title}`}><RotateCcw /></button></div>) : <p>No archived conversations.</p>}</div>}</div>
-    </aside>
     <section className="chat-panel">
-      <header className="chat-header"><button className="mobile-panel-button agent-switch-button" onClick={() => setAgentsOpen(true)} aria-label="Open agents"><Bot /><span>Agents</span></button><button className="mobile-panel-button" onClick={() => setSessionsOpen(true)} aria-label="Open conversations"><PanelLeft /></button>
+      <header className="chat-header"><span className="chat-header-spacer" aria-hidden="true" />
         <div className="chat-title">{renaming ? <form onSubmit={e => { e.preventDefault(); rename.mutate() }}><input autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={() => setRenaming(false)} /></form> : <><h1>{session.data?.session.title ? <InlineMarkdown>{session.data.session.title}</InlineMarkdown> : activeSessionID ? 'Loading…' : 'New conversation'}</h1><span>{agent.data?.model}</span></>}</div>
         {activeSessionID && <DropdownMenu.Root><DropdownMenu.Trigger asChild><button className="icon-button" aria-label="Conversation actions"><MoreHorizontal /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="dropdown" align="end"><DropdownMenu.Item onSelect={() => { setRenameValue(session.data?.session.title || ''); setRenaming(true) }}><Pencil size={15} /> Rename</DropdownMenu.Item><DropdownMenu.Item className="danger" disabled={running} onSelect={() => archive.mutate()}><Archive size={15} /> Archive</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>}
       </header>
@@ -176,11 +160,3 @@ export default function Chat() {
 }
 
 function streamSeed(sessionID: number): Message { return { id: 'stream', session_id: sessionID, role: 'assistant', content: '', metadata: {}, created_at: new Date().toISOString() } }
-
-function formatRelative(value: string) {
-  const diff = Date.now() - new Date(value).getTime()
-  if (diff < 60_000) return 'Just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value))
-}

@@ -45,7 +45,7 @@ export default function ProviderForm() {
       client.setQueryData(['provider', provider.id], provider)
       setClearKey(false); reset({ name: provider.name, base_url: provider.base_url, api_key: '', prompt_format: provider.prompt_format })
       setSaved(true); setTimeout(() => setSaved(false), 2400)
-      if (!id) navigate(`/providers/${provider.id}/edit`, { replace: true })
+      if (!id) navigate(`/settings/providers/${provider.id}/edit`, { replace: true })
     },
   })
   const archive = useMutation({
@@ -57,7 +57,7 @@ export default function ProviderForm() {
   if (id && existing.isLoading) return <div className="page-loading"><LoaderCircle className="spin" /></div>
 
   return <main className="page scroll-page agent-settings-page">
-    <header className="editor-header settings-main-header"><div className="header-row"><Link to="/providers" className="icon-button" aria-label="Back"><ArrowLeft /></Link><div><div className="eyebrow">{id ? 'Provider settings' : 'New provider'}</div><h1>{id ? `Edit ${existing.data?.name ?? ''}` : 'Connect a provider'}</h1><p className="muted">One connection can power any number of agents.</p></div></div><button className="button primary header-save" onClick={handleSubmit(values => save.mutate(values))} disabled={!name.trim() || !dirty || save.isPending}>{save.isPending ? <LoaderCircle className="spin" size={16} /> : saved ? <Check size={16} /> : <Save size={16} />}{saved ? 'Saved' : 'Save provider'}</button></header>
+    <header className="editor-header settings-main-header"><div className="header-row"><Link to="/settings#providers" className="icon-button" aria-label="Back to providers"><ArrowLeft /></Link><div><nav className="breadcrumbs" aria-label="Breadcrumb"><Link to="/settings">Settings</Link><span>/</span><Link to="/settings#providers">Providers</Link><span>/</span><span>{id ? existing.data?.name || 'Provider' : 'New'}</span></nav><div className="eyebrow">{id ? 'Provider settings' : 'New provider'}</div><h1>{id ? `Edit ${existing.data?.name ?? ''}` : 'Connect a provider'}</h1><p className="muted">One connection can power any number of agents.</p></div></div><button className="button primary header-save" onClick={handleSubmit(values => save.mutate(values))} disabled={!name.trim() || !dirty || save.isPending}>{save.isPending ? <LoaderCircle className="spin" size={16} /> : saved ? <Check size={16} /> : <Save size={16} />}{saved ? 'Saved' : 'Save provider'}</button></header>
     <form className="provider-settings" onSubmit={handleSubmit(values => save.mutate(values))}>
       <section className="form-section settings-section"><div className="section-heading"><h2>Connection</h2><p>Haro calls the OpenAI-compatible model and Chat Completions APIs at this URL.</p></div><div className="form-grid">
         <label className="field span-2"><span>Name</span><input autoFocus={!id} {...register('name', { required: 'Name is required', maxLength: 128 })} placeholder="OpenAI OAuth" />{errors.name && <small className="field-error">{errors.name.message}</small>}</label>
