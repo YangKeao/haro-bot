@@ -71,7 +71,9 @@ function appendTraceSteps(trace: TraceStep[], steps: TraceStep[]) {
 function messageTraceSteps(message: Message): TraceStep[] {
   const metadata = message.metadata || {}
   if (metadata.trace_steps?.length) {
-    const steps = metadata.trace_steps.map(step => ({ ...step }))
+    const steps = metadata.trace_steps
+      .filter(step => step.kind !== 'reasoning' || Boolean(step.content))
+      .map(step => ({ ...step }))
     appendMissingToolCalls(steps, metadata.tool_calls)
     return steps
   }

@@ -20,6 +20,7 @@ describe('buildConversationTurns', () => {
         trace_steps: [
           { id: 'rs_2', kind: 'reasoning', status: 'completed', content: 'Verify.' },
           { id: 'ws_1', kind: 'tool', tool_kind: 'hosted', name: 'web_search', status: 'completed', detail: { action: { type: 'search', query: 'x' } } },
+		  { id: 'rs_empty', kind: 'reasoning', status: 'completed' },
         ],
       }),
     ]

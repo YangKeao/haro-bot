@@ -371,10 +371,14 @@ func responseToChat(response *responses.Response, reasoningContent string) llm.C
 				for _, part := range parts {
 					content.WriteString(part.Text)
 				}
-				orderedReasoning.WriteString(content.String())
+				text := content.String()
+				if text == "" {
+					continue
+				}
+				orderedReasoning.WriteString(text)
 				message.TraceSteps = append(message.TraceSteps, llm.TraceStep{
 					ID: traceStepID(item.ID, fmt.Sprintf("reasoning-%d", index)), Kind: "reasoning", Status: "completed",
-					Content: content.String(), Order: int64(index),
+					Content: text, Order: int64(index),
 				})
 			case "web_search_call":
 				search := item.AsWebSearchCall()
