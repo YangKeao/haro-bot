@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -73,15 +74,37 @@ func (t *ReadSkillTool) Description() string {
 }
 
 func (t *ReadSkillTool) Parameters() map[string]any {
+	packageSchema := map[string]any{
+		"type":        "string",
+		"description": "Exact package locator from the current available skills list (skill://name/<64-character lowercase SHA-256>).",
+	}
+	if packages := t.currentPackages(); len(packages) > 0 {
+		packageSchema["enum"] = packages
+	}
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"package":  map[string]any{"type": "string", "description": "Package locator from the available skills list (skill://name/sha256)."},
+			"package":  packageSchema,
 			"resource": map[string]any{"type": "string", "description": "Relative resource path; defaults to SKILL.md."},
 			"cursor":   map[string]any{"type": "string", "description": "Pagination cursor returned by a previous read_skill call."},
 		},
-		"required": []string{"package"},
+		"required":             []string{"package"},
+		"additionalProperties": false,
 	}
+}
+
+func (t *ReadSkillTool) currentPackages() []string {
+	if t == nil || t.skills == nil {
+		return nil
+	}
+	packages := make([]string, 0, len(t.allowed))
+	for name := range t.allowed {
+		if meta, ok := t.skills.Get(name); ok {
+			packages = append(packages, skills.Package(meta))
+		}
+	}
+	sort.Strings(packages)
+	return packages
 }
 
 func (t *ReadSkillTool) Execute(ctx context.Context, _ ToolContext, args json.RawMessage) (string, error) {
@@ -97,7 +120,14 @@ func (t *ReadSkillTool) Execute(ctx context.Context, _ ToolContext, args json.Ra
 		return "", err
 	}
 	if _, ok := t.allowed[name]; !ok {
-		return "", errors.New("skill is not available to this agent")
+		return "", fmt.Errorf("skill %q is not available to this agent; use a package from the current available skills list", name)
+	}
+	current, ok := t.skills.Get(name)
+	if !ok {
+		return "", fmt.Errorf("skill %q is no longer installed; do not retry this package and use the current available skills list", name)
+	}
+	if hash != current.Hash {
+		return "", fmt.Errorf("skill package is not current; use %q", skills.Package(current))
 	}
 	resource := strings.TrimSpace(input.Resource)
 	if resource == "" {
@@ -199,18 +229,21 @@ func (t *ActivateSkillCompatTool) Execute(ctx context.Context, tc ToolContext, a
 }
 
 func parseSkillPackage(locator string) (string, string, error) {
+	invalid := func() (string, string, error) {
+		return "", "", errors.New("invalid skill package locator: expected exact skill://<name>/<64-character lowercase SHA-256> from the current available skills list")
+	}
 	const prefix = "skill://"
 	if !strings.HasPrefix(locator, prefix) {
-		return "", "", errors.New("invalid skill package locator")
+		return invalid()
 	}
 	value := strings.TrimPrefix(locator, prefix)
 	separator := strings.LastIndexByte(value, '/')
 	if separator <= 0 || separator == len(value)-1 {
-		return "", "", errors.New("invalid skill package locator")
+		return invalid()
 	}
 	name, hash := value[:separator], value[separator+1:]
 	if strings.ContainsAny(name, `/\\`) || !isSHA256(hash) {
-		return "", "", errors.New("invalid skill package locator")
+		return invalid()
 	}
 	return name, hash, nil
 }

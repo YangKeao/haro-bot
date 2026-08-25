@@ -299,7 +299,17 @@ func applyOwnProfileUpdate(input *agentInput, update ownProfileUpdate) {
 	}
 }
 
-func validateSelectedSkills(manager *skills.Manager, names []string) error {
+type skillLister interface {
+	List() []skills.Metadata
+}
+
+func validateSelectedSkills(manager skillLister, names []string) error {
+	if manager == nil {
+		if len(names) == 0 {
+			return nil
+		}
+		return errors.New("skills manager not configured")
+	}
 	installed := make(map[string]struct{})
 	for _, skill := range manager.List() {
 		installed[skill.Name] = struct{}{}

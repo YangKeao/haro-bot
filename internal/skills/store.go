@@ -281,6 +281,49 @@ func (s *Store) ListSkills(ctx context.Context) ([]RegistryEntry, error) {
 	return registryEntriesFromRecords(records), nil
 }
 
+func (s *Store) pruneUnavailableAgentSkills(ctx context.Context) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var availableNames []string
+		if err := tx.Model(&dbmodel.SkillRegistry{}).
+			Distinct("skills_registry.name").
+			Joins("JOIN skill_sources ON skill_sources.id = skills_registry.source_id").
+			Where("skill_sources.status = ? AND skills_registry.status = ?", "active", "active").
+			Pluck("skills_registry.name", &availableNames).Error; err != nil {
+			return err
+		}
+
+		staleQuery := func(query *gorm.DB) *gorm.DB {
+			if len(availableNames) == 0 {
+				return query.Where("1 = 1")
+			}
+			return query.Where("skill_name NOT IN ?", availableNames)
+		}
+		var assignments []dbmodel.AgentSkill
+		if err := staleQuery(tx.Model(&dbmodel.AgentSkill{})).Find(&assignments).Error; err != nil {
+			return err
+		}
+		if len(assignments) == 0 {
+			return nil
+		}
+
+		agentIDs := make([]int64, 0, len(assignments))
+		seen := make(map[int64]struct{}, len(assignments))
+		for _, assignment := range assignments {
+			if _, ok := seen[assignment.AgentID]; ok {
+				continue
+			}
+			seen[assignment.AgentID] = struct{}{}
+			agentIDs = append(agentIDs, assignment.AgentID)
+		}
+		if err := staleQuery(tx).Delete(&dbmodel.AgentSkill{}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&dbmodel.Agent{}).
+			Where("id IN ?", agentIDs).
+			Update("updated_at", time.Now()).Error
+	})
+}
+
 func (s *Store) ListSkillsBySource(ctx context.Context, sourceID int64) ([]RegistryEntry, error) {
 	if sourceID <= 0 {
 		return nil, errors.New("source_id required")

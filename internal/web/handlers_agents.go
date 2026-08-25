@@ -65,6 +65,10 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_agent", err.Error())
 		return
 	}
+	if err := validateSelectedSkills(s.skills, write.SkillNames); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_agent", err.Error())
+		return
+	}
 	if avatar != nil {
 		write.AvatarObjectKey, err = storeAvatarImage(r.Context(), s.objects, *avatar)
 		if err != nil {
@@ -113,6 +117,10 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	write, err := normalizeAgentInput(input)
 	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_agent", err.Error())
+		return
+	}
+	if err := validateSelectedSkills(s.skills, write.SkillNames); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_agent", err.Error())
 		return
 	}

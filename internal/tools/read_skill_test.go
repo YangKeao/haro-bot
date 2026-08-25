@@ -64,6 +64,35 @@ func TestReadSkillIsAgentScopedAndMaterializesBundle(t *testing.T) {
 	}
 }
 
+func TestReadSkillParametersExposeCurrentAllowedPackage(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+	reader := fakeSkillReader{meta: skills.Metadata{Name: "demo", Hash: hash}}
+	tool := NewReadSkillTool(reader, nil, 7, []string{"missing", "demo"})
+
+	properties := tool.Parameters()["properties"].(map[string]any)
+	packageSchema := properties["package"].(map[string]any)
+	locators, ok := packageSchema["enum"].([]string)
+	if !ok || len(locators) != 1 || locators[0] != "skill://demo/"+hash {
+		t.Fatalf("unexpected package locator enum: %#v", packageSchema["enum"])
+	}
+	_, err := tool.Execute(context.Background(), ToolContext{}, json.RawMessage(`{"package":"skill://missing/`+hash+`"}`))
+	if err == nil || !strings.Contains(err.Error(), `skill "missing" is no longer installed`) {
+		t.Fatalf("expected removed skill error, got %v", err)
+	}
+}
+
+func TestReadSkillRejectsStalePackageWithCurrentLocator(t *testing.T) {
+	currentHash := strings.Repeat("b", 64)
+	staleHash := strings.Repeat("a", 64)
+	reader := fakeSkillReader{meta: skills.Metadata{Name: "demo", Hash: currentHash}}
+	tool := NewReadSkillTool(reader, nil, 7, []string{"demo"})
+
+	_, err := tool.Execute(context.Background(), ToolContext{}, json.RawMessage(`{"package":"skill://demo/`+staleHash+`"}`))
+	if err == nil || !strings.Contains(err.Error(), "skill://demo/"+currentHash) {
+		t.Fatalf("expected current package locator in stale error, got %v", err)
+	}
+}
+
 func TestReadSkillWithoutSandboxStillReturnsInstructions(t *testing.T) {
 	hash := strings.Repeat("b", 64)
 	reader := fakeSkillReader{meta: skills.Metadata{Name: "demo", Hash: hash}, data: []byte("complete instructions")}
@@ -140,5 +169,9 @@ func TestReadSkillRejectsPackageAndResourceTraversal(t *testing.T) {
 		if _, err := tool.Execute(context.Background(), ToolContext{}, args); err == nil {
 			t.Fatalf("expected invalid locator %q to fail", locator)
 		}
+	}
+	args, _ := json.Marshal(readSkillArgs{Package: "skill://demo/" + strings.Repeat("a", 40)})
+	if _, err := tool.Execute(context.Background(), ToolContext{}, args); err == nil || !strings.Contains(err.Error(), "64-character lowercase SHA-256") {
+		t.Fatalf("expected actionable SHA-256 error, got %v", err)
 	}
 }

@@ -262,6 +262,9 @@ func (m *Manager) loadFromDB(ctx context.Context) error {
 	m.mu.Lock()
 	m.skills = merged
 	m.mu.Unlock()
+	if err := m.store.pruneUnavailableAgentSkills(ctx); err != nil {
+		return err
+	}
 	log.Debug("loaded skills from db", zap.Int("count", len(merged)))
 	return nil
 }

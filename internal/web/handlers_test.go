@@ -2,6 +2,8 @@ package web
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -61,6 +63,37 @@ func TestNormalizeAgentInputAllowsProviderSpecificReasoning(t *testing.T) {
 	}
 	if result.ProviderID != 9 || result.ReasoningEffortOverride == nil || *result.ReasoningEffortOverride != "xhigh" || result.EffectiveContextWindowPercent != 95 {
 		t.Fatalf("unexpected normalized agent: %#v", result)
+	}
+}
+
+type staticSkillLister []skills.Metadata
+
+func (s staticSkillLister) List() []skills.Metadata { return []skills.Metadata(s) }
+
+func TestValidateSelectedSkillsRejectsUnavailableNames(t *testing.T) {
+	installed := staticSkillLister{{Name: "jellyfin"}}
+	if err := validateSelectedSkills(installed, []string{" jellyfin "}); err != nil {
+		t.Fatalf("expected installed skill to validate: %v", err)
+	}
+	if err := validateSelectedSkills(installed, []string{"agent-browser"}); err == nil || err.Error() != `skill "agent-browser" is not installed` {
+		t.Fatalf("expected unavailable skill rejection, got %v", err)
+	}
+}
+
+func TestCreateAgentRejectsUnavailableSkill(t *testing.T) {
+	server := &Server{skills: skills.NewManager(nil, t.TempDir(), nil)}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewBufferString(`{
+		"provider_id": 1,
+		"name": "Agent",
+		"model": "model",
+		"skill_names": ["agent-browser"]
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	server.handleCreateAgent(response, request)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte(`"code":"invalid_agent"`)) {
+		t.Fatalf("expected invalid_agent response, status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 
