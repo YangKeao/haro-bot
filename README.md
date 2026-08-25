@@ -23,7 +23,7 @@ Haro Bot is a self-hosted AI agent workspace with a React web UI and Telegram in
 - Node.js 22+
 - TiDB 8.5+
 - An S3-compatible object store such as MinIO
-- An OpenAI-compatible Chat Completions provider
+- An OpenAI-compatible Chat Completions or Responses provider
 
 ## Quick Start
 
@@ -68,7 +68,7 @@ See `config.example.toml` for all settings. The main settings are:
 
 MCP servers are managed in the web Settings page. Streamable HTTP servers connect from `agentd`; stdio servers run inside the assigned Agent Sandbox. Every Agent with a Sandbox also receives the fixed `agent-browser` core MCP profile. MCP credentials and OAuth tokens are encrypted with `HARO_SECRET_KEY` (the legacy `HARO_SANDBOX_SECRET_KEY` remains a fallback).
 
-Providers are global connection records containing an OpenAI-compatible Base URL, optional API key, and prompt format. Agents select a Provider and keep their own model, reasoning override, instructions, context overrides, skills, and visual identity. Haro reads `/models` and caches any capability metadata the Provider exposes; ID-only responses and manual model/runtime values remain supported. Provider keys are stored in the database but are never returned by the web API or written to logs; protect database access accordingly.
+Providers are global connection records containing an OpenAI-compatible Base URL, optional API key, API mode, and prompt format. Responses providers may enable provider-hosted web search for interactive agent turns; citations returned in model text are preserved. Agents select a Provider and keep their own model, reasoning override, instructions, context overrides, skills, and visual identity. Haro reads `/models` and caches any capability metadata the Provider exposes; ID-only responses and manual model/runtime values remain supported. Provider keys are stored in the database but are never returned by the web API or written to logs; protect database access accordingly.
 
 Telegram keeps only its token in TOML. Select the Telegram Agent under Settings → Integrations; changing the binding takes effect without restarting and preserves separate conversation history per Agent.
 

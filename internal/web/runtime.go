@@ -63,7 +63,11 @@ func (r *RuntimeRegistry) Get(ctx context.Context, id int64) (*agent.Agent, Agen
 	if entry, ok := r.entries[id]; ok && entry.updatedAt.Equal(profile.RuntimeRevision) {
 		return entry.agent, profile, nil
 	}
-	client := llmopenai.New(profile.BaseURL, profile.APIKey, llmopenai.WithHTTPDebug(r.httpDebug))
+	client := llmopenai.New(
+		profile.BaseURL, profile.APIKey,
+		llmopenai.WithHTTPDebug(r.httpDebug),
+		llmopenai.WithAPIMode(profile.APIMode),
+	)
 	scopedTools := tools.NewRegistry(r.tools.ListAll()...)
 	scopedTools.Register(&getOwnProfileTool{agentID: id, store: r.store})
 	scopedTools.Register(&updateOwnProfileTool{
@@ -90,6 +94,7 @@ func (r *RuntimeRegistry) Get(ctx context.Context, id int64) (*agent.Agent, Agen
 		llm.ReasoningConfig{Enabled: reasoningEffort != "", Effort: reasoningEffort},
 	)
 	runtime.SetProfile(profile.Instructions, profile.SkillNames)
+	runtime.SetHostedWebSearch(profile.WebSearchEnabled)
 	runtime.SetMiddleware(agentdefaults.New(r.guidelines, r.conversation, client, llm.ContextConfig{
 		WindowTokens: profile.ResolvedContextWindow, AutoCompactTokenLimit: profile.ResolvedAutoCompactTokenLimit,
 		EffectiveContextWindowPercent: profile.EffectiveContextWindowPercent,

@@ -76,7 +76,6 @@ func main() {
 	guidelinesMgr := guidelines.NewManager(dbConn)
 
 	toolRegistry := tools.NewRegistry(
-		tools.NewBraveSearchTool(cfg.BraveSearchAPIKey),
 		tools.NewSessionSummaryTool(store),
 		tools.NewUpdateGuidelinesTool(guidelinesMgr),
 	)

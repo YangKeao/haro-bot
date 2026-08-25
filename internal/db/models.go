@@ -58,6 +58,8 @@ type Provider struct {
 	Name             string     `gorm:"column:name;size:128"`
 	BaseURL          string     `gorm:"column:base_url;type:text"`
 	APIKey           string     `gorm:"column:api_key;type:text"`
+	APIMode          string     `gorm:"column:api_mode;size:32"`
+	WebSearchEnabled bool       `gorm:"column:web_search_enabled"`
 	PromptFormat     string     `gorm:"column:prompt_format;size:32"`
 	ModelCatalogJSON string     `gorm:"column:model_catalog_json;type:longtext"`
 	ModelsFetchedAt  *time.Time `gorm:"column:models_fetched_at"`

@@ -36,6 +36,8 @@ type AgentProfile struct {
 	Instructions                   string     `json:"instructions"`
 	BaseURL                        string     `json:"-"`
 	APIKey                         string     `json:"-"`
+	APIMode                        string     `json:"-"`
+	WebSearchEnabled               bool       `json:"-"`
 	Model                          string     `json:"model"`
 	PromptFormat                   string     `json:"-"`
 	ReasoningEffortOverride        *string    `json:"reasoning_effort_override"`
@@ -271,6 +273,7 @@ func (s *Store) agentFromRow(ctx context.Context, row dbmodel.Agent) (AgentProfi
 		Name: row.Name, Description: row.Description, Icon: row.Icon, Color: row.Color,
 		AvatarMode: row.AvatarMode, AvatarObjectKey: row.AvatarObjectKey, AvatarMIMEType: row.AvatarMIMEType, AvatarURL: avatarURL,
 		Instructions: row.Instructions, BaseURL: provider.BaseURL, APIKey: provider.APIKey,
+		APIMode: provider.APIMode, WebSearchEnabled: provider.WebSearchEnabled,
 		Model: row.Model, PromptFormat: provider.PromptFormat,
 		ReasoningEffortOverride: row.ReasoningEffortOverride,
 		ContextWindowOverride:   row.ContextWindowOverride, AutoCompactTokenLimitOverride: row.AutoCompactTokenLimitOverride,

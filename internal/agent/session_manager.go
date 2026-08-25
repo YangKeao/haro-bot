@@ -10,20 +10,21 @@ import (
 )
 
 type sessionDeps struct {
-	store          memory.StoreAPI
-	skills         *skills.Manager
-	toolRegistry   *tools.Registry
-	toolRunner     ToolRunner
-	defaultBaseDir string
-	maxToolTurns   int
-	llm            llm.ChatModel
-	model          string
-	promptFormat   string
-	reasoning      llm.ReasoningConfig
-	tokenEstimator *llm.TokenEstimator
-	middleware     MiddlewareSet
-	instructions   string
-	allowedSkills  map[string]struct{}
+	store           memory.StoreAPI
+	skills          *skills.Manager
+	toolRegistry    *tools.Registry
+	toolRunner      ToolRunner
+	defaultBaseDir  string
+	maxToolTurns    int
+	llm             llm.ChatModel
+	model           string
+	promptFormat    string
+	reasoning       llm.ReasoningConfig
+	hostedWebSearch bool
+	tokenEstimator  *llm.TokenEstimator
+	middleware      MiddlewareSet
+	instructions    string
+	allowedSkills   map[string]struct{}
 }
 
 type sessionManager struct {

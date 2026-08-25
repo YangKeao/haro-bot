@@ -25,7 +25,7 @@ type migration struct {
 	stmts   []string
 }
 
-const currentSchemaVersion int64 = 22
+const currentSchemaVersion int64 = 23
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -50,6 +50,12 @@ var migrations = []migration{
 	{version: 20, stmts: addSandboxRunTTYSQL},
 	{version: 21, stmts: addSandboxRuntimeOperationSQL},
 	{version: 22, stmts: addMCPServersSQL},
+	{version: 23, stmts: addProviderAPIModeSQL},
+}
+
+var addProviderAPIModeSQL = []string{
+	`ALTER TABLE providers ADD COLUMN IF NOT EXISTS api_mode VARCHAR(32) NOT NULL DEFAULT 'chat_completions' AFTER api_key`,
+	`ALTER TABLE providers ADD COLUMN IF NOT EXISTS web_search_enabled TINYINT(1) NOT NULL DEFAULT 0 AFTER api_mode`,
 }
 
 func applyMigrations(db *gorm.DB) error {

@@ -46,6 +46,7 @@ type ChatRequest struct {
 	Stream           bool          `json:"stream,omitempty"`
 	ReasoningEnabled bool          `json:"reasoning_enabled,omitempty"`
 	ReasoningEffort  string        `json:"reasoning_effort,omitempty"`
+	HostedWebSearch  bool          `json:"hosted_web_search,omitempty"`
 	StreamHandler    StreamHandler `json:"-"`
 }
 

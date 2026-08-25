@@ -153,14 +153,14 @@ func TestBuildCompactPromptWithToolCalls(t *testing.T) {
 	messages := []llm.Message{
 		{Role: "user", Content: "Search for Go"},
 		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{
-			{ID: "1", Function: llm.ToolCallFn{Name: "brave_search"}},
+			{ID: "1", Function: llm.ToolCallFn{Name: "web_lookup"}},
 		}},
 		{Role: "tool", ToolCallID: "1", Content: "results"},
 	}
 
 	prompt := buildCompactPrompt(messages)
 
-	if !strings.Contains(prompt, "[brave_search]") {
+	if !strings.Contains(prompt, "[web_lookup]") {
 		t.Error("prompt should contain tool call name")
 	}
 	if !strings.Contains(prompt, "Tool: results") {
@@ -221,7 +221,7 @@ func TestSelectCompactionPrefixAndTail(t *testing.T) {
 				{Role: "assistant", Content: "first response"},
 				{Role: "user", Content: "second request"},
 				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{
-					{ID: "1", Function: llm.ToolCallFn{Name: "brave_search"}},
+					{ID: "1", Function: llm.ToolCallFn{Name: "web_lookup"}},
 				}},
 				{Role: "tool", ToolCallID: "1", Content: "results"},
 			},

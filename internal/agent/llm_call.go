@@ -18,6 +18,7 @@ func (s *Session) callLLM(ctx context.Context, turn *TurnState, hooks Middleware
 			Tools:            call.Tools,
 			ReasoningEnabled: s.deps.reasoning.Enabled,
 			ReasoningEffort:  s.deps.reasoning.Effort,
+			HostedWebSearch:  s.deps.hostedWebSearch,
 			StreamHandler:    handler,
 		})
 	})

@@ -43,6 +43,8 @@ type ProviderProfile struct {
 	BaseURL          string            `json:"base_url"`
 	APIKey           string            `json:"-"`
 	APIKeyConfigured bool              `json:"api_key_configured"`
+	APIMode          string            `json:"api_mode"`
+	WebSearchEnabled bool              `json:"web_search_enabled"`
 	PromptFormat     string            `json:"prompt_format"`
 	ModelCount       int               `json:"model_count"`
 	ModelsFetchedAt  *time.Time        `json:"models_fetched_at,omitempty"`
@@ -55,10 +57,12 @@ type ProviderProfile struct {
 }
 
 type ProviderWrite struct {
-	Name         string
-	BaseURL      string
-	APIKey       string
-	PromptFormat string
+	Name             string
+	BaseURL          string
+	APIKey           string
+	APIMode          string
+	WebSearchEnabled bool
+	PromptFormat     string
 }
 
 func (s *Store) ListProviders(ctx context.Context, includeArchived bool) ([]ProviderProfile, error) {
@@ -91,7 +95,14 @@ func (s *Store) GetProvider(ctx context.Context, id int64) (ProviderProfile, err
 }
 
 func (s *Store) CreateProvider(ctx context.Context, input ProviderWrite) (ProviderProfile, error) {
-	row := dbmodel.Provider{Name: input.Name, BaseURL: input.BaseURL, APIKey: input.APIKey, PromptFormat: input.PromptFormat}
+	if input.APIMode == "" {
+		input.APIMode = "chat_completions"
+	}
+	row := dbmodel.Provider{
+		Name: input.Name, BaseURL: input.BaseURL, APIKey: input.APIKey,
+		APIMode: input.APIMode, WebSearchEnabled: input.WebSearchEnabled,
+		PromptFormat: input.PromptFormat,
+	}
 	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
 		return ProviderProfile{}, err
 	}
@@ -99,8 +110,12 @@ func (s *Store) CreateProvider(ctx context.Context, input ProviderWrite) (Provid
 }
 
 func (s *Store) UpdateProvider(ctx context.Context, id int64, input ProviderWrite, clearCatalog bool) (ProviderProfile, error) {
+	if input.APIMode == "" {
+		input.APIMode = "chat_completions"
+	}
 	updates := map[string]any{
 		"name": input.Name, "base_url": input.BaseURL, "api_key": input.APIKey,
+		"api_mode": input.APIMode, "web_search_enabled": input.WebSearchEnabled,
 		"prompt_format": input.PromptFormat, "updated_at": time.Now(),
 	}
 	if clearCatalog {
@@ -169,8 +184,12 @@ func providerFromRow(row dbmodel.Provider) (ProviderProfile, error) {
 	if row.ModelsLastError != nil {
 		lastError = *row.ModelsLastError
 	}
+	if row.APIMode == "" {
+		row.APIMode = "chat_completions"
+	}
 	return ProviderProfile{
 		ID: row.ID, Name: row.Name, BaseURL: row.BaseURL, APIKey: row.APIKey, APIKeyConfigured: row.APIKey != "",
+		APIMode: row.APIMode, WebSearchEnabled: row.WebSearchEnabled,
 		PromptFormat: row.PromptFormat, ModelCount: len(models), ModelsFetchedAt: row.ModelsFetchedAt,
 		ModelsLastError: lastError, CatalogStale: row.ModelsFetchedAt == nil || time.Since(*row.ModelsFetchedAt) > providerCatalogTTL,
 		Models: models, ArchivedAt: row.ArchivedAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,

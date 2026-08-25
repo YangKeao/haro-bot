@@ -16,11 +16,13 @@ import (
 const maxModelCatalogBytes = 4 << 20
 
 type providerInput struct {
-	Name         string  `json:"name"`
-	BaseURL      string  `json:"base_url"`
-	APIKey       *string `json:"api_key"`
-	ClearAPIKey  bool    `json:"clear_api_key"`
-	PromptFormat string  `json:"prompt_format"`
+	Name             string  `json:"name"`
+	BaseURL          string  `json:"base_url"`
+	APIKey           *string `json:"api_key"`
+	ClearAPIKey      bool    `json:"clear_api_key"`
+	APIMode          string  `json:"api_mode"`
+	WebSearchEnabled bool    `json:"web_search_enabled"`
+	PromptFormat     string  `json:"prompt_format"`
 }
 
 func normalizeProviderInput(input providerInput, fallbackAPIKey string) (ProviderWrite, error) {
@@ -32,6 +34,16 @@ func normalizeProviderInput(input providerInput, fallbackAPIKey string) (Provide
 	if !validateHTTPURL(input.BaseURL) {
 		return ProviderWrite{}, errors.New("base_url must be an http or https URL")
 	}
+	apiMode := strings.ToLower(strings.TrimSpace(input.APIMode))
+	if apiMode == "" {
+		apiMode = "chat_completions"
+	}
+	if apiMode != "chat_completions" && apiMode != "responses" {
+		return ProviderWrite{}, errors.New("api_mode must be chat_completions or responses")
+	}
+	if input.WebSearchEnabled && apiMode != "responses" {
+		return ProviderWrite{}, errors.New("web_search_enabled requires the Responses API")
+	}
 	apiKey := fallbackAPIKey
 	if input.ClearAPIKey {
 		apiKey = ""
@@ -40,6 +52,7 @@ func normalizeProviderInput(input providerInput, fallbackAPIKey string) (Provide
 	}
 	return ProviderWrite{
 		Name: input.Name, BaseURL: input.BaseURL, APIKey: apiKey,
+		APIMode: apiMode, WebSearchEnabled: input.WebSearchEnabled,
 		PromptFormat: string(config.NormalizePromptFormat(input.PromptFormat)),
 	}, nil
 }

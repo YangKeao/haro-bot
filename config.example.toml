@@ -28,9 +28,6 @@ dir = "./skills"
 repo_allowlist = []
 sync_interval = "10m"
 
-[brave]
-search_api_key = ""
-
 [tool]
 max_turns = 1024
 

@@ -48,6 +48,15 @@ func TestApplyMigrationsSetsSchemaVersion(t *testing.T) {
 			t.Fatalf("expected agents.%s column to exist", column)
 		}
 	}
+	for _, column := range []string{"api_mode", "web_search_enabled"} {
+		var count int64
+		if err := gdb.Raw(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'providers' AND column_name = ?`, column).Scan(&count).Error; err != nil {
+			t.Fatalf("query providers.%s column: %v", column, err)
+		}
+		if count != 1 {
+			t.Fatalf("expected providers.%s column to exist", column)
+		}
+	}
 	for _, table := range []string{"providers", "agents", "agent_skills", "telegram_integrations", "sandboxes", "agent_environment_variables", "sandbox_runs"} {
 		var count int64
 		if err := gdb.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`, table).Scan(&count).Error; err != nil || count != 1 {

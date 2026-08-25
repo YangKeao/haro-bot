@@ -69,7 +69,6 @@ type Config struct {
 	SkillsDir           string
 	SkillsRepoAllowlist []string
 	SkillsSyncInterval  time.Duration
-	BraveSearchAPIKey   string
 	ToolMaxTurns        int
 	SecretKey           string
 	Log                 LogConfig
@@ -93,9 +92,6 @@ type fileConfig struct {
 		RepoAllowlist []string `toml:"repo_allowlist"`
 		SyncInterval  string   `toml:"sync_interval"`
 	} `toml:"skills"`
-	Brave struct {
-		SearchAPIKey string `toml:"search_api_key"`
-	} `toml:"brave"`
 	Tool struct {
 		MaxTurns int `toml:"max_turns"`
 	} `toml:"tool"`
@@ -278,7 +274,6 @@ func (r fileConfig) toConfig() Config {
 		SkillsDir:           r.Skills.Dir,
 		SkillsRepoAllowlist: r.Skills.RepoAllowlist,
 		SkillsSyncInterval:  syncInterval,
-		BraveSearchAPIKey:   r.Brave.SearchAPIKey,
 		ToolMaxTurns:        r.Tool.MaxTurns,
 		SecretKey:           secretKey,
 		Log:                 r.Log,

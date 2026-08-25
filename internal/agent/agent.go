@@ -61,6 +61,10 @@ func (a *Agent) SetProfile(instructions string, skillNames []string) {
 	}
 }
 
+func (a *Agent) SetHostedWebSearch(enabled bool) {
+	a.sessions.deps.hostedWebSearch = enabled
+}
+
 func (a *Agent) SessionStatusWriter() SessionStatusWriter {
 	return a.stateManager
 }

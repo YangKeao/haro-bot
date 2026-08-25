@@ -20,6 +20,7 @@ import (
 type openAIChatModel struct {
 	baseURL string
 	client  *openaisdk.Client
+	apiMode string
 }
 
 const maxEmptyResponseAttempts = 3
@@ -27,6 +28,7 @@ const maxEmptyResponseAttempts = 3
 type clientOptions struct {
 	httpDebug       bool
 	httpDebugMaxBod int64
+	apiMode         string
 }
 
 type openAIOption func(*clientOptions)
@@ -50,8 +52,22 @@ func WithHTTPDebugMaxBody(maxBytes int64) openAIOption {
 	}
 }
 
+func WithAPIMode(mode string) openAIOption {
+	return func(opts *clientOptions) {
+		if opts == nil {
+			return
+		}
+		switch strings.ToLower(strings.TrimSpace(mode)) {
+		case "responses":
+			opts.apiMode = "responses"
+		default:
+			opts.apiMode = "chat_completions"
+		}
+	}
+}
+
 func New(baseURL, apiKey string, opts ...openAIOption) llm.ChatModel {
-	options := clientOptions{httpDebugMaxBod: defaultHTTPDebugMaxBody}
+	options := clientOptions{httpDebugMaxBod: defaultHTTPDebugMaxBody, apiMode: "chat_completions"}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&options)
@@ -73,6 +89,7 @@ func New(baseURL, apiKey string, opts ...openAIOption) llm.ChatModel {
 	return &openAIChatModel{
 		baseURL: baseURL,
 		client:  &c,
+		apiMode: options.apiMode,
 	}
 }
 
@@ -82,6 +99,9 @@ func (c *openAIChatModel) Chat(ctx context.Context, req llm.ChatRequest) (llm.Ch
 	var out llm.ChatResponse
 	if c == nil || c.client == nil {
 		return out, errors.New("llm client not configured")
+	}
+	if c.apiMode == "responses" {
+		return c.chatResponses(ctx, req)
 	}
 	input := buildChatMessages(req.Messages)
 	tools := buildChatTools(req.Tools)

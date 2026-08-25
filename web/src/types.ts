@@ -49,6 +49,8 @@ export interface ProviderProfile {
   name: string
   base_url: string
   api_key_configured: boolean
+  api_mode: 'chat_completions' | 'responses'
+  web_search_enabled: boolean
   prompt_format: 'openai' | 'claude'
   model_count: number
   models_fetched_at?: string
@@ -64,6 +66,8 @@ export interface ProviderInput {
   base_url: string
   api_key?: string
   clear_api_key?: boolean
+  api_mode: 'chat_completions' | 'responses'
+  web_search_enabled: boolean
   prompt_format: 'openai' | 'claude'
 }
 

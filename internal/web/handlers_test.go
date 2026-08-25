@@ -32,6 +32,27 @@ func TestNormalizeProviderInputRetainsOrClearsAPIKey(t *testing.T) {
 	}
 }
 
+func TestNormalizeProviderInputValidatesResponsesWebSearch(t *testing.T) {
+	write, err := normalizeProviderInput(providerInput{
+		Name: "OAuth", BaseURL: "https://example.test/v1",
+		APIMode: "responses", WebSearchEnabled: true,
+	}, "")
+	if err != nil || write.APIMode != "responses" || !write.WebSearchEnabled {
+		t.Fatalf("expected Responses web search provider: %#v, %v", write, err)
+	}
+	if _, err := normalizeProviderInput(providerInput{
+		Name: "OAuth", BaseURL: "https://example.test/v1",
+		APIMode: "chat_completions", WebSearchEnabled: true,
+	}, ""); err == nil {
+		t.Fatal("expected web search with Chat Completions to be rejected")
+	}
+	if _, err := normalizeProviderInput(providerInput{
+		Name: "OAuth", BaseURL: "https://example.test/v1", APIMode: "unknown",
+	}, ""); err == nil {
+		t.Fatal("expected unknown API mode to be rejected")
+	}
+}
+
 func TestNormalizeAgentInputAllowsProviderSpecificReasoning(t *testing.T) {
 	effort := "XHIGH"
 	result, err := normalizeAgentInput(agentInput{ProviderID: 9, Name: "Vision", Model: "vision", ReasoningEffortOverride: &effort, EffectiveContextWindowPercent: 0})
