@@ -14,9 +14,11 @@ import ProcessPanel from '../components/ProcessPanel'
 import InlineMarkdown from '../components/InlineMarkdown'
 import TraceSidebar from '../components/TraceSidebar'
 import { buildConversationTurns, emptyLiveRun, reduceRunEvent } from '../trace'
+import { formatMessageTime, formatMessageTimeTitle } from '../time'
 
 function MessageBubble({ message, agent, trace = [], running = false, onOpenTrace }: { message: Message; agent?: AgentProfile; trace?: TraceStep[]; running?: boolean; onOpenTrace?: () => void }) {
   const meta = message.metadata || {}
+  const timestamp = message.id === 'stream' ? '' : formatMessageTime(message.created_at)
   if (message.role === 'tool') return null
   if (message.role === 'assistant' && !message.content && !message.attachments?.length && !trace.length && !running && (!meta.status || meta.status === 'ok')) return null
   return <article className={`message ${message.role}`}>
@@ -28,6 +30,7 @@ function MessageBubble({ message, agent, trace = [], running = false, onOpenTrac
       </button>}
       {message.content && <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{message.content}</ReactMarkdown></div>}
       {meta.status && meta.status !== 'ok' && <span className={`message-status ${meta.status}`}>{meta.status}</span>}
+      {timestamp && <time className="message-time" dateTime={message.created_at} title={formatMessageTimeTitle(message.created_at)}>{timestamp}</time>}
     </div>
   </article>
 }

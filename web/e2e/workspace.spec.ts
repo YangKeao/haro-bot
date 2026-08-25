@@ -231,6 +231,11 @@ test('signs in and opens an agent conversation', async ({ page }) => {
   await recentLink.click()
   await expect(page.getByRole('heading', { name: 'Quarterly market brief' })).toBeVisible()
   await expect(page.getByText('The strongest signal is sustained demand with moderating growth.')).toBeVisible()
+  await expect(page.locator('.desktop-conversation-sidebar .session-icon')).toHaveCount(0)
+  const messageTimes = page.locator('.message time')
+  await expect(messageTimes).toHaveCount(4)
+  await expect(page.locator('.message time[datetime="2026-08-14T01:00:00Z"]')).toHaveCount(1)
+  await expect(page.locator('.message time[datetime="2026-08-14T01:01:00Z"]')).toHaveCount(1)
 })
 
 test('renders highlighted code blocks as a single dark surface', async ({ page }) => {

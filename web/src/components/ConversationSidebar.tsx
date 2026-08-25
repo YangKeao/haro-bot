@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Bot, ChevronDown, MessageSquarePlus, RotateCcw, Settings2 } from 'lucide-react'
+import { Archive, ChevronDown, MessageSquarePlus, RotateCcw, Settings2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import InlineMarkdown from './InlineMarkdown'
@@ -45,7 +45,7 @@ export default function ConversationSidebar({ agentID, sessionID, onNavigate }: 
       <Link to={`/agents/${agentID}/edit`} className="small-icon-button" aria-label="Agent settings" onClick={onNavigate}><Settings2 /></Link>
       <button className="small-icon-button" onClick={() => create.mutate()} disabled={create.isPending} aria-label="New conversation"><MessageSquarePlus /></button>
     </div>
-    <div className="session-list">{sessions.isLoading ? [1, 2, 3].map(i => <div className="session-row skeleton" key={i} />) : sessions.data?.sessions.length ? sessions.data.sessions.map(item => <Link key={item.id} to={`/agents/${agentID}/sessions/${item.id}`} className={`session-row ${item.id === sessionID ? 'active' : ''}`} onClick={onNavigate}><span className="session-icon"><Bot size={15} /></span><div><b><InlineMarkdown>{item.title}</InlineMarkdown></b><span>{formatRelative(item.updated_at)}</span></div></Link>) : <div className="panel-empty"><MessageSquarePlus /><p>No conversations yet.</p><button className="button small secondary" onClick={() => create.mutate()} disabled={create.isPending}>Start one</button></div>}</div>
+    <div className="session-list">{sessions.isLoading ? [1, 2, 3].map(i => <div className="session-row skeleton" key={i} />) : sessions.data?.sessions.length ? sessions.data.sessions.map(item => <Link key={item.id} to={`/agents/${agentID}/sessions/${item.id}`} className={`session-row ${item.id === sessionID ? 'active' : ''}`} onClick={onNavigate}><div><b><InlineMarkdown>{item.title}</InlineMarkdown></b><span>{formatRelative(item.updated_at)}</span></div></Link>) : <div className="panel-empty"><MessageSquarePlus /><p>No conversations yet.</p><button className="button small secondary" onClick={() => create.mutate()} disabled={create.isPending}>Start one</button></div>}</div>
     <div className="archived-session-block">
       <button className="archived-session-toggle" onClick={() => setShowArchived(value => !value)} aria-expanded={showArchived}><Archive size={14} /> Archived conversations <ChevronDown className={showArchived ? 'open' : ''} size={14} /></button>
       {showArchived && <div className="archived-session-list">{archived.isLoading ? <div className="session-row skeleton" /> : archived.data?.sessions.length ? archived.data.sessions.map(item => <div className="archived-session-row" key={item.id}><div><b><InlineMarkdown>{item.title}</InlineMarkdown></b><span>{formatRelative(item.updated_at)}</span></div><button onClick={() => restore.mutate(item.id)} disabled={restore.isPending} aria-label={`Restore ${item.title}`}><RotateCcw /></button></div>) : <p>No archived conversations.</p>}</div>}
