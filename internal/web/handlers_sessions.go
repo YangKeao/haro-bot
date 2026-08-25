@@ -274,16 +274,16 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	if result.err == nil {
 		return
 	}
-	content, reasoning := progress.partial()
+	content, reasoning, trace := progress.partial()
 	status := "error"
 	event := "run.failed"
 	if errors.Is(result.err, context.Canceled) || errors.Is(r.Context().Err(), context.Canceled) {
 		status = "cancelled"
 		event = "run.cancelled"
 	}
-	if content != "" || reasoning != "" {
+	if content != "" || reasoning != "" || len(trace) > 0 {
 		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
-		_, _ = s.conversation.AddMessageAndGetID(persistCtx, sessionID, "assistant", content, &memory.MessageMetadata{ReasoningContent: reasoning, Status: status})
+		_, _ = s.conversation.AddMessageAndGetID(persistCtx, sessionID, "assistant", content, &memory.MessageMetadata{ReasoningContent: reasoning, TraceSteps: trace, Status: status})
 		cancel()
 	}
 	_ = writeSSE(w, flusher, event, map[string]any{"message": result.err.Error()})

@@ -119,6 +119,9 @@ func toLLMMessage(m memory.Message) llm.Message {
 		if m.Metadata.ReasoningContent != "" {
 			llmMsg.ReasoningContent = m.Metadata.ReasoningContent
 		}
+		if len(m.Metadata.TraceSteps) > 0 {
+			llmMsg.TraceSteps = m.Metadata.TraceSteps
+		}
 	}
 	return llmMsg
 }

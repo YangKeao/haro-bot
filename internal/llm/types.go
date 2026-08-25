@@ -7,6 +7,24 @@ type Message struct {
 	ReasoningContent string         `json:"reasoning_content,omitempty"`
 	ToolCalls        []ToolCall     `json:"tool_calls,omitempty"`
 	ToolCallID       string         `json:"tool_call_id,omitempty"`
+	TraceSteps       []TraceStep    `json:"trace_steps,omitempty"`
+}
+
+// TraceStep is a display-oriented record of one model activity. It is kept
+// separate from the provider replay fields above so richer UI history never
+// changes the conversation sent back to a model.
+type TraceStep struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	ToolKind  string `json:"tool_kind,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Content   string `json:"content,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+	Result    string `json:"result,omitempty"`
+	Detail    any    `json:"detail,omitempty"`
+	Order     int64  `json:"order,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 type ImageContent struct {
@@ -53,6 +71,16 @@ type ChatRequest struct {
 type StreamEvent struct {
 	Delta          string
 	ReasoningDelta string
+	Trace          *TraceEvent
+}
+
+// TraceEvent carries lifecycle changes for an ordered trace step. Sequence is
+// provider-local; web transports assign their own run-wide monotonic sequence.
+type TraceEvent struct {
+	Phase    string
+	Sequence int64
+	Step     TraceStep
+	Delta    string
 }
 
 type StreamHandler func(StreamEvent)

@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -183,6 +184,8 @@ func streamResponse(ctx context.Context, client *openaisdk.Client, params respon
 	var terminal *responses.Response
 	var reasoning strings.Builder
 	items := make(map[int64]responses.ResponseOutputItemUnion)
+	callIDs := make(map[string]string)
+	toolNames := make(map[string]string)
 	for stream.Next() {
 		event := stream.Current()
 		switch event.Type {
@@ -192,14 +195,78 @@ func streamResponse(ctx context.Context, client *openaisdk.Client, params respon
 				safeCallStreamHandler(handler, llm.StreamEvent{Delta: delta})
 			}
 		case "response.reasoning_summary_text.delta":
-			delta := event.AsResponseReasoningSummaryTextDelta().Delta
+			value := event.AsResponseReasoningSummaryTextDelta()
+			delta := value.Delta
 			if delta != "" {
 				reasoning.WriteString(delta)
-				safeCallStreamHandler(handler, llm.StreamEvent{ReasoningDelta: delta})
+				safeCallStreamHandler(handler, llm.StreamEvent{
+					ReasoningDelta: delta,
+					Trace: &llm.TraceEvent{Phase: "delta", Sequence: value.SequenceNumber, Delta: delta, Step: llm.TraceStep{
+						ID: value.ItemID, Kind: "reasoning", Status: "running", Order: value.OutputIndex,
+					}},
+				})
 			}
+		case "response.reasoning_summary_text.done":
+			value := event.AsResponseReasoningSummaryTextDone()
+			safeCallStreamHandler(handler, llm.StreamEvent{Trace: &llm.TraceEvent{
+				Phase: "completed", Sequence: value.SequenceNumber,
+				Step: llm.TraceStep{ID: value.ItemID, Kind: "reasoning", Status: "completed", Content: value.Text, Order: value.OutputIndex},
+			}})
+		case "response.output_item.added":
+			added := event.AsResponseOutputItemAdded()
+			if added.Item.Type == "function_call" {
+				call := added.Item.AsFunctionCall()
+				id := traceStepID(call.CallID, call.ID)
+				callIDs[call.ID] = id
+				toolNames[call.ID] = call.Name
+				safeCallStreamHandler(handler, llm.StreamEvent{Trace: &llm.TraceEvent{
+					Phase: "started", Sequence: added.SequenceNumber,
+					Step: llm.TraceStep{ID: id, Kind: "tool", ToolKind: "function", Name: call.Name, Status: "preparing", Arguments: call.Arguments, Order: added.OutputIndex},
+				}})
+			}
+		case "response.function_call_arguments.delta":
+			value := event.AsResponseFunctionCallArgumentsDelta()
+			id := traceStepID(callIDs[value.ItemID], value.ItemID)
+			safeCallStreamHandler(handler, llm.StreamEvent{Trace: &llm.TraceEvent{
+				Phase: "arguments.delta", Sequence: value.SequenceNumber, Delta: value.Delta,
+				Step: llm.TraceStep{ID: id, Kind: "tool", ToolKind: "function", Name: toolNames[value.ItemID], Status: "preparing", Order: value.OutputIndex},
+			}})
+		case "response.function_call_arguments.done":
+			value := event.AsResponseFunctionCallArgumentsDone()
+			id := traceStepID(callIDs[value.ItemID], value.ItemID)
+			name := toolNames[value.ItemID]
+			safeCallStreamHandler(handler, llm.StreamEvent{Trace: &llm.TraceEvent{
+				Phase: "updated", Sequence: value.SequenceNumber,
+				Step: llm.TraceStep{ID: id, Kind: "tool", ToolKind: "function", Name: name, Status: "preparing", Arguments: value.Arguments, Order: value.OutputIndex},
+			}})
+		case "response.web_search_call.in_progress":
+			value := event.AsResponseWebSearchCallInProgress()
+			safeCallStreamHandler(handler, hostedToolStreamEvent("started", value.SequenceNumber, value.OutputIndex, value.ItemID, "running", nil))
+		case "response.web_search_call.searching":
+			value := event.AsResponseWebSearchCallSearching()
+			safeCallStreamHandler(handler, hostedToolStreamEvent("updated", value.SequenceNumber, value.OutputIndex, value.ItemID, "searching", nil))
+		case "response.web_search_call.completed":
+			value := event.AsResponseWebSearchCallCompleted()
+			// The following output_item.done event carries the action and sources.
+			// Keep this as an update so clients receive one terminal event with the
+			// complete hosted-tool detail instead of two completion events.
+			safeCallStreamHandler(handler, hostedToolStreamEvent("updated", value.SequenceNumber, value.OutputIndex, value.ItemID, "completed", nil))
 		case "response.output_item.done":
 			done := event.AsResponseOutputItemDone()
 			items[done.OutputIndex] = done.Item
+			switch done.Item.Type {
+			case "function_call":
+				call := done.Item.AsFunctionCall()
+				id := traceStepID(call.CallID, call.ID)
+				callIDs[call.ID] = id
+				safeCallStreamHandler(handler, llm.StreamEvent{Trace: &llm.TraceEvent{
+					Phase: "updated", Sequence: done.SequenceNumber,
+					Step: llm.TraceStep{ID: id, Kind: "tool", ToolKind: "function", Name: call.Name, Status: "preparing", Arguments: call.Arguments, Order: done.OutputIndex},
+				}})
+			case "web_search_call":
+				search := done.Item.AsWebSearchCall()
+				safeCallStreamHandler(handler, hostedToolStreamEvent("completed", done.SequenceNumber, done.OutputIndex, search.ID, string(search.Status), responseItemDetail(done.Item)))
+			}
 		case "response.completed", "response.failed", "response.incomplete":
 			value := event.Response
 			terminal = &value
@@ -230,6 +297,30 @@ func streamResponse(ctx context.Context, client *openaisdk.Client, params respon
 	return terminal, reasoning.String(), nil
 }
 
+func hostedToolStreamEvent(phase string, sequence, order int64, id, status string, detail any) llm.StreamEvent {
+	return llm.StreamEvent{Trace: &llm.TraceEvent{
+		Phase: phase, Sequence: sequence,
+		Step: llm.TraceStep{ID: id, Kind: "tool", ToolKind: "hosted", Name: "web_search", Status: status, Detail: detail, Order: order},
+	}}
+}
+
+func traceStepID(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return "unknown"
+}
+
+func responseItemDetail(item responses.ResponseOutputItemUnion) any {
+	raw := item.RawJSON()
+	if raw == "" || !json.Valid([]byte(raw)) {
+		return nil
+	}
+	return json.RawMessage(raw)
+}
+
 func normalizeResponseStatus(response *responses.Response) error {
 	if response == nil {
 		return errors.New("empty Responses API response")
@@ -258,10 +349,11 @@ func normalizeResponseStatus(response *responses.Response) error {
 }
 
 func responseToChat(response *responses.Response, reasoningContent string) llm.ChatResponse {
-	message := llm.Message{Role: "assistant", ReasoningContent: reasoningContent}
+	message := llm.Message{Role: "assistant"}
+	var orderedReasoning strings.Builder
 	if response != nil {
 		message.Content = response.OutputText()
-		for _, item := range response.Output {
+		for index, item := range response.Output {
 			switch item.Type {
 			case "function_call":
 				call := item.AsFunctionCall()
@@ -269,15 +361,35 @@ func responseToChat(response *responses.Response, reasoningContent string) llm.C
 					ID: call.CallID, Type: "function",
 					Function: llm.ToolCallFn{Name: call.Name, Arguments: call.Arguments},
 				})
+				message.TraceSteps = append(message.TraceSteps, llm.TraceStep{
+					ID: traceStepID(call.CallID, call.ID), Kind: "tool", ToolKind: "function", Name: call.Name,
+					Status: "preparing", Arguments: call.Arguments, Order: int64(index), Detail: responseItemDetail(item),
+				})
 			case "reasoning":
-				if message.ReasoningContent != "" {
-					continue
-				}
+				var content strings.Builder
 				parts := item.AsReasoning().Summary
 				for _, part := range parts {
-					message.ReasoningContent += part.Text
+					content.WriteString(part.Text)
 				}
+				orderedReasoning.WriteString(content.String())
+				message.TraceSteps = append(message.TraceSteps, llm.TraceStep{
+					ID: traceStepID(item.ID, fmt.Sprintf("reasoning-%d", index)), Kind: "reasoning", Status: "completed",
+					Content: content.String(), Order: int64(index),
+				})
+			case "web_search_call":
+				search := item.AsWebSearchCall()
+				message.TraceSteps = append(message.TraceSteps, llm.TraceStep{
+					ID: traceStepID(search.ID, fmt.Sprintf("web-search-%d", index)), Kind: "tool", ToolKind: "hosted", Name: "web_search",
+					Status: string(search.Status), Order: int64(index), Detail: responseItemDetail(item),
+				})
 			}
+		}
+	}
+	message.ReasoningContent = orderedReasoning.String()
+	if message.ReasoningContent == "" {
+		message.ReasoningContent = reasoningContent
+		if reasoningContent != "" {
+			message.TraceSteps = append([]llm.TraceStep{{ID: "reasoning", Kind: "reasoning", Status: "completed", Content: reasoningContent}}, message.TraceSteps...)
 		}
 	}
 	result := llm.ChatResponse{Choices: []llm.ChatChoice{{Index: 0, Message: message}}}

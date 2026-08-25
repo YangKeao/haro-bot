@@ -53,18 +53,19 @@ type Message struct {
 
 // MessageMetadata captures tool calls, tool outputs, reasoning content, and other message state.
 type MessageMetadata struct {
-	ReasoningContent     string         `json:"reasoning_content,omitempty"`
-	ToolCallID           string         `json:"tool_call_id,omitempty"`
-	ToolCalls            []llm.ToolCall `json:"tool_calls,omitempty"`
-	Status               string         `json:"status,omitempty"`
-	InheritedFromSession *int64         `json:"inherited_from_session,omitempty"`
-	AttachmentIDs        []string       `json:"attachment_ids,omitempty"`
-	ToolName             string         `json:"tool_name,omitempty"`
-	MCPServer            string         `json:"mcp_server,omitempty"`
-	DisplayContent       string         `json:"display_content,omitempty"`
-	StructuredContent    any            `json:"structured_content,omitempty"`
-	ObservationKey       string         `json:"observation_key,omitempty"`
-	ArtifactIDs          []string       `json:"artifact_ids,omitempty"`
+	ReasoningContent     string          `json:"reasoning_content,omitempty"`
+	ToolCallID           string          `json:"tool_call_id,omitempty"`
+	ToolCalls            []llm.ToolCall  `json:"tool_calls,omitempty"`
+	TraceSteps           []llm.TraceStep `json:"trace_steps,omitempty"`
+	Status               string          `json:"status,omitempty"`
+	InheritedFromSession *int64          `json:"inherited_from_session,omitempty"`
+	AttachmentIDs        []string        `json:"attachment_ids,omitempty"`
+	ToolName             string          `json:"tool_name,omitempty"`
+	MCPServer            string          `json:"mcp_server,omitempty"`
+	DisplayContent       string          `json:"display_content,omitempty"`
+	StructuredContent    any             `json:"structured_content,omitempty"`
+	ObservationKey       string          `json:"observation_key,omitempty"`
+	ArtifactIDs          []string        `json:"artifact_ids,omitempty"`
 }
 
 // Summary is a session summary snapshot used to compact the view window.

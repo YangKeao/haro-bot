@@ -175,6 +175,17 @@ func chatCompletionToChat(resp *openaisdk.ChatCompletion, reasoningContent strin
 		ReasoningContent: reasoningContent,
 		ToolCalls:        toolCalls,
 	}
+	if reasoningContent != "" {
+		msg.TraceSteps = append(msg.TraceSteps, llm.TraceStep{
+			ID: "reasoning", Kind: "reasoning", Status: "completed", Content: reasoningContent,
+		})
+	}
+	for i, call := range toolCalls {
+		msg.TraceSteps = append(msg.TraceSteps, llm.TraceStep{
+			ID: call.ID, Kind: "tool", ToolKind: "function", Name: call.Function.Name,
+			Status: "preparing", Arguments: call.Function.Arguments, Order: int64(i + 1),
+		})
+	}
 	model := ""
 	created := int64(0)
 	id := ""

@@ -112,10 +112,26 @@ export interface ToolCall {
   function: { name: string; arguments: string }
 }
 
+export interface TraceStep {
+  id: string
+  kind: 'reasoning' | 'commentary' | 'tool'
+  tool_kind?: 'function' | 'hosted'
+  name?: string
+  status?: 'preparing' | 'running' | 'searching' | 'completed' | 'error' | 'cancelled'
+  content?: string
+  arguments?: string
+  result?: string
+  detail?: unknown
+  order?: number
+  sequence?: number
+  truncated?: boolean
+}
+
 export interface MessageMetadata {
   reasoning_content?: string
   tool_call_id?: string
   tool_calls?: ToolCall[]
+  trace_steps?: TraceStep[]
   status?: string
   attachment_ids?: string[]
   artifact_ids?: string[]

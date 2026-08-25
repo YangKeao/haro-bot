@@ -1,68 +1,35 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Check, ChevronDown, LoaderCircle, MoreHorizontal, Paperclip, Pencil, Plus, Send, Sparkles, Square, X } from 'lucide-react'
+import { Archive, LoaderCircle, MoreHorizontal, Paperclip, Pencil, Plus, Send, Sparkles, Square, X } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { api, APIError, streamRun } from '../api'
-import type { AgentProfile, Attachment, Message, RunEvent, ToolCall } from '../types'
+import type { AgentProfile, Attachment, Message, RunEvent, TraceStep } from '../types'
 import { AgentAvatar } from './Home'
 import MarkdownEditor from '../components/MarkdownEditor'
-import ProcessEntry from '../components/ProcessEntry'
 import ProcessPanel from '../components/ProcessPanel'
 import InlineMarkdown from '../components/InlineMarkdown'
-import { aggregateProcessTools, type DisplayProcess } from '../processes'
+import TraceSidebar from '../components/TraceSidebar'
+import { buildConversationTurns, emptyLiveRun, reduceRunEvent } from '../trace'
 
-type ToolActivity = { id: string; name: string; arguments?: unknown; content?: string; done?: boolean; truncated?: boolean }
-
-function MessageBubble({ message, agent, inlineProcesses, hiddenToolCalls, hiddenToolResults }: { message: Message; agent?: AgentProfile; inlineProcesses?: Map<string, DisplayProcess>; hiddenToolCalls?: Set<string>; hiddenToolResults?: Set<string> }) {
+function MessageBubble({ message, agent, trace = [], running = false, onOpenTrace }: { message: Message; agent?: AgentProfile; trace?: TraceStep[]; running?: boolean; onOpenTrace?: () => void }) {
   const meta = message.metadata || {}
-  const process = meta.tool_call_id ? inlineProcesses?.get(meta.tool_call_id) : undefined
-  if (message.role === 'tool' && process) return <div className="inline-process"><ProcessEntry process={process} className="process-inline" /></div>
-  if (message.role === 'tool' && meta.tool_call_id && hiddenToolResults?.has(meta.tool_call_id)) return null
-  if (message.role === 'tool') return <details className="tool-result"><summary><span className={`status-dot ${meta.status === 'error' ? 'error' : ''}`} /> {meta.mcp_server ? `${meta.mcp_server} · ${meta.tool_name || 'tool'}` : meta.tool_name || 'Tool result'} <ChevronDown size={14} /></summary><div className="tool-detail">{message.attachments?.length ? <div className="message-images">{message.attachments.map(image => <a key={image.id} href={`/api/v1/attachments/${image.id}`} target="_blank" rel="noreferrer"><img src={`/api/v1/attachments/${image.id}`} alt={image.name} /></a>)}</div> : null}<pre>{meta.display_content || message.content}</pre>{meta.structured_content !== undefined && <details><summary>Structured result</summary><pre>{JSON.stringify(meta.structured_content, null, 2)}</pre></details>}</div></details>
-  const toolCalls = meta.tool_calls?.filter(call => !hiddenToolCalls?.has(call.id))
-  if (message.role === 'assistant' && !message.content && !message.attachments?.length && !meta.reasoning_content && !toolCalls?.length && (!meta.status || meta.status === 'ok')) return null
+  if (message.role === 'tool') return null
+  if (message.role === 'assistant' && !message.content && !message.attachments?.length && !trace.length && !running && (!meta.status || meta.status === 'ok')) return null
   return <article className={`message ${message.role}`}>
 		<div className="message-avatar">{message.role === 'assistant' && agent ? <AgentAvatar agent={agent} /> : message.role === 'assistant' ? <Sparkles size={16} /> : 'You'}</div>
     <div className="message-body">
       {message.attachments?.length ? <div className="message-images">{message.attachments.map(image => <a key={image.id} href={`/api/v1/attachments/${image.id}`} target="_blank" rel="noreferrer"><img src={`/api/v1/attachments/${image.id}`} alt={image.name} /></a>)}</div> : null}
-      {meta.reasoning_content && <details className="reasoning"><summary><Sparkles size={14} /> Reasoning <ChevronDown size={14} /></summary><div>{meta.reasoning_content}</div></details>}
+      {message.role === 'assistant' && (running || trace.length > 0) && <button className={`thinking-indicator ${running ? 'running' : ''} ${meta.status === 'error' || meta.status === 'cancelled' ? 'interrupted' : ''}`} onClick={onOpenTrace}>
+        <span className="thinking-orbit"><Sparkles /></span><span>{running ? 'Thinking…' : meta.status === 'error' || meta.status === 'cancelled' ? 'Thinking interrupted' : `View thinking · ${trace.length} step${trace.length === 1 ? '' : 's'}`}</span>
+      </button>}
       {message.content && <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{message.content}</ReactMarkdown></div>}
-      {toolCalls?.map(call => <details className="tool-call" key={call.id}><summary><span className="status-dot" /> {call.function.name}<ChevronDown size={14} /></summary><pre>{prettyJSON(call.function.arguments)}</pre></details>)}
       {meta.status && meta.status !== 'ok' && <span className={`message-status ${meta.status}`}>{meta.status}</span>}
     </div>
   </article>
-}
-
-function prettyJSON(value: string) {
-  try { return JSON.stringify(JSON.parse(value), null, 2) } catch { return value }
-}
-
-function ToolTimeline({ tools }: { tools: ToolActivity[] }) {
-  if (!tools.length) return null
-	const grouped = aggregateProcessTools(tools)
-  return <div className="live-tools">{tools.map(tool => {
-    const process = grouped.processes.get(tool.id)
-    if (process) return <ProcessEntry key={tool.id} process={process} className="process-inline" />
-    if (grouped.hiddenCallIDs.has(tool.id)) return null
-    return <details key={tool.id} className="tool-call" open={!tool.done}><summary>{tool.done ? <Check size={14} /> : <LoaderCircle className="spin" size={14} />} {tool.name}<ChevronDown size={14} /></summary><div className="tool-detail"><b>Arguments</b><pre>{typeof tool.arguments === 'string' ? tool.arguments : JSON.stringify(tool.arguments, null, 2)}</pre>{tool.done && <><b>Result{tool.truncated ? ' (preview)' : ''}</b><pre>{tool.content}</pre></>}</div></details>
-  })}</div>
-}
-
-function messageToolContext(messages: Message[] = []) {
-  const calls = new Map<string, ToolCall>()
-  for (const message of messages) for (const call of message.metadata?.tool_calls || []) calls.set(call.id, call)
-	const activities: ToolActivity[] = []
-  for (const message of messages) {
-    const id = message.metadata?.tool_call_id
-    const call = id ? calls.get(id) : undefined
-		if (id && call) activities.push({ id, name: call.function.name, arguments: call.function.arguments, content: message.content, done: true })
-  }
-	const grouped = aggregateProcessTools(activities)
-  return { processes: grouped.processes, hiddenToolCalls: grouped.hiddenCallIDs, hiddenToolResults: grouped.hiddenResultIDs }
 }
 
 export default function Chat() {
@@ -73,8 +40,8 @@ export default function Chat() {
   const client = useQueryClient()
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState<Attachment[]>([])
-  const [streamMessage, setStreamMessage] = useState<Message>()
-  const [tools, setTools] = useState<ToolActivity[]>([])
+  const [liveRun, setLiveRun] = useState(emptyLiveRun)
+  const [tracePanel, setTracePanel] = useState<string>()
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string>()
   const [renaming, setRenaming] = useState(false)
@@ -87,13 +54,22 @@ export default function Chat() {
   const sessions = useQuery({ queryKey: ['sessions', activeAgentID], queryFn: () => api.sessions(activeAgentID), enabled: Number.isFinite(activeAgentID) })
   const session = useQuery({ queryKey: ['session', activeSessionID], queryFn: () => api.session(activeSessionID!), enabled: !!activeSessionID })
   const messages = useQuery({ queryKey: ['messages', activeSessionID], queryFn: () => api.messages(activeSessionID!), enabled: !!activeSessionID })
-  const messageTools = useMemo(() => messageToolContext(messages.data?.messages), [messages.data?.messages])
+  const conversationTurns = useMemo(() => buildConversationTurns(messages.data?.messages), [messages.data?.messages])
+  const selectedTurn = tracePanel === 'latest' ? conversationTurns.at(-1) : conversationTurns.find(turn => `turn-${turn.id}` === tracePanel)
+  const selectedTrace = tracePanel === 'live' ? liveRun.trace : selectedTurn?.trace
+  const selectedStatus = tracePanel === 'live' ? undefined : selectedTurn?.status
 
   useEffect(() => {
     if (!activeSessionID && sessions.data?.sessions.length) navigate(`/agents/${activeAgentID}/sessions/${sessions.data.sessions[0].id}`, { replace: true })
   }, [activeAgentID, activeSessionID, navigate, sessions.data])
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: running ? 'smooth' : 'auto' }) }, [messages.data, streamMessage?.content, tools, running])
-  useEffect(() => { setPending([]); setDraft(''); setError(undefined); setTools([]); setStreamMessage(undefined) }, [activeSessionID])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: running ? 'smooth' : 'auto' }) }, [messages.data, liveRun, running])
+  useEffect(() => { setPending([]); setDraft(''); setError(undefined); setLiveRun(emptyLiveRun); setTracePanel(undefined) }, [activeSessionID])
+  useEffect(() => {
+    if (!tracePanel) return
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setTracePanel(undefined) }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [tracePanel])
 
   const createSession = useMutation({ mutationFn: () => api.createSession(activeAgentID), onSuccess: item => { client.invalidateQueries({ queryKey: ['sessions', activeAgentID] }); client.invalidateQueries({ queryKey: ['recent-sessions'] }); navigate(`/agents/${activeAgentID}/sessions/${item.id}`) } })
   const rename = useMutation({ mutationFn: () => api.renameSession(activeSessionID!, renameValue.trim()), onSuccess: () => { setRenaming(false); client.invalidateQueries({ queryKey: ['sessions', activeAgentID] }); client.invalidateQueries({ queryKey: ['session', activeSessionID] }); client.invalidateQueries({ queryKey: ['recent-sessions'] }) } })
@@ -111,17 +87,14 @@ export default function Chat() {
     setPending(items => items.filter(item => item.id !== image.id))
   }
   const onRunEvent = (event: RunEvent) => {
-    if (event.event === 'assistant.delta') setStreamMessage(current => ({ ...(current || streamSeed(activeSessionID!)), content: (current?.content || '') + String(event.data.delta || '') }))
-    if (event.event === 'reasoning.delta') setStreamMessage(current => ({ ...(current || streamSeed(activeSessionID!)), metadata: { ...(current?.metadata || {}), reasoning_content: (current?.metadata?.reasoning_content || '') + String(event.data.delta || '') } }))
-    if (event.event === 'tool.started') setTools(current => [...current, { id: String(event.data.id), name: String(event.data.name), arguments: event.data.arguments }])
-    if (event.event === 'tool.completed') setTools(current => current.map(tool => tool.id === String(event.data.id) ? { ...tool, done: true, content: String(event.data.content || ''), truncated: Boolean(event.data.truncated) } : tool))
+    setLiveRun(current => reduceRunEvent(current, event))
     if (event.event === 'run.failed') setError(String(event.data.message || 'The run failed.'))
   }
   const send = async () => {
     if (!activeSessionID || running || (!draft.trim() && !pending.length)) return
     const content = draft.trim()
     const images = pending
-    setDraft(''); setPending([]); setError(undefined); setTools([]); setStreamMessage(streamSeed(activeSessionID)); setRunning(true)
+    setDraft(''); setPending([]); setError(undefined); setLiveRun(emptyLiveRun); setRunning(true)
     client.setQueryData<{ messages: Message[] }>(['messages', activeSessionID], old => ({ ...(old || { messages: [] }), messages: [...(old?.messages || []), { id: `optimistic-${Date.now()}`, session_id: activeSessionID, role: 'user', content, attachments: images, created_at: new Date().toISOString() }] }))
     const controller = new AbortController(); abortRef.current = controller
     try { await streamRun(activeSessionID, content, images.map(image => image.id), onRunEvent, controller.signal) }
@@ -129,11 +102,12 @@ export default function Chat() {
     finally {
       setRunning(false); abortRef.current = undefined
 		await Promise.all([client.invalidateQueries({ queryKey: ['messages', activeSessionID] }), client.invalidateQueries({ queryKey: ['sessions', activeAgentID] }), client.invalidateQueries({ queryKey: ['session', activeSessionID] }), client.invalidateQueries({ queryKey: ['agent', activeAgentID] }), client.invalidateQueries({ queryKey: ['agents'] }), client.invalidateQueries({ queryKey: ['recent-sessions'] })])
-      setStreamMessage(undefined); setTools([])
+      setTracePanel(current => current === 'live' ? 'latest' : current)
+      setLiveRun(emptyLiveRun)
     }
   }
   const stop = async () => { if (!activeSessionID) return; await api.cancel(activeSessionID).catch(() => undefined); abortRef.current?.abort() }
-	return <main className="workspace-page">
+	return <main className={`workspace-page ${tracePanel ? 'trace-open' : ''}`}>
     <section className="chat-panel">
       <header className="chat-header"><span className="chat-header-spacer" aria-hidden="true" />
         <div className="chat-title">{renaming ? <form onSubmit={e => { e.preventDefault(); rename.mutate() }}><input autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)} onBlur={() => setRenaming(false)} /></form> : <><h1>{session.data?.session.title ? <InlineMarkdown>{session.data.session.title}</InlineMarkdown> : activeSessionID ? 'Loading…' : 'New conversation'}</h1><span>{agent.data?.model}</span></>}</div>
@@ -141,8 +115,8 @@ export default function Chat() {
       </header>
       {!activeSessionID ? <div className="chat-empty"><div className="empty-orbit"><Sparkles /></div><h2>Start a fresh conversation</h2><p>Open a new session with {agent.data?.name || 'this agent'}.</p><button className="button primary" onClick={() => createSession.mutate()}><Plus size={16} /> New session</button></div> : <>
         <div className="message-scroll"><div className="message-column">
-		  {messages.isLoading ? <div className="conversation-skeleton"><div /><div /><div /></div> : !messages.data?.messages.length && !running ? <div className="chat-welcome">{agent.data && <AgentAvatar agent={agent.data} size="large" />}<h2>Talk to {agent.data?.name}</h2><p>{agent.data?.description || 'Send a message or attach an image to get started.'}</p></div> : messages.data?.messages.map(message => <MessageBubble key={message.id} message={message} agent={agent.data} inlineProcesses={messageTools.processes} hiddenToolCalls={messageTools.hiddenToolCalls} hiddenToolResults={messageTools.hiddenToolResults} />)}
-		  {streamMessage && <><MessageBubble message={streamMessage} agent={agent.data} /><ToolTimeline tools={tools} /></>}
+		  {messages.isLoading ? <div className="conversation-skeleton"><div /><div /><div /></div> : !messages.data?.messages.length && !running ? <div className="chat-welcome">{agent.data && <AgentAvatar agent={agent.data} size="large" />}<h2>Talk to {agent.data?.name}</h2><p>{agent.data?.description || 'Send a message or attach an image to get started.'}</p></div> : conversationTurns.map(turn => <div className="conversation-turn" key={turn.id}>{turn.user && <MessageBubble message={turn.user} agent={agent.data} />}{turn.assistant && <MessageBubble message={turn.assistant} agent={agent.data} trace={turn.trace} onOpenTrace={() => setTracePanel(`turn-${turn.id}`)} />}</div>)}
+		  {(running || liveRun.answer || liveRun.trace.length > 0) && <MessageBubble message={{ ...streamSeed(activeSessionID), content: liveRun.answer }} agent={agent.data} trace={liveRun.trace} running={running} onOpenTrace={() => setTracePanel('live')} />}
           {error && <div className="run-error"><span>Run interrupted</span><p>{error}</p></div>}
           <div ref={bottomRef} />
         </div></div>
@@ -156,6 +130,7 @@ export default function Chat() {
         </div></footer>
       </>}
     </section>
+    {tracePanel && <TraceSidebar steps={selectedTrace || []} running={tracePanel === 'live' && running} status={selectedStatus} onClose={() => setTracePanel(undefined)} />}
   </main>
 }
 

@@ -16,10 +16,13 @@ func TestResponsesHostedWebSearchLive(t *testing.T) {
 	defer cancel()
 
 	client := New(baseURL, "test", WithAPIMode("responses"))
+	var events []llm.StreamEvent
 	result, err := client.Chat(ctx, llm.ChatRequest{
-		Model:           model,
-		Messages:        []llm.Message{{Role: "user", Content: "Search the web for the current HTML title of openai.com. Answer in one sentence with a Markdown citation."}},
-		HostedWebSearch: true,
+		Model:            model,
+		Messages:         []llm.Message{{Role: "user", Content: "Search the web for the current HTML title of openai.com. Answer in one sentence with a Markdown citation."}},
+		HostedWebSearch:  true,
+		ReasoningEnabled: true,
+		StreamHandler:    func(event llm.StreamEvent) { events = append(events, event) },
 	})
 	if err != nil {
 		t.Fatalf("hosted web search failed: %v", err)
@@ -27,6 +30,30 @@ func TestResponsesHostedWebSearchLive(t *testing.T) {
 	if len(result.Choices) != 1 || !strings.Contains(result.Choices[0].Message.Content, "http") {
 		t.Fatalf("expected a cited answer, got %+v", result)
 	}
+	if !hasTraceTool(result.Choices[0].Message.TraceSteps, "web_search") {
+		t.Fatalf("expected persisted web search trace, got %+v", result.Choices[0].Message.TraceSteps)
+	}
+	if !hasStreamTraceTool(events, "web_search") {
+		t.Fatalf("expected streamed web search activity, got %+v", events)
+	}
+}
+
+func hasTraceTool(steps []llm.TraceStep, name string) bool {
+	for _, step := range steps {
+		if step.Kind == "tool" && step.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func hasStreamTraceTool(events []llm.StreamEvent, name string) bool {
+	for _, event := range events {
+		if event.Trace != nil && event.Trace.Step.Kind == "tool" && event.Trace.Step.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestResponsesFunctionReplayLive(t *testing.T) {

@@ -39,8 +39,8 @@ func (s *Session) runLoop(ctx context.Context, run *RunState, hooks MiddlewareSe
 		)
 		if len(msg.ToolCalls) == 0 {
 			var metadata *memory.MessageMetadata
-			if msg.ReasoningContent != "" {
-				metadata = &memory.MessageMetadata{ReasoningContent: msg.ReasoningContent}
+			if msg.ReasoningContent != "" || len(msg.TraceSteps) > 0 {
+				metadata = &memory.MessageMetadata{ReasoningContent: msg.ReasoningContent, TraceSteps: msg.TraceSteps}
 			}
 			if _, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "assistant", msg.Content, metadata); err != nil {
 				log.Error("store assistant failed", zap.Int64("session_id", s.id), zap.Error(err))
@@ -57,11 +57,12 @@ func (s *Session) runLoop(ctx context.Context, run *RunState, hooks MiddlewareSe
 		if err := executeToolCallListeners(ctx, hooks.ToolCallListeners, turn, msg); err != nil {
 			return "", err
 		}
-		assistantEntryID, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "assistant", msg.Content, &memory.MessageMetadata{ToolCalls: msg.ToolCalls, ReasoningContent: msg.ReasoningContent})
+		metadata := &memory.MessageMetadata{ToolCalls: msg.ToolCalls, ReasoningContent: msg.ReasoningContent, TraceSteps: msg.TraceSteps}
+		assistantEntryID, err := s.deps.store.AddMessageAndGetID(ctx, s.id, "assistant", msg.Content, metadata)
 		if err != nil {
 			return "", err
 		}
-		assistantMsg, err := newStoredMessage(assistantEntryID, msg)
+		assistantMsg, err := newStoredMessage(assistantEntryID, msg, metadata)
 		if err != nil {
 			return "", err
 		}
