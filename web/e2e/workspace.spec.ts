@@ -178,10 +178,21 @@ async function mockAPI(page: Page, initiallyAuthenticated = false) {
     if (path === '/api/v1/sessions/10/messages') {
       return route.fulfill({ json: { messages: [
         { id: 1, session_id: 10, role: 'user', content: 'Summarize the market signals.', created_at: '2026-08-14T01:00:00Z' },
-		{ id: 2, session_id: 10, role: 'assistant', content: '', metadata: { tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'exec_command', arguments: '{"cmd":"printf complete"}' } }] }, created_at: '2026-08-14T01:00:30Z' },
+		{ id: 2, session_id: 10, role: 'assistant', content: '', metadata: {
+			reasoning_content: 'Planning the command.',
+			tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'exec_command', arguments: '{"cmd":"printf complete"}' } }],
+			trace_steps: [
+				{ id: 'reasoning-1', kind: 'reasoning', status: 'completed', content: 'Planning the command.' },
+				{ id: 'call-1', kind: 'tool', tool_kind: 'function', name: 'exec_command', status: 'preparing', arguments: '{"cmd":"printf complete"}' },
+			],
+		}, created_at: '2026-08-14T01:00:30Z' },
 		{ id: 3, session_id: 10, role: 'tool', content: 'Process ID: process-2\nStatus: exited\nWall time: 0.0420 seconds\nProcess exited with code 0\nOutput:\ncomplete', metadata: { tool_call_id: 'call-1', status: 'ok' }, created_at: '2026-08-14T01:00:31Z' },
-		{ id: 4, session_id: 10, role: 'assistant', content: 'The strongest signal is sustained demand with moderating growth.', created_at: '2026-08-14T01:01:00Z' },
-		{ id: 5, session_id: 10, role: 'assistant', content: '```sql\nSELECT * FROM users WHERE enabled = TRUE;\n```', created_at: '2026-08-14T01:01:30Z' },
+		{ id: 4, session_id: 10, role: 'assistant', content: 'The strongest signal is sustained demand with moderating growth.', metadata: {
+			reasoning_content: 'Interpreting the result.',
+			trace_steps: [{ id: 'reasoning-2', kind: 'reasoning', status: 'completed', content: 'Interpreting the result.' }],
+		}, created_at: '2026-08-14T01:01:00Z' },
+		{ id: 5, session_id: 10, role: 'user', content: 'Show the SQL used for validation.', created_at: '2026-08-14T01:01:15Z' },
+		{ id: 6, session_id: 10, role: 'assistant', content: '```sql\nSELECT * FROM users WHERE enabled = TRUE;\n```', created_at: '2026-08-14T01:01:30Z' },
       ] } })
     }
 		if (path === '/api/v1/sessions/10/processes') return route.fulfill({ json: { processes: [sandboxProcess, finishedProcess] } })
@@ -401,10 +412,15 @@ test('manages persistent sandboxes and exposes session processes', async ({ page
 	await page.goto('/agents/1/sessions/10')
 	await expect(page.getByText('Sandbox processes')).toBeVisible()
 	await expect(page.locator('.process-panel')).not.toContainText('printf complete')
-	await expect(page.locator('.inline-process')).toContainText('printf complete')
-	await expect(page.locator('.tool-call').filter({ hasText: 'exec_command' })).toHaveCount(0)
-	await page.locator('.inline-process summary').click()
-	await expect(page.locator('.inline-process')).toContainText('complete')
+	await page.getByRole('button', { name: 'View thinking · 3 steps' }).click()
+	const trace = page.getByRole('complementary', { name: 'Thinking process' })
+	await expect(trace).toBeVisible()
+	await expect(trace.locator('.trace-entry')).toHaveCount(3)
+	await expect(trace.locator('.trace-entry').nth(0)).toContainText('Planning the command.')
+	await expect(trace.locator('.trace-entry').nth(1)).toContainText('exec_command')
+	await expect(trace.locator('.trace-entry').nth(2)).toContainText('Interpreting the result.')
+	await trace.locator('.trace-tool > summary').click()
+	await expect(trace.getByText('Process ID: process-2', { exact: false })).toBeVisible()
 	await page.getByText('python3 analyze.py --database sales').click()
 	await expect(page.getByText('Processed 4,200 rows')).toBeVisible()
 	await expect(page.getByRole('button', { name: 'TERM' })).toBeVisible()
