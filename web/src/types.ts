@@ -78,6 +78,26 @@ export interface ModelCatalog {
   stale: boolean
 }
 
+export interface ProviderUsageWindow {
+  kind: 'primary' | 'secondary'
+  used_percent: number
+  window_seconds?: number
+  resets_at?: string
+}
+
+export interface ProviderUsageLimit {
+  id: string
+  name: string
+  allowed: boolean
+  limit_reached: boolean
+  windows: ProviderUsageWindow[]
+}
+
+export interface ProviderUsage {
+  fetched_at: string
+  limits: ProviderUsageLimit[]
+}
+
 export interface TelegramIntegration {
   token_configured: boolean
   agent_id: number | null

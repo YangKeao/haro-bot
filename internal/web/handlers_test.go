@@ -2,6 +2,9 @@ package web
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -105,6 +108,70 @@ func TestNormalizeModelCatalogAcceptsEnrichedAndStandardModels(t *testing.T) {
 	if len(models) != 2 || models[0].ContextWindow != 272000 || models[0].DefaultReasoningEffort != "low" || len(models[0].ReasoningEfforts) != 2 || models[1].ID != "plain" {
 		t.Fatalf("unexpected catalog: %#v", models)
 	}
+}
+
+func TestFetchProviderUsageUsesCredentialsAndWhitelistsFields(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/usage" || r.Header.Get("Authorization") != "Bearer provider-secret" || r.Header.Get("Accept") != "application/json" {
+			t.Fatalf("unexpected provider request: path=%q auth=%q accept=%q", r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("Accept"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"fetched_at":"2026-08-26T12:00:00Z",
+			"email":"private@example.test",
+			"limits":[{
+				"id":"codex","name":"Codex","allowed":true,"limit_reached":false,
+				"windows":[{"kind":"primary","used_percent":42.5,"window_seconds":18000,"resets_at":"2026-08-26T17:00:00Z"}]
+			}]
+		}`))
+	}))
+	defer upstream.Close()
+
+	usage, err := fetchProviderUsage(context.Background(), upstream.Client(), upstream.URL+"/v1", "provider-secret")
+	if err != nil {
+		t.Fatalf("fetch provider usage: %v", err)
+	}
+	if len(usage.Limits) != 1 || len(usage.Limits[0].Windows) != 1 || usage.Limits[0].Windows[0].UsedPercent != 42.5 {
+		t.Fatalf("unexpected usage: %#v", usage)
+	}
+	encoded, err := json.Marshal(usage)
+	if err != nil {
+		t.Fatalf("marshal provider usage: %v", err)
+	}
+	if bytes.Contains(encoded, []byte("private@example.test")) {
+		t.Fatalf("provider usage leaked unknown fields: %s", encoded)
+	}
+}
+
+func TestFetchProviderUsageHandlesUnsupportedAndInvalidResponses(t *testing.T) {
+	t.Run("unsupported", func(t *testing.T) {
+		upstream := httptest.NewServer(http.NotFoundHandler())
+		defer upstream.Close()
+		_, err := fetchProviderUsage(context.Background(), upstream.Client(), upstream.URL, "")
+		if !errors.Is(err, errProviderUsageUnsupported) {
+			t.Fatalf("expected unsupported usage, got %v", err)
+		}
+	})
+
+	t.Run("malformed", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"fetched_at":"2026-08-26T12:00:00Z","limits":[{"id":"codex","name":"Codex","windows":[{"kind":"primary","used_percent":-1}]}]}`))
+		}))
+		defer upstream.Close()
+		if _, err := fetchProviderUsage(context.Background(), upstream.Client(), upstream.URL, ""); err == nil {
+			t.Fatal("expected malformed usage to fail")
+		}
+	})
+
+	t.Run("oversized", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write(bytes.Repeat([]byte("x"), maxProviderUsageBytes+1))
+		}))
+		defer upstream.Close()
+		if _, err := fetchProviderUsage(context.Background(), upstream.Client(), upstream.URL, ""); err == nil || err.Error() != "provider usage response exceeds 1 MiB" {
+			t.Fatalf("expected oversized usage failure, got %v", err)
+		}
+	})
 }
 
 func TestReadImageValidation(t *testing.T) {

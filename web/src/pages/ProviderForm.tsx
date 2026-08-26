@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { api, APIError } from '../api'
 import type { ProviderInput } from '../types'
+import ProviderUsageSection from '../components/ProviderUsageSection'
 
 const defaults: ProviderInput = { name: '', base_url: '', api_key: '', api_mode: 'chat_completions', web_search_enabled: false, prompt_format: 'openai' }
 
@@ -42,6 +43,7 @@ export default function ProviderForm() {
     },
     onSuccess: provider => {
       client.invalidateQueries({ queryKey: ['providers'] })
+      client.invalidateQueries({ queryKey: ['provider-usage', provider.id] })
       client.setQueryData(['provider', provider.id], provider)
       setClearKey(false); reset({ name: provider.name, base_url: provider.base_url, api_key: '', api_mode: provider.api_mode, web_search_enabled: provider.web_search_enabled, prompt_format: provider.prompt_format })
       setSaved(true); setTimeout(() => setSaved(false), 2400)
@@ -69,6 +71,8 @@ export default function ProviderForm() {
         <label className="field"><span>Prompt format</span><select {...register('prompt_format')}><option value="openai">OpenAI / Markdown</option><option value="claude">Claude / XML</option></select></label>
         <label className="check-row span-2"><input type="checkbox" {...register('web_search_enabled')} disabled={apiMode !== 'responses'} /> Enable provider-hosted web search for interactive agent turns</label>
       </div></section>
+
+      {id && <ProviderUsageSection providerID={id} />}
 
       {id && <section className="form-section settings-section"><div className="section-heading model-catalog-heading"><div><h2>Model catalog</h2><p>Capabilities are suggestions; agents may still use manually entered values.</p></div><button type="button" className="button secondary" onClick={() => refresh.mutate(id)} disabled={refresh.isPending}>{refresh.isPending ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />} Refresh models</button></div>
         {refresh.error && <div className="inline-alert warning"><KeyRound /> <div><b>Discovery failed</b><p>{refresh.error instanceof APIError ? refresh.error.message : 'Could not load the model catalog.'} You can still configure model values manually.</p></div></div>}

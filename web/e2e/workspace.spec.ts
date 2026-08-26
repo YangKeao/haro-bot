@@ -29,6 +29,8 @@ const provider = {
 	base_url: 'https://openai-oauth.example/v1',
 	api_key_configured: false,
 	prompt_format: 'openai',
+	api_mode: 'responses',
+	web_search_enabled: true,
 	model_count: 1,
 	models_fetched_at: '2026-08-14T01:00:00Z',
 	catalog_stale: false,
@@ -91,6 +93,31 @@ const modelCatalog = {
 		reasoning_efforts: [{ value: 'low', description: 'Faster' }, { value: 'medium', description: 'Balanced' }, { value: 'high', description: 'Deeper' }],
 		input_modalities: ['text', 'image'],
 	}],
+}
+
+const providerUsage = {
+	fetched_at: '2026-08-26T12:00:00Z',
+	limits: [
+		{
+			id: 'codex',
+			name: 'Codex',
+			allowed: true,
+			limit_reached: false,
+			windows: [
+				{ kind: 'primary', used_percent: 42.5, window_seconds: 18000, resets_at: '2026-08-26T17:00:00Z' },
+				{ kind: 'secondary', used_percent: 12, window_seconds: 604800, resets_at: '2026-09-02T12:00:00Z' },
+			],
+		},
+		{
+			id: 'codex_fast',
+			name: 'GPT-5.3-Codex-Spark',
+			allowed: true,
+			limit_reached: false,
+			windows: [
+				{ kind: 'primary', used_percent: 0, window_seconds: 18000, resets_at: '2026-08-26T17:00:00Z' },
+			],
+		},
+	],
 }
 
 const session = {
@@ -161,6 +188,7 @@ async function mockAPI(page: Page, initiallyAuthenticated = false) {
 		if (path === '/api/v1/providers/1') return route.fulfill({ json: provider })
 		if (path === '/api/v1/providers/1/models') return route.fulfill({ json: modelCatalog })
 		if (path === '/api/v1/providers/1/models/refresh') return route.fulfill({ json: modelCatalog })
+		if (path === '/api/v1/providers/1/usage') return route.fulfill({ json: providerUsage })
 		if (path === '/api/v1/sandboxes/events') return route.fulfill({ contentType: 'text/event-stream', body: `event: snapshot\ndata: ${JSON.stringify({ sandboxes: [sandbox] })}\n\n` })
 		if (path === '/api/v1/sandboxes') return route.fulfill({ json: { sandboxes: [sandbox], config: sandboxConfig } })
 		if (path === '/api/v1/sandboxes/1') return route.fulfill({ json: { sandbox, config: sandboxConfig } })
@@ -472,6 +500,14 @@ test('uses provider catalog metadata for agent runtime controls', async ({ page 
 	await page.getByRole('link', { name: /Codex OAuth/ }).click()
 	await page.waitForURL(/\/settings\/providers\/1\/edit$/)
 	await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Settings/Providers/Codex OAuth')
+	await expect(page.getByRole('heading', { name: 'Usage' })).toBeVisible()
+	await expect(page.getByText('42.5% used')).toBeVisible()
+	await expect(page.getByText('5-hour limit')).toHaveCount(2)
+	await expect(page.getByText('7-day limit')).toBeVisible()
+	await expect(page.getByText('GPT-5.3-Codex-Spark')).toBeVisible()
+	await expect(page.getByRole('progressbar', { name: 'Codex 5-hour limit' })).toHaveAttribute('aria-valuenow', '42.5')
+	await expect(page.locator('time[datetime="2026-09-02T12:00:00Z"]')).toBeVisible()
+	if (process.env.REVIEW_SCREENSHOTS) await page.locator('.provider-usage-section').screenshot({ path: '/tmp/haro-provider-usage.png' })
 	await expect(page.getByText('GPT-5.6 Sol', { exact: true })).toBeVisible()
 	await expect(page.getByText('200,000 context')).toBeVisible()
 	await page.getByRole('link', { name: 'Back to providers' }).click()

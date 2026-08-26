@@ -164,6 +164,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	api.HandleFunc("POST /api/v1/providers/{providerID}/restore", s.handleRestoreProvider)
 	api.HandleFunc("GET /api/v1/providers/{providerID}/models", s.handleGetProviderModels)
 	api.HandleFunc("POST /api/v1/providers/{providerID}/models/refresh", s.handleRefreshProviderModels)
+	api.HandleFunc("GET /api/v1/providers/{providerID}/usage", s.handleGetProviderUsage)
 	api.HandleFunc("GET /api/v1/integrations/telegram", s.handleGetTelegramIntegration)
 	api.HandleFunc("PUT /api/v1/integrations/telegram", s.handleUpdateTelegramIntegration)
 

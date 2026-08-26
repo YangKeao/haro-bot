@@ -1,4 +1,4 @@
-import type { AgentEnvironmentVariable, AgentEnvironmentWrite, AgentInput, AgentProfile, Attachment, Guideline, MCPConnection, MCPServer, MCPServerInput, Message, ModelCatalog, ProviderInput, ProviderProfile, RecentSession, RunEvent, SandboxInput, SandboxProcess, SandboxProfile, SandboxPublicConfig, Session, Skill, SkillSource, SkillSourceInput, TelegramIntegration } from './types'
+import type { AgentEnvironmentVariable, AgentEnvironmentWrite, AgentInput, AgentProfile, Attachment, Guideline, MCPConnection, MCPServer, MCPServerInput, Message, ModelCatalog, ProviderInput, ProviderProfile, ProviderUsage, RecentSession, RunEvent, SandboxInput, SandboxProcess, SandboxProfile, SandboxPublicConfig, Session, Skill, SkillSource, SkillSourceInput, TelegramIntegration } from './types'
 
 export class APIError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -56,6 +56,7 @@ export const api = {
   archiveProvider: (id: number, restore = false) => request(`/api/v1/providers/${id}/${restore ? 'restore' : 'archive'}`, { method: 'POST', body: '{}' }),
   providerModels: (id: number) => request<ModelCatalog>(`/api/v1/providers/${id}/models`),
   refreshProviderModels: (id: number) => request<ModelCatalog>(`/api/v1/providers/${id}/models/refresh`, { method: 'POST', body: '{}' }),
+  providerUsage: (id: number) => request<ProviderUsage>(`/api/v1/providers/${id}/usage`),
   telegramIntegration: () => request<TelegramIntegration>('/api/v1/integrations/telegram'),
   updateTelegramIntegration: (agentID: number | null) => request<TelegramIntegration>('/api/v1/integrations/telegram', { method: 'PUT', body: JSON.stringify({ agent_id: agentID }) }),
   recentSessions: (limit = 6) => request<{ sessions: RecentSession[] }>(`/api/v1/sessions/recent?limit=${limit}`),

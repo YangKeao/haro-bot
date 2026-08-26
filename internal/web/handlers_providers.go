@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +15,29 @@ import (
 )
 
 const maxModelCatalogBytes = 4 << 20
+const maxProviderUsageBytes = 1 << 20
+
+var errProviderUsageUnsupported = errors.New("provider does not expose usage")
+
+type ProviderUsageWindow struct {
+	Kind          string     `json:"kind"`
+	UsedPercent   float64    `json:"used_percent"`
+	WindowSeconds int64      `json:"window_seconds,omitempty"`
+	ResetsAt      *time.Time `json:"resets_at,omitempty"`
+}
+
+type ProviderUsageLimit struct {
+	ID           string                `json:"id"`
+	Name         string                `json:"name"`
+	Allowed      bool                  `json:"allowed"`
+	LimitReached bool                  `json:"limit_reached"`
+	Windows      []ProviderUsageWindow `json:"windows"`
+}
+
+type ProviderUsage struct {
+	FetchedAt time.Time            `json:"fetched_at"`
+	Limits    []ProviderUsageLimit `json:"limits"`
+}
 
 type providerInput struct {
 	Name             string  `json:"name"`
@@ -170,6 +194,36 @@ func (s *Server) handleGetProviderModels(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+func (s *Server) handleGetProviderUsage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	id, err := parseID(r, "providerID")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_id", err.Error())
+		return
+	}
+	provider, err := s.store.GetProvider(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	usage, err := fetchProviderUsage(ctx, http.DefaultClient, provider.BaseURL, provider.APIKey)
+	if err != nil {
+		switch {
+		case errors.Is(err, errProviderUsageUnsupported):
+			writeError(w, http.StatusNotImplemented, "provider_usage_unsupported", "This provider does not expose compatible usage data.")
+		case errors.Is(err, context.DeadlineExceeded):
+			writeError(w, http.StatusGatewayTimeout, "provider_usage_timeout", "The provider usage request timed out.")
+		default:
+			writeError(w, http.StatusBadGateway, "provider_usage_failed", err.Error())
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, usage)
+}
+
 func (s *Server) handleRefreshProviderModels(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r, "providerID")
 	if err != nil {
@@ -229,6 +283,60 @@ func discoverProviderModels(ctx context.Context, client *http.Client, baseURL, a
 		return nil, fmt.Errorf("provider returned %s", resp.Status)
 	}
 	return normalizeModelCatalog(body)
+}
+
+func fetchProviderUsage(ctx context.Context, client *http.Client, baseURL, apiKey string) (ProviderUsage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/usage", nil)
+	if err != nil {
+		return ProviderUsage{}, err
+	}
+	req.Header.Set("Accept", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ProviderUsage{}, fmt.Errorf("provider usage request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusNotImplemented {
+		return ProviderUsage{}, fmt.Errorf("%w: provider returned %s", errProviderUsageUnsupported, resp.Status)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return ProviderUsage{}, fmt.Errorf("provider usage request returned %s", resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxProviderUsageBytes+1))
+	if err != nil {
+		return ProviderUsage{}, fmt.Errorf("read provider usage response: %w", err)
+	}
+	if len(body) > maxProviderUsageBytes {
+		return ProviderUsage{}, errors.New("provider usage response exceeds 1 MiB")
+	}
+	var usage ProviderUsage
+	if err := json.Unmarshal(body, &usage); err != nil {
+		return ProviderUsage{}, errors.New("provider returned invalid usage JSON")
+	}
+	if err := validateProviderUsage(usage); err != nil {
+		return ProviderUsage{}, err
+	}
+	return usage, nil
+}
+
+func validateProviderUsage(usage ProviderUsage) error {
+	if usage.FetchedAt.IsZero() || usage.Limits == nil {
+		return errors.New("provider returned malformed usage data")
+	}
+	for _, limit := range usage.Limits {
+		if strings.TrimSpace(limit.ID) == "" || strings.TrimSpace(limit.Name) == "" || limit.Windows == nil {
+			return errors.New("provider returned malformed usage data")
+		}
+		for _, window := range limit.Windows {
+			if (window.Kind != "primary" && window.Kind != "secondary") || math.IsNaN(window.UsedPercent) || math.IsInf(window.UsedPercent, 0) || window.UsedPercent < 0 || window.WindowSeconds < 0 {
+				return errors.New("provider returned malformed usage data")
+			}
+		}
+	}
+	return nil
 }
 
 func normalizeModelCatalog(body []byte) ([]ModelCapability, error) {
