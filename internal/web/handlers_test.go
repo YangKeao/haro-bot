@@ -180,7 +180,7 @@ func TestAttachmentNameAndPreviewSafety(t *testing.T) {
 	if got := sanitizeAttachmentName("\x00\n"); got != "attachment" {
 		t.Fatalf("control-only name = %q", got)
 	}
-	if !isPreviewImage("image/png") || isPreviewImage("image/svg+xml") || isPreviewImage("text/html") {
+	if !isPreviewImage("image/png") || !isPreviewImage("image/gif") || isPreviewImage("image/svg+xml") || isPreviewImage("text/html") {
 		t.Fatal("preview MIME allowlist is unsafe")
 	}
 }

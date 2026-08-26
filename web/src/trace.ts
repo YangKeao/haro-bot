@@ -1,4 +1,4 @@
-import type { Message, RunEvent, TraceStep, ToolCall } from './types'
+import type { Attachment, Message, RunEvent, TraceStep, ToolCall } from './types'
 
 export type ConversationTurn = {
   id: string
@@ -13,9 +13,10 @@ export type LiveRunState = {
   answerTurn?: number
   trace: TraceStep[]
   toolTurns: number[]
+  attachments: Attachment[]
 }
 
-export const emptyLiveRun: LiveRunState = { answer: '', trace: [], toolTurns: [] }
+export const emptyLiveRun: LiveRunState = { answer: '', trace: [], toolTurns: [], attachments: [] }
 
 export function buildConversationTurns(messages: Message[] = []): ConversationTurn[] {
   const groups: Array<{ id: string; user?: Message; messages: Message[] }> = []
@@ -30,12 +31,19 @@ export function buildConversationTurns(messages: Message[] = []): ConversationTu
 
   return groups.map(group => {
     const trace: TraceStep[] = []
+    const attachments: Attachment[] = []
+    const attachmentIDs = new Set<string>()
     let assistant: Message | undefined
     let lastAssistant: Message | undefined
     let status: string | undefined
 
     for (const message of group.messages) {
       const metadata = message.metadata || {}
+      for (const attachment of message.attachments || []) {
+        if (attachmentIDs.has(attachment.id)) continue
+        attachmentIDs.add(attachment.id)
+        attachments.push(attachment)
+      }
       if (message.role === 'assistant') {
         lastAssistant = message
         status = metadata.status || status
@@ -56,6 +64,7 @@ export function buildConversationTurns(messages: Message[] = []): ConversationTu
     }
 
     if (!assistant && lastAssistant) assistant = { ...lastAssistant, content: '' }
+    if (assistant && attachments.length) assistant = { ...assistant, attachments }
     return { id: group.id, user: group.user, assistant, trace, status }
   })
 }
@@ -176,6 +185,11 @@ export function reduceRunEvent(state: LiveRunState, event: RunEvent): LiveRunSta
       toolTurns: !localTool || state.toolTurns.includes(turn) ? state.toolTurns : [...state.toolTurns, turn],
     }
   }
+  if (event.event === 'attachment.created') {
+    const attachment = attachmentValue(data.attachment)
+    if (!attachment || state.attachments.some(item => item.id === attachment.id)) return state
+    return { ...state, attachments: [...state.attachments, attachment] }
+  }
   if (event.event === 'run.failed' || event.event === 'run.cancelled') {
     const status = event.event === 'run.cancelled' ? 'cancelled' : 'error'
     return { ...state, trace: state.trace.map(step => step.status === 'running' || step.status === 'searching' || step.status === 'preparing' ? { ...step, status } : step) }
@@ -210,4 +224,11 @@ function serializedValue(value: unknown) {
   if (typeof value === 'string') return value
   if (value === undefined || value === null) return ''
   try { return JSON.stringify(value) } catch { return String(value) }
+}
+
+function attachmentValue(value: unknown): Attachment | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const attachment = value as Partial<Attachment>
+  if (typeof attachment.id !== 'string' || typeof attachment.name !== 'string' || typeof attachment.mime_type !== 'string' || typeof attachment.size_bytes !== 'number') return undefined
+  return attachment as Attachment
 }

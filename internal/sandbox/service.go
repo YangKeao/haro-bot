@@ -682,6 +682,18 @@ func (s *Service) WriteFile(ctx context.Context, agentID int64, input FileWriteR
 	return runtime.WriteFile(ctx, target, input, body)
 }
 
+func (s *Service) ReadFile(ctx context.Context, agentID int64, input FileReadRequest) (FileReadResult, error) {
+	_, target, err := s.targetForAgent(ctx, agentID)
+	if err != nil {
+		return FileReadResult{}, err
+	}
+	runtime, ok := s.runtime.(FileReadRuntime)
+	if !ok {
+		return FileReadResult{}, errors.New("sandbox runtime does not support file publishing; restart the sandbox to update its runtime helper")
+	}
+	return runtime.ReadFile(ctx, target, input)
+}
+
 func (s *Service) targetForAgent(ctx context.Context, agentID int64) (Profile, RuntimeTarget, error) {
 	if !s.Enabled() {
 		return Profile{}, RuntimeTarget{}, errors.New("sandbox support is disabled")

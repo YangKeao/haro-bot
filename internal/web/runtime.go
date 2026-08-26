@@ -84,6 +84,7 @@ func (r *RuntimeRegistry) Get(ctx context.Context, id int64) (*agent.Agent, Agen
 	scopedTools.Register(readSkill)
 	scopedTools.Register(tools.NewActivateSkillCompatTool(readSkill))
 	if profile.SandboxID != nil && r.sandboxes != nil && r.sandboxes.Enabled() {
+		scopedTools.Register(&publishAttachmentTool{agentID: id, store: r.store, objects: r.objects, sandbox: r.sandboxes})
 		scopedTools.Register(tools.NewSandboxExecCommandTool(id, r.sandboxes))
 		scopedTools.Register(tools.NewSandboxWriteStdinTool(id, r.sandboxes))
 	}

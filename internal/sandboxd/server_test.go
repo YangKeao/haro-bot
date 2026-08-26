@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/YangKeao/haro-bot/internal/sandbox"
 	"github.com/YangKeao/haro-bot/internal/skillbundle"
+	"golang.org/x/sys/unix"
 )
 
 func TestServerWritesAttachmentAtomicallyInsideWorkspace(t *testing.T) {
@@ -70,6 +72,62 @@ func TestServerRejectsAttachmentTraversalSymlinksAndHashMismatch(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(workspace, "bad-hash.zip")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("hash mismatch left a destination file: %v", err)
 	}
+}
+
+func TestServerStreamsRegularWorkspaceFiles(t *testing.T) {
+	workspace := t.TempDir()
+	runtime, err := New(workspace, "test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(runtime.Handler())
+	t.Cleanup(server.Close)
+
+	if err := os.MkdirAll(filepath.Join(workspace, "generated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("generated image bytes")
+	if err := os.WriteFile(filepath.Join(workspace, "generated", "output.png"), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	response := requestReadFile(t, server.URL, "test-token", "generated/output.png", http.StatusOK)
+	defer response.Body.Close()
+	if response.ContentLength != int64(len(content)) {
+		t.Fatalf("content length = %d, want %d", response.ContentLength, len(content))
+	}
+	data, err := io.ReadAll(response.Body)
+	if err != nil || !bytes.Equal(data, content) {
+		t.Fatalf("streamed content mismatch: %q, %v", data, err)
+	}
+}
+
+func TestServerRejectsUnsafeWorkspaceFileReads(t *testing.T) {
+	workspace := t.TempDir()
+	runtime, err := New(workspace, "test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(runtime.Handler())
+	t.Cleanup(server.Close)
+
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "linked.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(workspace, "directory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mkfifo(filepath.Join(workspace, "pipe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requestReadFile(t, server.URL, "test-token", "../outside.txt", http.StatusBadRequest).Body.Close()
+	requestReadFile(t, server.URL, "test-token", "linked.txt", http.StatusBadRequest).Body.Close()
+	requestReadFile(t, server.URL, "test-token", "directory", http.StatusBadRequest).Body.Close()
+	requestReadFile(t, server.URL, "test-token", "pipe", http.StatusBadRequest).Body.Close()
+	requestReadFile(t, server.URL, "wrong-token", "linked.txt", http.StatusUnauthorized).Body.Close()
 }
 
 func TestServerMaterializesSkillIdempotentlyAndExecutesScript(t *testing.T) {
@@ -319,4 +377,24 @@ func requestFile(t *testing.T, baseURL, token, destination string, overwrite boo
 			t.Fatal(err)
 		}
 	}
+}
+
+func requestReadFile(t *testing.T, baseURL, token, source string, wantStatus int) *http.Response {
+	t.Helper()
+	query := url.Values{"path": []string{source}}
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/v1/files?"+query.Encode(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != wantStatus {
+		defer response.Body.Close()
+		data, _ := io.ReadAll(response.Body)
+		t.Fatalf("status = %d, want %d: %s", response.StatusCode, wantStatus, data)
+	}
+	return response
 }

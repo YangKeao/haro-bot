@@ -42,6 +42,10 @@ type FileRuntime interface {
 	WriteFile(context.Context, RuntimeTarget, FileWriteRequest, io.Reader) (FileWriteResult, error)
 }
 
+type FileReadRuntime interface {
+	ReadFile(context.Context, RuntimeTarget, FileReadRequest) (FileReadResult, error)
+}
+
 type HTTPRuntime struct {
 	RequestTimeout time.Duration
 }
@@ -172,6 +176,49 @@ func (r *HTTPRuntime) WriteFile(ctx context.Context, target RuntimeTarget, input
 		return output, fmt.Errorf("decode sandbox runtime response: %w", err)
 	}
 	return output, nil
+}
+
+func (r *HTTPRuntime) ReadFile(ctx context.Context, target RuntimeTarget, input FileReadRequest) (FileReadResult, error) {
+	var output FileReadResult
+	client, err := runtimeHTTPClient(target, 0)
+	if err != nil {
+		return output, err
+	}
+	query := url.Values{}
+	query.Set("path", input.Path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(target.BaseURL, "/")+"/v1/files?"+query.Encode(), nil)
+	if err != nil {
+		return output, err
+	}
+	req.Header.Set("Accept", "application/octet-stream")
+	req.Header.Set("Authorization", "Bearer "+target.Token)
+	resp, err := client.Do(req)
+	if err != nil {
+		return output, fmt.Errorf("sandbox runtime request: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if readErr != nil {
+			return output, readErr
+		}
+		var detail struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(data, &detail)
+		if detail.Error == "" {
+			detail.Error = strings.TrimSpace(string(data))
+		}
+		if detail.Error == "" {
+			detail.Error = resp.Status
+		}
+		return output, fmt.Errorf("sandbox runtime: %s", detail.Error)
+	}
+	if resp.ContentLength < 0 {
+		_ = resp.Body.Close()
+		return output, errors.New("sandbox runtime did not report file size")
+	}
+	return FileReadResult{Body: resp.Body, SizeBytes: resp.ContentLength}, nil
 }
 
 func (r *HTTPRuntime) timeout() time.Duration {

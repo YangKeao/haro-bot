@@ -83,3 +83,26 @@ func TestWebProgressLegacyReasoningCreatesSeparateStepsPerTurn(t *testing.T) {
 		t.Fatalf("reasoning turns were merged: %+v", trace)
 	}
 }
+
+func TestWebProgressEmitsPublishedAttachments(t *testing.T) {
+	progress := newWebProgress(func(_ context.Context, id string) (AttachmentRecord, error) {
+		return AttachmentRecord{ID: id, OriginalName: "output.zip", MIMEType: "application/zip", SizeBytes: 42}, nil
+	})
+	message := agent.StoredMessage{
+		EntryID:  1,
+		Message:  llm.Message{Role: "tool", ToolCallID: "publish-call", Content: "published"},
+		Metadata: &memory.MessageMetadata{ToolCallID: "publish-call", Status: "ok", ArtifactIDs: []string{"artifact-1"}},
+	}
+	if err := progress.OnToolResults(context.Background(), &agent.TurnState{Index: 2}, []agent.StoredMessage{message}); err != nil {
+		t.Fatal(err)
+	}
+	if event := <-progress.events; event.Name != "tool.completed" {
+		t.Fatalf("first event = %q", event.Name)
+	}
+	event := <-progress.events
+	data, ok := event.Data.(map[string]any)
+	attachment, attachmentOK := data["attachment"].(AttachmentRecord)
+	if event.Name != "attachment.created" || !ok || !attachmentOK || attachment.ID != "artifact-1" || data["turn_index"] != 2 {
+		t.Fatalf("unexpected attachment event: %#v", event)
+	}
+}

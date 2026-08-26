@@ -134,9 +134,22 @@ func TestStoreAgentSessionLifecycle(t *testing.T) {
 	if _, err := store.GetAttachment(ctx, 7, attachment.ID); err == nil {
 		t.Fatal("another user unexpectedly accessed the attachment")
 	}
+	published, err := store.CreateAttachmentForAgent(ctx, agent.ID, session.ID, "report.zip", "application/zip", "published-artifacts/report.zip", 256, strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatalf("create agent-published attachment: %v", err)
+	}
+	if published.SessionID != session.ID || published.OriginalName != "report.zip" {
+		t.Fatalf("unexpected agent-published attachment: %#v", published)
+	}
+	if _, err := store.CreateAttachmentForAgent(ctx, otherAgent.ID, session.ID, "forbidden.txt", "text/plain", "published-artifacts/forbidden.txt", 1, strings.Repeat("c", 64)); err == nil {
+		t.Fatal("another agent unexpectedly published to the session")
+	}
 
 	if err := store.SetSessionArchived(ctx, 42, session.ID, true); err != nil {
 		t.Fatalf("archive session: %v", err)
+	}
+	if _, err := store.CreateAttachmentForAgent(ctx, agent.ID, session.ID, "archived.txt", "text/plain", "published-artifacts/archived.txt", 1, strings.Repeat("d", 64)); err == nil {
+		t.Fatal("agent unexpectedly published to an archived session")
 	}
 	active, err := store.ListSessions(ctx, 42, agent.ID, false)
 	if err != nil || len(active) != 0 {

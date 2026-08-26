@@ -21,6 +21,7 @@ import (
 	"github.com/YangKeao/haro-bot/internal/sandbox"
 	"github.com/YangKeao/haro-bot/internal/skillbundle"
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -89,11 +90,74 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/processes/{processID}/resize", s.handleResize)
 	mux.HandleFunc("POST /v1/processes/{processID}/signal", s.handleSignal)
 	mux.HandleFunc("PUT /v1/skills/{hash}", s.handleEnsureSkill)
+	mux.HandleFunc("GET /v1/files", s.handleReadFile)
 	mux.HandleFunc("PUT /v1/files", s.handleWriteFile)
 	mux.HandleFunc("POST /v1/mcp/tools", s.handleListMCPTools)
 	mux.HandleFunc("POST /v1/mcp/call", s.handleCallMCPTool)
 	mux.HandleFunc("DELETE /v1/mcp/sessions/{key}", s.handleCloseMCPSession)
 	return s.authenticate(mux)
+}
+
+func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
+	requestedPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	if requestedPath == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	file, size, err := s.openWorkspaceFile(requestedPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer file.Close()
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.CopyN(w, file, size)
+}
+
+func (s *Server) openWorkspaceFile(raw string) (*os.File, int64, error) {
+	target, err := s.fileDestination(raw)
+	if err != nil {
+		return nil, 0, err
+	}
+	relative, err := filepath.Rel(s.workspace, target)
+	if err != nil || relative == "." || relative == "" || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return nil, 0, errors.New("source must be a file within /workspace")
+	}
+	current, err := os.Open(s.workspace)
+	if err != nil {
+		return nil, 0, errors.New("workspace is unavailable")
+	}
+	components := strings.Split(relative, string(filepath.Separator))
+	for index, component := range components {
+		flags := unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NOFOLLOW | unix.O_NONBLOCK
+		if index < len(components)-1 {
+			flags |= unix.O_DIRECTORY
+		}
+		fd, openErr := unix.Openat(int(current.Fd()), component, flags, 0)
+		_ = current.Close()
+		if openErr != nil {
+			return nil, 0, errors.New("source file is unavailable or contains a symbolic link")
+		}
+		current = os.NewFile(uintptr(fd), component)
+		if current == nil {
+			_ = unix.Close(fd)
+			return nil, 0, errors.New("source file is unavailable")
+		}
+	}
+	info, err := current.Stat()
+	if err != nil {
+		_ = current.Close()
+		return nil, 0, errors.New("source file is unavailable")
+	}
+	if !info.Mode().IsRegular() {
+		_ = current.Close()
+		return nil, 0, errors.New("source must be a regular file")
+	}
+	return current, info.Size(), nil
 }
 
 func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {

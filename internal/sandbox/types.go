@@ -1,6 +1,9 @@
 package sandbox
 
-import "time"
+import (
+	"io"
+	"time"
+)
 
 const (
 	StateRunning   = "Running"
@@ -209,4 +212,14 @@ type FileWriteResult struct {
 	Path      string `json:"path"`
 	SizeBytes int64  `json:"size_bytes"`
 	SHA256    string `json:"sha256"`
+}
+
+type FileReadRequest struct {
+	Path string
+}
+
+// FileReadResult owns Body. Callers must close it after consuming the stream.
+type FileReadResult struct {
+	Body      io.ReadCloser
+	SizeBytes int64
 }

@@ -8,6 +8,8 @@ import (
 
 	"github.com/YangKeao/haro-bot/internal/agent"
 	"github.com/YangKeao/haro-bot/internal/llm"
+	"github.com/YangKeao/haro-bot/internal/logging"
+	"go.uber.org/zap"
 )
 
 type streamEvent struct {
@@ -19,22 +21,27 @@ type webProgress struct {
 	events chan streamEvent
 	mu     sync.Mutex
 
-	content       string
-	reasoning     string
-	sequence      int64
-	trace         []llm.TraceStep
-	traceIndexes  map[string]int
-	openReasoning map[int]string
-	seenTools     map[string]bool
+	content         string
+	reasoning       string
+	sequence        int64
+	trace           []llm.TraceStep
+	traceIndexes    map[string]int
+	openReasoning   map[int]string
+	seenTools       map[string]bool
+	resolveArtifact func(context.Context, string) (AttachmentRecord, error)
 }
 
-func newWebProgress() *webProgress {
-	return &webProgress{
+func newWebProgress(resolvers ...func(context.Context, string) (AttachmentRecord, error)) *webProgress {
+	progress := &webProgress{
 		events:        make(chan streamEvent, 64),
 		traceIndexes:  make(map[string]int),
 		openReasoning: make(map[int]string),
 		seenTools:     make(map[string]bool),
 	}
+	if len(resolvers) > 0 {
+		progress.resolveArtifact = resolvers[0]
+	}
+	return progress
 }
 
 func (p *webProgress) Name() string  { return "web_sse" }
@@ -208,6 +215,16 @@ func (p *webProgress) OnToolResults(ctx context.Context, turn *agent.TurnState, 
 			"id": step.ID, "kind": "tool", "tool_kind": "function", "status": status,
 			"content": content, "detail": detail, "truncated": truncated,
 		})
+		if message.Metadata != nil && p.resolveArtifact != nil {
+			for _, id := range message.Metadata.ArtifactIDs {
+				attachment, err := p.resolveArtifact(ctx, id)
+				if err != nil {
+					logging.L().Named("web_sse").Warn("resolve published attachment", zap.String("attachment_id", id), zap.Error(err))
+					continue
+				}
+				p.emit(ctx, "attachment.created", map[string]any{"attachment": attachment, "turn_index": turnIndex})
+			}
+		}
 	}
 	return nil
 }

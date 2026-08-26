@@ -42,6 +42,17 @@ describe('buildConversationTurns', () => {
     expect(turns[0].trace.map(step => step.kind)).toEqual(['reasoning', 'tool'])
     expect(turns[0].trace[1].result).toBe('old result')
   })
+
+  it('aggregates tool artifacts into the final assistant message', () => {
+    const artifact = attachment('artifact-1', 'result.png', 'image/png')
+    const turns = buildConversationTurns([
+      message(1, 'user', 'Generate an image'),
+      message(2, 'assistant', '', { tool_calls: [{ id: 'publish', type: 'function', function: { name: 'publish_attachment', arguments: '{}' } }] }),
+      { ...message(3, 'tool', 'published', { tool_call_id: 'publish', status: 'ok', artifact_ids: [artifact.id] }), attachments: [artifact] },
+      message(4, 'assistant', 'Done.'),
+    ])
+    expect(turns[0].assistant?.attachments).toEqual([artifact])
+  })
 })
 
 describe('reduceRunEvent', () => {
@@ -76,6 +87,15 @@ describe('reduceRunEvent', () => {
     expect(state.answer).toBe('Final.')
     expect(state.trace.map(step => step.kind)).toEqual(['commentary', 'tool', 'reasoning'])
   })
+
+  it('adds live attachments once', () => {
+    const artifact = attachment('artifact-1', 'report.zip', 'application/zip')
+    const state = [
+      runEvent('attachment.created', { attachment: artifact, turn_index: 1 }),
+      runEvent('attachment.created', { attachment: artifact, turn_index: 1 }),
+    ].reduce(reduceRunEvent, emptyLiveRun)
+    expect(state.attachments).toEqual([artifact])
+  })
 })
 
 function message(id: number, role: Message['role'], content: string, metadata?: Message['metadata']): Message {
@@ -83,3 +103,7 @@ function message(id: number, role: Message['role'], content: string, metadata?: 
 }
 
 function runEvent(event: string, data: Record<string, unknown>): RunEvent { return { event, data } }
+
+function attachment(id: string, name: string, mimeType: string) {
+  return { id, session_id: 1, name, mime_type: mimeType, size_bytes: 12, created_at: new Date(0).toISOString() }
+}

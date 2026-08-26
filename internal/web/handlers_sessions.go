@@ -246,7 +246,9 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	writeSSE(w, flusher, "run.started", map[string]any{"run_id": runID, "session_id": sessionID})
 	writeSSE(w, flusher, "message.created", map[string]any{"role": "user", "content": input.Content, "attachment_ids": input.AttachmentIDs})
 
-	progress := newWebProgress()
+	progress := newWebProgress(func(ctx context.Context, id string) (AttachmentRecord, error) {
+		return s.store.GetAttachment(ctx, s.userID, id)
+	})
 	type runResult struct {
 		output string
 		err    error
@@ -433,7 +435,7 @@ func (s *Server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
 	defer reader.Close()
 	w.Header().Set("Content-Type", attachment.MIMEType)
 	disposition := "attachment"
-	if isPreviewImage(attachment.MIMEType) {
+	if r.URL.Query().Get("download") != "1" && isPreviewImage(attachment.MIMEType) {
 		disposition = "inline"
 	}
 	if value := mime.FormatMediaType(disposition, map[string]string{"filename": attachment.OriginalName}); value != "" {
@@ -442,12 +444,13 @@ func (s *Server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.FormatInt(attachment.SizeBytes, 10))
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	_, _ = io.Copy(w, reader)
 }
 
 func isPreviewImage(mimeType string) bool {
 	switch strings.ToLower(strings.TrimSpace(strings.SplitN(mimeType, ";", 2)[0])) {
-	case "image/jpeg", "image/png", "image/webp":
+	case "image/jpeg", "image/png", "image/webp", "image/gif":
 		return true
 	default:
 		return false

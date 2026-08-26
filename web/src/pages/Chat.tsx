@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, FileArchive, FileIcon, LoaderCircle, MoreHorizontal, Paperclip, Pencil, Plus, Send, Sparkles, Square, X } from 'lucide-react'
+import { Archive, Download, FileArchive, FileIcon, LoaderCircle, MoreHorizontal, Paperclip, Pencil, Plus, Send, Sparkles, Square, X } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -23,7 +23,7 @@ interface UploadItem {
 }
 
 function isPreviewAttachment(attachment: Pick<Attachment, 'mime_type'>) {
-  return ['image/jpeg', 'image/png', 'image/webp'].includes(attachment.mime_type.toLowerCase().split(';', 1)[0])
+  return ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(attachment.mime_type.toLowerCase().split(';', 1)[0])
 }
 
 function isArchiveName(name: string) {
@@ -39,13 +39,22 @@ function formatBytes(bytes: number) {
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`
 }
 
-function AttachmentLink({ attachment, removable, onRemove }: { attachment: Attachment; removable?: boolean; onRemove?: () => void }) {
+export function AttachmentLink({ attachment, removable, onRemove }: { attachment: Attachment; removable?: boolean; onRemove?: () => void }) {
   const preview = isPreviewAttachment(attachment)
-  return <div className={`attachment-item ${preview ? 'preview' : 'file'}`}>
-    <a href={`/api/v1/attachments/${attachment.id}`} target={preview ? '_blank' : undefined} rel="noreferrer">
-      {preview ? <img src={`/api/v1/attachments/${attachment.id}`} alt={attachment.name} /> : <><span className="attachment-icon">{isArchiveName(attachment.name) ? <FileArchive /> : <FileIcon />}</span><span className="attachment-copy"><strong>{attachment.name}</strong><small>{formatBytes(attachment.size_bytes)}</small></span></>}
-    </a>
-    {removable && <button onClick={onRemove} aria-label={`Remove ${attachment.name}`}><X /></button>}
+  const url = `/api/v1/attachments/${attachment.id}`
+  const download = <a className="attachment-download" href={`${url}?download=1`} download={attachment.name} aria-label={`Download ${attachment.name}`} title={`Download ${attachment.name}`}><Download /><span>Download</span></a>
+  if (preview) {
+    return <div className="attachment-item preview">
+      <a className="attachment-preview-link" href={url} target="_blank" rel="noreferrer" aria-label={`Open ${attachment.name}`}><img src={url} alt={attachment.name} loading="lazy" /></a>
+      {!removable && <div className="attachment-footer"><span className="attachment-copy"><strong>{attachment.name}</strong><small>{formatBytes(attachment.size_bytes)}</small></span>{download}</div>}
+      {removable && <button className="attachment-remove" onClick={onRemove} aria-label={`Remove ${attachment.name}`}><X /></button>}
+    </div>
+  }
+  return <div className="attachment-item file">
+    <span className="attachment-icon">{isArchiveName(attachment.name) ? <FileArchive /> : <FileIcon />}</span>
+    <span className="attachment-copy"><strong>{attachment.name}</strong><small>{attachment.mime_type || 'File'} · {formatBytes(attachment.size_bytes)}</small></span>
+    {!removable && download}
+    {removable && <button className="attachment-remove" onClick={onRemove} aria-label={`Remove ${attachment.name}`}><X /></button>}
   </div>
 }
 
@@ -185,7 +194,7 @@ export default function Chat() {
       {!activeSessionID ? <div className="chat-empty"><div className="empty-orbit"><Sparkles /></div><h2>Start a fresh conversation</h2><p>Open a new session with {agent.data?.name || 'this agent'}.</p><button className="button primary" onClick={() => createSession.mutate()}><Plus size={16} /> New session</button></div> : <>
         <div className="message-scroll"><div className="message-column">
 		  {messages.isLoading ? <div className="conversation-skeleton"><div /><div /><div /></div> : !messages.data?.messages.length && !running ? <div className="chat-welcome">{agent.data && <AgentAvatar agent={agent.data} size="large" />}<h2>Talk to {agent.data?.name}</h2><p>{agent.data?.description || 'Send a message or attach a file to get started.'}</p></div> : conversationTurns.map(turn => <div className="conversation-turn" key={turn.id}>{turn.user && <MessageBubble message={turn.user} agent={agent.data} />}{turn.assistant && <MessageBubble message={turn.assistant} agent={agent.data} trace={turn.trace} onOpenTrace={() => setTracePanel(`turn-${turn.id}`)} />}</div>)}
-		  {(running || liveRun.answer || liveRun.trace.length > 0) && <MessageBubble message={{ ...streamSeed(activeSessionID), content: liveRun.answer }} agent={agent.data} trace={liveRun.trace} running={running} onOpenTrace={() => setTracePanel('live')} />}
+		  {(running || liveRun.answer || liveRun.trace.length > 0 || liveRun.attachments.length > 0) && <MessageBubble message={{ ...streamSeed(activeSessionID), content: liveRun.answer, attachments: liveRun.attachments }} agent={agent.data} trace={liveRun.trace} running={running} onOpenTrace={() => setTracePanel('live')} />}
           {error && <div className="run-error"><span>Run interrupted</span><p>{error}</p></div>}
           <div ref={bottomRef} />
         </div></div>

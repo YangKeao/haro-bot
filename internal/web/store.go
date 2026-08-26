@@ -514,6 +514,22 @@ func (s *Store) CreateAttachment(ctx context.Context, userID, sessionID int64, n
 	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
 		return AttachmentRecord{}, err
 	}
+	return s.createAttachment(ctx, sessionID, name, mime, objectKey, size, sha256)
+}
+
+func (s *Store) CreateAttachmentForAgent(ctx context.Context, agentID, sessionID int64, name, mime, objectKey string, size int64, sha256 string) (AttachmentRecord, error) {
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&dbmodel.Session{}).
+		Where("id = ? AND agent_id = ? AND archived_at IS NULL", sessionID, agentID).Count(&count).Error; err != nil {
+		return AttachmentRecord{}, err
+	}
+	if count != 1 {
+		return AttachmentRecord{}, gorm.ErrRecordNotFound
+	}
+	return s.createAttachment(ctx, sessionID, name, mime, objectKey, size, sha256)
+}
+
+func (s *Store) createAttachment(ctx context.Context, sessionID int64, name, mime, objectKey string, size int64, sha256 string) (AttachmentRecord, error) {
 	id, err := randomID("", 16)
 	if err != nil {
 		return AttachmentRecord{}, err
