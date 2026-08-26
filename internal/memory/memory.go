@@ -42,13 +42,24 @@ func NewStore(db *gorm.DB, opts ...StoreOption) StoreAPI {
 
 // Message is a persisted chat message within a session.
 type Message struct {
-	ID        int64
-	SessionID int64
-	Role      string
-	Content   string
-	Metadata  *MessageMetadata
-	Images    []llm.ImageContent
-	CreatedAt time.Time
+	ID          int64
+	SessionID   int64
+	Role        string
+	Content     string
+	Metadata    *MessageMetadata
+	Images      []llm.ImageContent
+	Attachments []AttachmentContent
+	CreatedAt   time.Time
+}
+
+// AttachmentContent is safe metadata for a user-uploaded attachment. Object keys
+// and storage credentials deliberately never enter model context.
+type AttachmentContent struct {
+	ID        string
+	Name      string
+	MIMEType  string
+	SizeBytes int64
+	SHA256    string
 }
 
 // MessageMetadata captures tool calls, tool outputs, reasoning content, and other message state.
@@ -452,7 +463,7 @@ func (s *store) loadMessagesAfter(ctx context.Context, sessionID, afterID int64,
 			CreatedAt: r.CreatedAt,
 		})
 	}
-	if s.attachmentLoader != nil && len(messageIndexes) > 0 {
+	if len(messageIndexes) > 0 {
 		ids := make([]int64, 0, len(messageIndexes))
 		for id := range messageIndexes {
 			ids = append(ids, id)
@@ -469,14 +480,29 @@ func (s *store) loadMessagesAfter(ctx context.Context, sessionID, afterID int64,
 			if !ok {
 				continue
 			}
-			url, err := s.attachmentLoader(ctx, attachment.ObjectKey, attachment.MIMEType, attachment.OriginalName)
-			if err != nil {
-				return nil, err
+			msgs[index].Attachments = append(msgs[index].Attachments, AttachmentContent{
+				ID: attachment.ID, Name: attachment.OriginalName, MIMEType: attachment.MIMEType,
+				SizeBytes: attachment.SizeBytes, SHA256: attachment.SHA256,
+			})
+			if s.attachmentLoader != nil && isModelImage(attachment.MIMEType) {
+				url, err := s.attachmentLoader(ctx, attachment.ObjectKey, attachment.MIMEType, attachment.OriginalName)
+				if err != nil {
+					return nil, err
+				}
+				msgs[index].Images = append(msgs[index].Images, llm.ImageContent{URL: url, MIMEType: attachment.MIMEType, Name: attachment.OriginalName})
 			}
-			msgs[index].Images = append(msgs[index].Images, llm.ImageContent{URL: url, MIMEType: attachment.MIMEType, Name: attachment.OriginalName})
 		}
 	}
 	return reverseMessages(msgs), nil
+}
+
+func isModelImage(mimeType string) bool {
+	switch strings.ToLower(strings.TrimSpace(strings.SplitN(mimeType, ";", 2)[0])) {
+	case "image/jpeg", "image/png", "image/webp":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *store) latestMessageID(ctx context.Context, sessionID int64) (int64, error) {

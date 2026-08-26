@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,7 +127,7 @@ func TestStoreAgentSessionLifecycle(t *testing.T) {
 		t.Fatal("another user unexpectedly accessed the session")
 	}
 
-	attachment, err := store.CreateAttachment(ctx, 42, session.ID, "chart.png", "image/png", "attachments/chart.png", 128)
+	attachment, err := store.CreateAttachment(ctx, 42, session.ID, "chart.png", "image/png", "attachments/chart.png", 128, strings.Repeat("a", 64))
 	if err != nil {
 		t.Fatalf("create attachment: %v", err)
 	}

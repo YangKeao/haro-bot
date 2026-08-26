@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -47,7 +48,8 @@ func (s *MCPArtifactSink) SaveMCPArtifact(ctx context.Context, sessionID int64, 
 	if base == "." || base == "" {
 		base = "mcp-artifact" + ext
 	}
-	attachment, err := s.store.CreateAttachment(ctx, s.userID, sessionID, base, detected, objectKey, int64(len(data)))
+	digest := sha256.Sum256(data)
+	attachment, err := s.store.CreateAttachment(ctx, s.userID, sessionID, base, detected, objectKey, int64(len(data)), fmt.Sprintf("%x", digest[:]))
 	if err != nil {
 		_ = s.objects.Delete(ctx, objectKey)
 		return "", err

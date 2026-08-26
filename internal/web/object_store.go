@@ -13,8 +13,6 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-const maxImageBytes int64 = 10 << 20
-
 type ObjectStore struct {
 	client *minio.Client
 	bucket string
@@ -59,11 +57,16 @@ func (s *ObjectStore) EnsureBucket(ctx context.Context, region string) error {
 }
 
 func (s *ObjectStore) Put(ctx context.Context, key, mimeType string, data []byte) error {
-	_, err := s.client.PutObject(ctx, s.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{ContentType: mimeType})
+	_, err := s.PutReader(ctx, key, mimeType, bytes.NewReader(data), int64(len(data)))
+	return err
+}
+
+func (s *ObjectStore) PutReader(ctx context.Context, key, mimeType string, reader io.Reader, size int64) (int64, error) {
+	info, err := s.client.PutObject(ctx, s.bucket, key, reader, size, minio.PutObjectOptions{ContentType: mimeType})
 	if err != nil {
-		return fmt.Errorf("put object: %w", err)
+		return 0, fmt.Errorf("put object: %w", err)
 	}
-	return nil
+	return info.Size, nil
 }
 
 func (s *ObjectStore) Open(ctx context.Context, key string) (io.ReadCloser, error) {
@@ -84,12 +87,9 @@ func (s *ObjectStore) DataURL(ctx context.Context, key, mimeType, _ string) (str
 		return "", err
 	}
 	defer reader.Close()
-	data, err := io.ReadAll(io.LimitReader(reader, maxImageBytes+1))
+	data, err := io.ReadAll(reader)
 	if err != nil {
 		return "", err
-	}
-	if int64(len(data)) > maxImageBytes {
-		return "", fmt.Errorf("stored image exceeds %d bytes", maxImageBytes)
 	}
 	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }

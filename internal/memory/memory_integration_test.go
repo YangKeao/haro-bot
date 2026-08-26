@@ -4,6 +4,7 @@ package memory_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	dbmodel "github.com/YangKeao/haro-bot/internal/db"
@@ -11,6 +12,45 @@ import (
 	"github.com/YangKeao/haro-bot/internal/memory"
 	"github.com/YangKeao/haro-bot/internal/testutil"
 )
+
+func TestMemoryLoadsGenericAttachmentsWithoutTreatingThemAsImages(t *testing.T) {
+	gdb, cleanup := testutil.NewTestDBWithMigrations(t)
+	t.Cleanup(cleanup)
+	var loadedObjects []string
+	store := memory.NewStore(gdb, memory.WithAttachmentLoader(func(_ context.Context, objectKey, _, _ string) (string, error) {
+		loadedObjects = append(loadedObjects, objectKey)
+		return "data:image/png;base64,cG5n", nil
+	}))
+	ctx := context.Background()
+	userID, err := store.GetOrCreateUserByExternalID(ctx, "telegram", "1011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := store.GetOrCreateSession(ctx, userID, "attachments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachments := []dbmodel.Attachment{
+		{ID: "zip-attachment", SessionID: sessionID, ObjectKey: "objects/data.zip", OriginalName: "data.zip", MIMEType: "application/zip", SizeBytes: 12, SHA256: strings.Repeat("a", 64)},
+		{ID: "png-attachment", SessionID: sessionID, ObjectKey: "objects/image.png", OriginalName: "image.png", MIMEType: "image/png", SizeBytes: 8, SHA256: strings.Repeat("b", 64)},
+	}
+	if err := gdb.Create(&attachments).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMessage(ctx, sessionID, "user", "files", &memory.MessageMetadata{AttachmentIDs: []string{"zip-attachment", "png-attachment"}}); err != nil {
+		t.Fatal(err)
+	}
+	messages, _, err := store.LoadViewMessages(ctx, sessionID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 || len(messages[0].Attachments) != 2 || len(messages[0].Images) != 1 {
+		t.Fatalf("unexpected loaded attachments: %+v", messages)
+	}
+	if len(loadedObjects) != 1 || loadedObjects[0] != "objects/image.png" {
+		t.Fatalf("generic file was loaded as an image: %#v", loadedObjects)
+	}
+}
 
 func TestMemoryStoreRoundTrip(t *testing.T) {
 	gdb, cleanup := testutil.NewTestDBWithMigrations(t)

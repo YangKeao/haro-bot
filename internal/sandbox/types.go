@@ -198,3 +198,15 @@ type SkillMaterialization struct {
 	SkillRoot string `json:"skill_root"`
 	Reused    bool   `json:"reused"`
 }
+
+type FileWriteRequest struct {
+	Path      string
+	Overwrite bool
+	SHA256    string
+}
+
+type FileWriteResult struct {
+	Path      string `json:"path"`
+	SizeBytes int64  `json:"size_bytes"`
+	SHA256    string `json:"sha256"`
+}

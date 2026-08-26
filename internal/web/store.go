@@ -506,10 +506,11 @@ type AttachmentRecord struct {
 	OriginalName string    `json:"name"`
 	MIMEType     string    `json:"mime_type"`
 	SizeBytes    int64     `json:"size_bytes"`
+	SHA256       string    `json:"sha256,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-func (s *Store) CreateAttachment(ctx context.Context, userID, sessionID int64, name, mime, objectKey string, size int64) (AttachmentRecord, error) {
+func (s *Store) CreateAttachment(ctx context.Context, userID, sessionID int64, name, mime, objectKey string, size int64, sha256 string) (AttachmentRecord, error) {
 	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
 		return AttachmentRecord{}, err
 	}
@@ -517,7 +518,7 @@ func (s *Store) CreateAttachment(ctx context.Context, userID, sessionID int64, n
 	if err != nil {
 		return AttachmentRecord{}, err
 	}
-	row := dbmodel.Attachment{ID: id, SessionID: sessionID, ObjectKey: objectKey, OriginalName: name, MIMEType: mime, SizeBytes: size}
+	row := dbmodel.Attachment{ID: id, SessionID: sessionID, ObjectKey: objectKey, OriginalName: name, MIMEType: mime, SizeBytes: size, SHA256: sha256}
 	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
 		return AttachmentRecord{}, err
 	}
@@ -529,6 +530,38 @@ func (s *Store) GetAttachment(ctx context.Context, userID int64, id string) (Att
 	err := s.db.WithContext(ctx).Table("attachments").
 		Joins("JOIN sessions ON sessions.id = attachments.session_id").
 		Where("attachments.id = ? AND attachments.deleted_at IS NULL AND sessions.user_id = ?", id, userID).
+		Select("attachments.*").First(&row).Error
+	if err != nil {
+		return AttachmentRecord{}, err
+	}
+	return attachmentFromRow(row), nil
+}
+
+func (s *Store) ListSessionAttachmentsForAgent(ctx context.Context, agentID, sessionID int64, offset, limit int) ([]AttachmentRecord, error) {
+	var rows []dbmodel.Attachment
+	query := s.db.WithContext(ctx).Table("attachments").
+		Joins("JOIN sessions ON sessions.id = attachments.session_id").
+		Where("attachments.session_id = ? AND sessions.agent_id = ? AND attachments.message_id IS NOT NULL AND attachments.deleted_at IS NULL", sessionID, agentID).
+		Select("attachments.*").Order("attachments.created_at ASC, attachments.id ASC").Offset(offset)
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	err := query.Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AttachmentRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, attachmentFromRow(row))
+	}
+	return out, nil
+}
+
+func (s *Store) GetSessionAttachmentForAgent(ctx context.Context, agentID, sessionID int64, id string) (AttachmentRecord, error) {
+	var row dbmodel.Attachment
+	err := s.db.WithContext(ctx).Table("attachments").
+		Joins("JOIN sessions ON sessions.id = attachments.session_id").
+		Where("attachments.id = ? AND attachments.session_id = ? AND sessions.agent_id = ? AND attachments.message_id IS NOT NULL AND attachments.deleted_at IS NULL", id, sessionID, agentID).
 		Select("attachments.*").First(&row).Error
 	if err != nil {
 		return AttachmentRecord{}, err
@@ -563,7 +596,7 @@ func (s *Store) OrphanAttachments(ctx context.Context, before time.Time) ([]Atta
 }
 
 func attachmentFromRow(row dbmodel.Attachment) AttachmentRecord {
-	return AttachmentRecord{ID: row.ID, SessionID: row.SessionID, MessageID: row.MessageID, ObjectKey: row.ObjectKey, OriginalName: row.OriginalName, MIMEType: row.MIMEType, SizeBytes: row.SizeBytes, CreatedAt: row.CreatedAt}
+	return AttachmentRecord{ID: row.ID, SessionID: row.SessionID, MessageID: row.MessageID, ObjectKey: row.ObjectKey, OriginalName: row.OriginalName, MIMEType: row.MIMEType, SizeBytes: row.SizeBytes, SHA256: row.SHA256, CreatedAt: row.CreatedAt}
 }
 
 type MessageRecord struct {

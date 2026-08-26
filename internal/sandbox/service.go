@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
@@ -667,6 +668,18 @@ func (s *Service) EnsureSkill(ctx context.Context, agentID int64, hash, root str
 		return SkillMaterialization{}, errors.New("sandbox runtime does not support skill materialization")
 	}
 	return runtime.EnsureSkill(ctx, target, hash, archive)
+}
+
+func (s *Service) WriteFile(ctx context.Context, agentID int64, input FileWriteRequest, body io.Reader) (FileWriteResult, error) {
+	_, target, err := s.targetForAgent(ctx, agentID)
+	if err != nil {
+		return FileWriteResult{}, err
+	}
+	runtime, ok := s.runtime.(FileRuntime)
+	if !ok {
+		return FileWriteResult{}, errors.New("sandbox runtime does not support file materialization")
+	}
+	return runtime.WriteFile(ctx, target, input, body)
 }
 
 func (s *Service) targetForAgent(ctx context.Context, agentID int64) (Profile, RuntimeTarget, error) {

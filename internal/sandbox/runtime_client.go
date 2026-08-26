@@ -38,6 +38,10 @@ type SkillRuntime interface {
 	EnsureSkill(context.Context, RuntimeTarget, string, []byte) (SkillMaterialization, error)
 }
 
+type FileRuntime interface {
+	WriteFile(context.Context, RuntimeTarget, FileWriteRequest, io.Reader) (FileWriteResult, error)
+}
+
 type HTTPRuntime struct {
 	RequestTimeout time.Duration
 }
@@ -114,6 +118,53 @@ func (r *HTTPRuntime) EnsureSkill(ctx context.Context, target RuntimeTarget, has
 		_ = json.Unmarshal(data, &detail)
 		if detail.Error == "" {
 			detail.Error = strings.TrimSpace(string(data))
+		}
+		return output, fmt.Errorf("sandbox runtime: %s", detail.Error)
+	}
+	if err := json.Unmarshal(data, &output); err != nil {
+		return output, fmt.Errorf("decode sandbox runtime response: %w", err)
+	}
+	return output, nil
+}
+
+func (r *HTTPRuntime) WriteFile(ctx context.Context, target RuntimeTarget, input FileWriteRequest, body io.Reader) (FileWriteResult, error) {
+	var output FileWriteResult
+	client, err := runtimeHTTPClient(target, 0)
+	if err != nil {
+		return output, err
+	}
+	query := url.Values{}
+	query.Set("path", input.Path)
+	query.Set("overwrite", strconv.FormatBool(input.Overwrite))
+	if input.SHA256 != "" {
+		query.Set("sha256", input.SHA256)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, strings.TrimRight(target.BaseURL, "/")+"/v1/files?"+query.Encode(), body)
+	if err != nil {
+		return output, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+target.Token)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	resp, err := client.Do(req)
+	if err != nil {
+		return output, fmt.Errorf("sandbox runtime request: %w", err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return output, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var detail struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(data, &detail)
+		if detail.Error == "" {
+			detail.Error = strings.TrimSpace(string(data))
+		}
+		if detail.Error == "" {
+			detail.Error = resp.Status
 		}
 		return output, fmt.Errorf("sandbox runtime: %s", detail.Error)
 	}

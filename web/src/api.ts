@@ -71,11 +71,34 @@ export const api = {
   process: (id: string) => request<SandboxProcess>(`/api/v1/processes/${encodeURIComponent(id)}`),
   processStdin: (id: string, chars: string, yieldTimeMS = 250) => request<SandboxProcess>(`/api/v1/processes/${encodeURIComponent(id)}/stdin`, { method: 'POST', body: JSON.stringify({ chars, yield_time_ms: yieldTimeMS }) }),
   signalProcess: (id: string, signal: 'TERM' | 'KILL') => request<SandboxProcess>(`/api/v1/processes/${encodeURIComponent(id)}/signal`, { method: 'POST', body: JSON.stringify({ signal }) }),
-  upload: async (sessionID: number, file: File): Promise<Attachment> => {
+  upload: (sessionID: number, file: File, onProgress?: (progress: number) => void, signal?: AbortSignal): Promise<Attachment> => new Promise((resolve, reject) => {
     const body = new FormData()
     body.append('file', file)
-    return request(`/api/v1/sessions/${sessionID}/attachments`, { method: 'POST', body })
-  },
+    const xhr = new XMLHttpRequest()
+    const abort = () => xhr.abort()
+    const cleanup = () => signal?.removeEventListener('abort', abort)
+    xhr.open('POST', `/api/v1/sessions/${sessionID}/attachments`)
+    xhr.withCredentials = true
+    xhr.upload.onprogress = event => {
+      if (event.lengthComputable) onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+    }
+    xhr.onload = () => {
+      cleanup()
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText) as Attachment) }
+        catch { reject(new APIError(500, 'invalid_response', 'The upload response was invalid.')) }
+        return
+      }
+      let detail = { error: { code: 'request_failed', message: xhr.statusText || 'Upload failed' } }
+      try { detail = JSON.parse(xhr.responseText) } catch { /* response was not JSON */ }
+      reject(new APIError(xhr.status, detail.error.code, detail.error.message))
+    }
+    xhr.onerror = () => { cleanup(); reject(new APIError(0, 'network_error', 'The upload connection failed.')) }
+    xhr.onabort = () => { cleanup(); reject(new DOMException('Upload cancelled', 'AbortError')) }
+    if (signal?.aborted) { reject(new DOMException('Upload cancelled', 'AbortError')); return }
+    signal?.addEventListener('abort', abort, { once: true })
+    xhr.send(body)
+  }),
   deleteAttachment: (id: string) => request(`/api/v1/attachments/${id}`, { method: 'DELETE' }),
   guideline: () => request<{ guidelines: Guideline | null }>('/api/v1/guidelines'),
   guidelineHistory: () => request<{ history: Guideline[] }>('/api/v1/guidelines/history'),

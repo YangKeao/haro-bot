@@ -2,6 +2,7 @@ package sandboxd
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -88,10 +89,155 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/processes/{processID}/resize", s.handleResize)
 	mux.HandleFunc("POST /v1/processes/{processID}/signal", s.handleSignal)
 	mux.HandleFunc("PUT /v1/skills/{hash}", s.handleEnsureSkill)
+	mux.HandleFunc("PUT /v1/files", s.handleWriteFile)
 	mux.HandleFunc("POST /v1/mcp/tools", s.handleListMCPTools)
 	mux.HandleFunc("POST /v1/mcp/call", s.handleCallMCPTool)
 	mux.HandleFunc("DELETE /v1/mcp/sessions/{key}", s.handleCloseMCPSession)
 	return s.authenticate(mux)
+}
+
+func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
+	request := sandbox.FileWriteRequest{
+		Path:      strings.TrimSpace(r.URL.Query().Get("path")),
+		Overwrite: r.URL.Query().Get("overwrite") == "true",
+		SHA256:    strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sha256"))),
+	}
+	if request.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	if request.SHA256 != "" && (!isLowerHex(request.SHA256) || len(request.SHA256) != 64) {
+		writeError(w, http.StatusBadRequest, "sha256 must be a 64-character lowercase hexadecimal digest")
+		return
+	}
+	result, err := s.writeWorkspaceFile(r.Body, request)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) writeWorkspaceFile(reader io.Reader, request sandbox.FileWriteRequest) (result sandbox.FileWriteResult, err error) {
+	target, err := s.fileDestination(request.Path)
+	if err != nil {
+		return result, err
+	}
+	parent := filepath.Dir(target)
+	if err := s.ensureWorkspaceDirectories(parent); err != nil {
+		return result, err
+	}
+	if info, statErr := os.Lstat(target); statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return result, errors.New("destination must not be a symbolic link")
+		}
+		if info.IsDir() {
+			return result, errors.New("destination is a directory")
+		}
+		if !request.Overwrite {
+			return result, errors.New("destination already exists; set overwrite to true to replace it")
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return result, statErr
+	}
+	temp, err := os.CreateTemp(parent, ".haro-attachment-")
+	if err != nil {
+		return result, err
+	}
+	tempName := temp.Name()
+	defer func() {
+		_ = temp.Close()
+		_ = os.Remove(tempName)
+	}()
+	hash := sha256.New()
+	size, err := io.Copy(io.MultiWriter(temp, hash), reader)
+	if err != nil {
+		return result, err
+	}
+	actualHash := fmt.Sprintf("%x", hash.Sum(nil))
+	if request.SHA256 != "" && actualHash != request.SHA256 {
+		return result, errors.New("attachment sha256 mismatch")
+	}
+	if err := temp.Sync(); err != nil {
+		return result, err
+	}
+	if err := temp.Close(); err != nil {
+		return result, err
+	}
+	if request.Overwrite {
+		if err := os.Rename(tempName, target); err != nil {
+			return result, err
+		}
+	} else {
+		if err := os.Link(tempName, target); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return result, errors.New("destination already exists; set overwrite to true to replace it")
+			}
+			return result, err
+		}
+		if err := os.Remove(tempName); err != nil {
+			return result, err
+		}
+	}
+	return sandbox.FileWriteResult{Path: target, SizeBytes: size, SHA256: actualHash}, nil
+}
+
+func (s *Server) fileDestination(raw string) (string, error) {
+	clean := filepath.Clean(strings.TrimSpace(raw))
+	var relative string
+	if filepath.IsAbs(clean) {
+		var err error
+		relative, err = filepath.Rel(s.workspace, clean)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		relative = clean
+	}
+	if relative == "." || relative == "" || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", errors.New("destination must be a file within /workspace")
+	}
+	return filepath.Join(s.workspace, relative), nil
+}
+
+func (s *Server) ensureWorkspaceDirectories(parent string) error {
+	relative, err := filepath.Rel(s.workspace, parent)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return errors.New("destination must be within /workspace")
+	}
+	current := s.workspace
+	if relative == "." {
+		return nil
+	}
+	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+		current = filepath.Join(current, component)
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			if err := os.Mkdir(current, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+				return err
+			}
+			info, statErr = os.Lstat(current)
+		}
+		if statErr != nil {
+			return statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("destination path must not contain symbolic links")
+		}
+		if !info.IsDir() {
+			return errors.New("destination parent is not a directory")
+		}
+	}
+	return nil
+}
+
+func isLowerHex(value string) bool {
+	for _, r := range value {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) handleEnsureSkill(w http.ResponseWriter, r *http.Request) {

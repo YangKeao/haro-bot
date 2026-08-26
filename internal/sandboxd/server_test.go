@@ -2,10 +2,13 @@ package sandboxd
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +18,59 @@ import (
 	"github.com/YangKeao/haro-bot/internal/sandbox"
 	"github.com/YangKeao/haro-bot/internal/skillbundle"
 )
+
+func TestServerWritesAttachmentAtomicallyInsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	runtime, err := New(workspace, "test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(runtime.Handler())
+	t.Cleanup(server.Close)
+
+	content := []byte("zip-like attachment bytes")
+	digest := sha256.Sum256(content)
+	var result sandbox.FileWriteResult
+	requestFile(t, server.URL, "test-token", "uploads/data.zip", false, fmt.Sprintf("%x", digest[:]), content, http.StatusCreated, &result)
+	if result.Path != filepath.Join(workspace, "uploads", "data.zip") || result.SizeBytes != int64(len(content)) || result.SHA256 != fmt.Sprintf("%x", digest[:]) {
+		t.Fatalf("unexpected write result: %#v", result)
+	}
+	stored, err := os.ReadFile(result.Path)
+	if err != nil || !bytes.Equal(stored, content) {
+		t.Fatalf("stored file mismatch: %q, %v", stored, err)
+	}
+
+	requestFile(t, server.URL, "test-token", "uploads/data.zip", false, "", []byte("replacement"), http.StatusBadRequest, nil)
+	requestFile(t, server.URL, "test-token", "uploads/data.zip", true, "", []byte("replacement"), http.StatusCreated, &result)
+	stored, _ = os.ReadFile(result.Path)
+	if string(stored) != "replacement" {
+		t.Fatalf("overwrite did not replace content: %q", stored)
+	}
+}
+
+func TestServerRejectsAttachmentTraversalSymlinksAndHashMismatch(t *testing.T) {
+	workspace := t.TempDir()
+	runtime, err := New(workspace, "test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(runtime.Handler())
+	t.Cleanup(server.Close)
+
+	requestFile(t, server.URL, "test-token", "../outside.zip", false, "", []byte("escape"), http.StatusBadRequest, nil)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(workspace, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	requestFile(t, server.URL, "test-token", "linked/escape.zip", false, "", []byte("escape"), http.StatusBadRequest, nil)
+	if _, err := os.Stat(filepath.Join(outside, "escape.zip")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("symlink escape wrote outside workspace: %v", err)
+	}
+	requestFile(t, server.URL, "test-token", "bad-hash.zip", false, strings.Repeat("0", 64), []byte("content"), http.StatusBadRequest, nil)
+	if _, err := os.Stat(filepath.Join(workspace, "bad-hash.zip")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("hash mismatch left a destination file: %v", err)
+	}
+}
 
 func TestServerMaterializesSkillIdempotentlyAndExecutesScript(t *testing.T) {
 	workspace := t.TempDir()
@@ -224,6 +280,32 @@ func requestSkill(t *testing.T, endpoint, token string, archive []byte, wantStat
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/gzip")
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != wantStatus {
+		t.Fatalf("status = %d, want %d", response.StatusCode, wantStatus)
+	}
+	if output != nil {
+		if err := json.NewDecoder(response.Body).Decode(output); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func requestFile(t *testing.T, baseURL, token, destination string, overwrite bool, digest string, content []byte, wantStatus int, output any) {
+	t.Helper()
+	query := url.Values{"path": []string{destination}, "overwrite": []string{fmt.Sprintf("%t", overwrite)}}
+	if digest != "" {
+		query.Set("sha256", digest)
+	}
+	req, err := http.NewRequest(http.MethodPut, baseURL+"/v1/files?"+query.Encode(), bytes.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

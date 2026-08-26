@@ -123,6 +123,7 @@ export interface Attachment {
   name: string
   mime_type: string
   size_bytes: number
+	sha256?: string
   created_at: string
 }
 

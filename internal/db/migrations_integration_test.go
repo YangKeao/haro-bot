@@ -91,6 +91,36 @@ func TestApplyMigrationsIdempotent(t *testing.T) {
 	}
 }
 
+func TestApplyMigrationsAddsAttachmentSHA256FromVersion23(t *testing.T) {
+	gdb, cleanup := newTestDB(t)
+	t.Cleanup(cleanup)
+	if err := gdb.AutoMigrate(&schemaMigration{}); err != nil {
+		t.Fatalf("create schema migrations table: %v", err)
+	}
+	if err := setSchemaVersion(gdb, 23); err != nil {
+		t.Fatalf("set schema version: %v", err)
+	}
+	if err := gdb.Exec(`CREATE TABLE attachments (
+  id VARCHAR(36) PRIMARY KEY,
+  size_bytes BIGINT NOT NULL
+)`).Error; err != nil {
+		t.Fatalf("create v23 attachments table: %v", err)
+	}
+	if err := gdb.Exec(`INSERT INTO attachments (id, size_bytes) VALUES ('legacy', 12)`).Error; err != nil {
+		t.Fatalf("insert legacy attachment: %v", err)
+	}
+	if err := ApplyMigrations(gdb); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+	var hash string
+	if err := gdb.Raw(`SELECT sha256 FROM attachments WHERE id = 'legacy'`).Scan(&hash).Error; err != nil {
+		t.Fatalf("read migrated hash: %v", err)
+	}
+	if hash != "" {
+		t.Fatalf("legacy attachment hash = %q, want empty", hash)
+	}
+}
+
 func TestApplyMigrationsDropsLegacyMemoryTablesFromVersion12(t *testing.T) {
 	gdb, cleanup := newTestDB(t)
 	t.Cleanup(cleanup)

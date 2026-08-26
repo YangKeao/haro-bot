@@ -244,6 +244,7 @@ type Attachment struct {
 	OriginalName string     `gorm:"column:original_name;size:255"`
 	MIMEType     string     `gorm:"column:mime_type;size:64"`
 	SizeBytes    int64      `gorm:"column:size_bytes"`
+	SHA256       string     `gorm:"column:sha256;size:64"`
 	CreatedAt    time.Time  `gorm:"column:created_at"`
 	DeletedAt    *time.Time `gorm:"column:deleted_at"`
 }

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/YangKeao/haro-bot/internal/skills"
@@ -174,33 +173,14 @@ func TestFetchProviderUsageHandlesUnsupportedAndInvalidResponses(t *testing.T) {
 	})
 }
 
-func TestReadImageValidation(t *testing.T) {
-	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 32)...)
-	file, err := os.CreateTemp(t.TempDir(), "image-*.png")
-	if err != nil {
-		t.Fatal(err)
+func TestAttachmentNameAndPreviewSafety(t *testing.T) {
+	if got := sanitizeAttachmentName(`..\..\secret.zip`); got != "secret.zip" {
+		t.Fatalf("sanitized name = %q", got)
 	}
-	if _, err := file.Write(png); err != nil {
-		t.Fatal(err)
+	if got := sanitizeAttachmentName("\x00\n"); got != "attachment" {
+		t.Fatalf("control-only name = %q", got)
 	}
-	if _, err := file.Seek(0, 0); err != nil {
-		t.Fatal(err)
-	}
-	data, mimeType, err := readImage(file)
-	if err != nil {
-		t.Fatalf("read image: %v", err)
-	}
-	if mimeType != "image/png" || len(data) != len(png) {
-		t.Fatalf("mime=%q len=%d", mimeType, len(data))
-	}
-
-	bad, err := os.CreateTemp(t.TempDir(), "bad-*.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _ = bad.WriteString("not an image")
-	_, _ = bad.Seek(0, 0)
-	if _, _, err := readImage(bad); err == nil {
-		t.Fatal("expected unsupported image error")
+	if !isPreviewImage("image/png") || isPreviewImage("image/svg+xml") || isPreviewImage("text/html") {
+		t.Fatal("preview MIME allowlist is unsafe")
 	}
 }

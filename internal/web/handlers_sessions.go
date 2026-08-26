@@ -1,14 +1,17 @@
 package web
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
-	"path/filepath"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -185,16 +188,12 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input runInput
-	if !decodeJSON(w, r, &input) {
+	if !decodeRunInput(w, r, &input) {
 		return
 	}
 	input.Content = strings.TrimSpace(input.Content)
 	if input.Content == "" && len(input.AttachmentIDs) == 0 {
-		writeError(w, http.StatusBadRequest, "empty_message", "message text or an image is required")
-		return
-	}
-	if len(input.AttachmentIDs) > 4 {
-		writeError(w, http.StatusBadRequest, "too_many_attachments", "a message can contain at most 4 images")
+		writeError(w, http.StatusBadRequest, "empty_message", "message text or an attachment is required")
 		return
 	}
 	session, err := s.store.GetSession(r.Context(), s.userID, sessionID)
@@ -289,6 +288,16 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	_ = writeSSE(w, flusher, event, map[string]any{"message": result.err.Error()})
 }
 
+func decodeRunInput(w http.ResponseWriter, r *http.Request, input *runInput) bool {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	sessionID, err := parseID(r, "sessionID")
 	if err != nil {
@@ -334,55 +343,80 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		writeStoreError(w, err)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxImageBytes+(1<<20))
-	if err := r.ParseMultipartForm(maxImageBytes + (1 << 20)); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_upload", "image is too large or malformed")
+	multipartReader, err := r.MultipartReader()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_upload", "a multipart file upload is required")
 		return
 	}
-	file, header, err := r.FormFile("file")
+	part, err := nextUploadFile(multipartReader)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "missing_file", "multipart field 'file' is required")
 		return
 	}
-	defer file.Close()
-	data, mimeType, err := readImage(file)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_image", err.Error())
+	defer part.Close()
+	sniff := make([]byte, 512)
+	n, sniffErr := io.ReadFull(part, sniff)
+	if sniffErr != nil && !errors.Is(sniffErr, io.EOF) && !errors.Is(sniffErr, io.ErrUnexpectedEOF) {
+		writeError(w, http.StatusBadRequest, "invalid_upload", "could not read uploaded file")
 		return
 	}
-	ext := map[string]string{"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}[mimeType]
+	sniff = sniff[:n]
+	mimeType := http.DetectContentType(sniff)
 	keyID, _ := randomID("", 16)
-	objectKey := fmt.Sprintf("images/%d/%s%s", sessionID, keyID, ext)
-	if err := s.objects.Put(r.Context(), objectKey, mimeType, data); err != nil {
-		writeError(w, http.StatusBadGateway, "object_store_error", "could not store image")
+	objectKey := fmt.Sprintf("attachments/%d/%s", sessionID, keyID)
+	hash := sha256.New()
+	stream := io.TeeReader(io.MultiReader(bytes.NewReader(sniff), part), hash)
+	size, err := s.objects.PutReader(r.Context(), objectKey, mimeType, stream, -1)
+	if err != nil {
+		cleanupObject(s.objects, r.Context(), objectKey)
+		writeError(w, http.StatusBadGateway, "object_store_error", "could not store attachment")
 		return
 	}
-	name := filepath.Base(header.Filename)
-	if len([]rune(name)) > 255 {
-		name = string([]rune(name)[:255])
-	}
-	attachment, err := s.store.CreateAttachment(r.Context(), s.userID, sessionID, name, mimeType, objectKey, int64(len(data)))
+	name := sanitizeAttachmentName(part.FileName())
+	attachment, err := s.store.CreateAttachment(r.Context(), s.userID, sessionID, name, mimeType, objectKey, size, fmt.Sprintf("%x", hash.Sum(nil)))
 	if err != nil {
-		_ = s.objects.Delete(r.Context(), objectKey)
+		cleanupObject(s.objects, r.Context(), objectKey)
 		writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, attachment)
 }
 
-func readImage(file multipart.File) ([]byte, string, error) {
-	data, err := io.ReadAll(io.LimitReader(file, maxImageBytes+1))
-	if err != nil {
-		return nil, "", err
+func cleanupObject(objects *ObjectStore, parent context.Context, objectKey string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
+	defer cancel()
+	_ = objects.Delete(ctx, objectKey)
+}
+
+func nextUploadFile(reader *multipart.Reader) (*multipart.Part, error) {
+	for {
+		part, err := reader.NextPart()
+		if err != nil {
+			return nil, err
+		}
+		if part.FormName() == "file" && part.FileName() != "" {
+			return part, nil
+		}
+		_ = part.Close()
 	}
-	if len(data) == 0 || int64(len(data)) > maxImageBytes {
-		return nil, "", errors.New("image must be between 1 byte and 10 MiB")
+}
+
+func sanitizeAttachmentName(name string) string {
+	name = path.Base(strings.ReplaceAll(strings.TrimSpace(name), "\\", "/"))
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, name)
+	if name == "" || name == "." || name == "/" {
+		name = "attachment"
 	}
-	mimeType := http.DetectContentType(data)
-	if mimeType != "image/jpeg" && mimeType != "image/png" && mimeType != "image/webp" {
-		return nil, "", errors.New("only JPEG, PNG, and WebP images are supported")
+	runes := []rune(name)
+	if len(runes) > 255 {
+		name = string(runes[:255])
 	}
-	return data, mimeType, nil
+	return name
 }
 
 func (s *Server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
@@ -393,14 +427,31 @@ func (s *Server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	reader, err := s.objects.Open(r.Context(), attachment.ObjectKey)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "object_store_error", "could not read image")
+		writeError(w, http.StatusBadGateway, "object_store_error", "could not read attachment")
 		return
 	}
 	defer reader.Close()
 	w.Header().Set("Content-Type", attachment.MIMEType)
-	w.Header().Set("Content-Disposition", "inline")
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	disposition := "attachment"
+	if isPreviewImage(attachment.MIMEType) {
+		disposition = "inline"
+	}
+	if value := mime.FormatMediaType(disposition, map[string]string{"filename": attachment.OriginalName}); value != "" {
+		w.Header().Set("Content-Disposition", value)
+	}
+	w.Header().Set("Content-Length", strconv.FormatInt(attachment.SizeBytes, 10))
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = io.Copy(w, reader)
+}
+
+func isPreviewImage(mimeType string) bool {
+	switch strings.ToLower(strings.TrimSpace(strings.SplitN(mimeType, ";", 2)[0])) {
+	case "image/jpeg", "image/png", "image/webp":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) handleDeleteAttachment(w http.ResponseWriter, r *http.Request) {
@@ -414,7 +465,7 @@ func (s *Server) handleDeleteAttachment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.objects.Delete(r.Context(), attachment.ObjectKey); err != nil {
-		writeError(w, http.StatusBadGateway, "object_store_error", "could not delete image")
+		writeError(w, http.StatusBadGateway, "object_store_error", "could not delete attachment")
 		return
 	}
 	if _, err := s.store.DeletePendingAttachment(r.Context(), s.userID, attachment.ID); err != nil {

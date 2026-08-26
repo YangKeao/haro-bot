@@ -25,7 +25,7 @@ type migration struct {
 	stmts   []string
 }
 
-const currentSchemaVersion int64 = 23
+const currentSchemaVersion int64 = 24
 
 var migrations = []migration{
 	{version: 1, stmts: initSchemaSQL},
@@ -51,6 +51,11 @@ var migrations = []migration{
 	{version: 21, stmts: addSandboxRuntimeOperationSQL},
 	{version: 22, stmts: addMCPServersSQL},
 	{version: 23, stmts: addProviderAPIModeSQL},
+	{version: 24, stmts: addAttachmentSHA256SQL},
+}
+
+var addAttachmentSHA256SQL = []string{
+	`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS sha256 CHAR(64) NOT NULL DEFAULT '' AFTER size_bytes`,
 }
 
 var addProviderAPIModeSQL = []string{

@@ -74,6 +74,12 @@ func (r *RuntimeRegistry) Get(ctx context.Context, id int64) (*agent.Agent, Agen
 		agentID: id, store: r.store, skills: r.skills, objects: r.objects, downloader: r.downloader,
 		invalidate: func() { r.Invalidate(id) },
 	})
+	scopedTools.Register(&listAttachmentsTool{agentID: id, store: r.store})
+	var attachmentSandbox attachmentSandboxWriter
+	if profile.SandboxID != nil && r.sandboxes != nil && r.sandboxes.Enabled() {
+		attachmentSandbox = r.sandboxes
+	}
+	scopedTools.Register(&downloadAttachmentTool{agentID: id, store: r.store, objects: r.objects, sandbox: attachmentSandbox})
 	readSkill := tools.NewReadSkillTool(r.skills, r.sandboxes, id, profile.SkillNames)
 	scopedTools.Register(readSkill)
 	scopedTools.Register(tools.NewActivateSkillCompatTool(readSkill))
