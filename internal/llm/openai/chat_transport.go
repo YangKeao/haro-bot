@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/YangKeao/haro-bot/internal/llm"
-	openaisdk "github.com/openai/openai-go"
+	openaisdk "github.com/openai/openai-go/v3"
 )
 
 // streamResult holds the result of streaming completion

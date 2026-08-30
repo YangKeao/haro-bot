@@ -10,7 +10,7 @@ const agent = {
   icon: 'sparkles',
 	color: '#2563eb',
 	avatar_mode: 'icon',
-  instructions: 'Be precise.',
+  instructions: 'Be precise. [OpenAI](https://openai.com).',
   model: 'gpt-5.6-sol',
 	reasoning_effort_override: null,
 	context_window_override: null,
@@ -404,6 +404,29 @@ test('shows every agent setting section on one page', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Markdown' })).toBeAttached()
   await expect(page.locator('.desktop-conversation-sidebar')).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Agents')
+})
+
+test('visually distinguishes links in the Markdown editor', async ({ page }) => {
+	await mockAPI(page, true)
+	await page.goto('/agents/1/edit')
+	const link = page.locator('.markdown-editor-content a').filter({ hasText: 'OpenAI' })
+	await expect(link).toBeVisible()
+	const styles = await link.evaluate(element => {
+		type BrowserStyle = { color: string; cursor: string; textDecorationLine: string }
+		const browser = globalThis as unknown as { getComputedStyle: (target: unknown) => BrowserStyle }
+		const linkElement = element as unknown as { closest: (selector: string) => unknown }
+		const linkStyle = browser.getComputedStyle(element)
+		const editor = linkElement.closest('.markdown-editor-content')
+		return {
+			color: linkStyle.color,
+			editorColor: editor ? browser.getComputedStyle(editor).color : '',
+			cursor: linkStyle.cursor,
+			decoration: linkStyle.textDecorationLine,
+		}
+	})
+	expect(styles.color).not.toBe(styles.editorColor)
+	expect(styles.cursor).toBe('text')
+	expect(styles.decoration).toContain('underline')
 })
 
 test('keeps the skills section in view while selecting agent skills', async ({ page }) => {

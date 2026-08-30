@@ -97,7 +97,7 @@ func TestResponsesModeMapsMessagesToolsAndStream(t *testing.T) {
 		t.Fatalf("expected function and web search tools, got %#v", requestBody["tools"])
 	}
 	webTool, _ := tools[1].(map[string]any)
-	if webTool["type"] != "web_search_preview" {
+	if webTool["type"] != "web_search" {
 		t.Fatalf("unexpected web search tool: %#v", webTool)
 	}
 	include, _ := requestBody["include"].([]any)

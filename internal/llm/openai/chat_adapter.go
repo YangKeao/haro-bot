@@ -3,10 +3,10 @@ package openai
 import (
 	"github.com/YangKeao/haro-bot/internal/llm"
 
-	openaisdk "github.com/openai/openai-go"
-	"github.com/openai/openai-go/packages/param"
-	"github.com/openai/openai-go/shared"
-	"github.com/openai/openai-go/shared/constant"
+	openaisdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/shared"
+	"github.com/openai/openai-go/v3/shared/constant"
 )
 
 func buildChatMessages(messages []llm.Message) []openaisdk.ChatCompletionMessageParamUnion {
@@ -103,29 +103,31 @@ func buildChatMessages(messages []llm.Message) []openaisdk.ChatCompletionMessage
 	return out
 }
 
-func buildChatToolCalls(calls []llm.ToolCall) []openaisdk.ChatCompletionMessageToolCallParam {
-	out := make([]openaisdk.ChatCompletionMessageToolCallParam, 0, len(calls))
+func buildChatToolCalls(calls []llm.ToolCall) []openaisdk.ChatCompletionMessageToolCallUnionParam {
+	out := make([]openaisdk.ChatCompletionMessageToolCallUnionParam, 0, len(calls))
 	for _, call := range calls {
 		if call.ID == "" || call.Function.Name == "" {
 			continue
 		}
-		out = append(out, openaisdk.ChatCompletionMessageToolCallParam{
-			ID:   call.ID,
-			Type: constant.ValueOf[constant.Function](),
-			Function: openaisdk.ChatCompletionMessageToolCallFunctionParam{
-				Name:      call.Function.Name,
-				Arguments: call.Function.Arguments,
+		out = append(out, openaisdk.ChatCompletionMessageToolCallUnionParam{
+			OfFunction: &openaisdk.ChatCompletionMessageFunctionToolCallParam{
+				ID:   call.ID,
+				Type: constant.ValueOf[constant.Function](),
+				Function: openaisdk.ChatCompletionMessageFunctionToolCallFunctionParam{
+					Name:      call.Function.Name,
+					Arguments: call.Function.Arguments,
+				},
 			},
 		})
 	}
 	return out
 }
 
-func buildChatTools(tools []llm.Tool) []openaisdk.ChatCompletionToolParam {
+func buildChatTools(tools []llm.Tool) []openaisdk.ChatCompletionToolUnionParam {
 	if len(tools) == 0 {
 		return nil
 	}
-	out := make([]openaisdk.ChatCompletionToolParam, 0, len(tools))
+	out := make([]openaisdk.ChatCompletionToolUnionParam, 0, len(tools))
 	for _, t := range tools {
 		if t.Type != "function" {
 			continue
@@ -142,10 +144,7 @@ func buildChatTools(tools []llm.Tool) []openaisdk.ChatCompletionToolParam {
 		if t.Function.Description != "" {
 			fn.Description = param.NewOpt(t.Function.Description)
 		}
-		out = append(out, openaisdk.ChatCompletionToolParam{
-			Type:     constant.ValueOf[constant.Function](),
-			Function: fn,
-		})
+		out = append(out, openaisdk.ChatCompletionFunctionTool(fn))
 	}
 	return out
 }

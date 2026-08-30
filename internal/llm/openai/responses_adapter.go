@@ -11,10 +11,10 @@ import (
 
 	"github.com/YangKeao/haro-bot/internal/llm"
 	"github.com/YangKeao/haro-bot/internal/logging"
-	openaisdk "github.com/openai/openai-go"
-	"github.com/openai/openai-go/packages/param"
-	"github.com/openai/openai-go/responses"
-	"github.com/openai/openai-go/shared"
+	openaisdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 	"go.uber.org/zap"
 )
 
@@ -108,7 +108,9 @@ func buildResponsesInput(messages []llm.Message) responses.ResponseInputParam {
 		switch message.Role {
 		case "tool":
 			if message.ToolCallID != "" {
-				input = append(input, responses.ResponseInputItemParamOfFunctionCallOutput(message.ToolCallID, message.Content))
+				item := responses.ResponseInputItemParamOfFunctionCallOutput(message.Content)
+				item.OfFunctionCallOutput.CallID = param.NewOpt(message.ToolCallID)
+				input = append(input, item)
 			}
 		case "assistant":
 			if message.Content != "" {
@@ -166,7 +168,7 @@ func buildResponsesTools(tools []llm.Tool, hostedWebSearch bool) []responses.Too
 		out = append(out, item)
 	}
 	if hostedWebSearch {
-		out = append(out, responses.ToolParamOfWebSearchPreview(responses.WebSearchToolTypeWebSearchPreview))
+		out = append(out, responses.ToolParamOfWebSearch(responses.WebSearchToolTypeWebSearch))
 	}
 	return out
 }
